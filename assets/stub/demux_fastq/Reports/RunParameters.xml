@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunParameters xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Side>B</Side>
+  <Application>NovaSeqXSeries Control Software</Application>
+  <SystemSuiteVersion>1.2.0.28691</SystemSuiteVersion>
+  <OutputFolder>//storage1.ris.wustl.edu/gtac-mgi/Active/Illumina_production/Data/20231211_LH00195_0065_B22GLYYLT3</OutputFolder>
+  <CloudUploadMode>RunMonitoring</CloudUploadMode>
+  <RunSetupMode>LocalOrchestrated</RunSetupMode>
+  <SecondaryAnalysisMode>LocalAnalysis</SecondaryAnalysisMode>
+  <InstrumentType>NovaSeqXPlus</InstrumentType>
+  <InstrumentSerialNumber>LH00195</InstrumentSerialNumber>
+  <RunId>20231211_LH00195_0065_B22GLYYLT3</RunId>
+  <RunCounter>65</RunCounter>
+  <RecipeName>10B Sequencing</RecipeName>
+  <RecipeVersion>10B-01.02.02</RecipeVersion>
+  <ExperimentName>CLE_22GLYYLT3_11Dec2023_195B</ExperimentName>
+  <FlowCellName>NovaSeqXSeries B3</FlowCellName>
+  <FlowCellType>NovaSeqXSeriesB3</FlowCellType>
+  <ConsumableInfo>
+    <ConsumableInfo>
+      <SerialNumber>22GLYYLT3</SerialNumber>
+      <LotNumber>20794027</LotNumber>
+      <PartNumber>20080370</PartNumber>
+      <ExpirationDate>2025-03-15T00:00:00-05:00</ExpirationDate>
+      <Type>FlowCell</Type>
+      <Mode>3</Mode>
+      <Version>1.0</Version>
+      <Name>10B</Name>
+    </ConsumableInfo>
+    <ConsumableInfo>
+      <SerialNumber>LC1027113-LC1</SerialNumber>
+      <LotNumber>1000018920</LotNumber>
+      <PartNumber>20072271</PartNumber>
+      <ExpirationDate>2025-08-24T00:00:00-05:00</ExpirationDate>
+      <Type>SampleTube</Type>
+      <Mode>3</Mode>
+      <Version>1.0</Version>
+      <Name>8 Lane</Name>
+    </ConsumableInfo>
+    <ConsumableInfo>
+      <SerialNumber>LC4053081-LC3</SerialNumber>
+      <LotNumber>20792433</LotNumber>
+      <PartNumber>20066614</PartNumber>
+      <ExpirationDate>2025-03-21T00:00:00-05:00</ExpirationDate>
+      <Type>Reagent</Type>
+      <Mode>3</Mode>
+      <Version>1.0</Version>
+      <Name>10B 300c</Name>
+    </ConsumableInfo>
+    <ConsumableInfo>
+      <SerialNumber>LC2310190015-1</SerialNumber>
+      <LotNumber>23101801</LotNumber>
+      <PartNumber>20089853</PartNumber>
+      <ExpirationDate>2025-04-18T00:00:00-05:00</ExpirationDate>
+      <Type>Buffer</Type>
+      <Mode>3</Mode>
+      <Version>1.0</Version>
+      <Name>Universal</Name>
+    </ConsumableInfo>
+    <ConsumableInfo>
+      <SerialNumber>LC2022443-LC1</SerialNumber>
+      <LotNumber>18100067</LotNumber>
+      <PartNumber>20081650</PartNumber>
+      <ExpirationDate>2025-03-27T00:00:00-05:00</ExpirationDate>
+      <Type>Lyo</Type>
+      <Mode>3</Mode>
+      <Version>1.0</Version>
+      <Name>Mid</Name>
+    </ConsumableInfo>
+  </ConsumableInfo>
+  <PlannedReads>
+    <Read ReadName="Read1" Cycles="151" />
+    <Read ReadName="Index1" Cycles="19" />
+    <Read ReadName="Index2" Cycles="10" />
+    <Read ReadName="Read2" Cycles="151" />
+  </PlannedReads>
+  <SecondaryAnalysisInfo>
+    <SecondaryAnalysisInfo>
+      <SecondaryAnalysisPlatformVersion>4.1.23</SecondaryAnalysisPlatformVersion>
+      <SecondaryAnalysisWorkflow>
+        <string>DRAGEN BCL Convert</string>
+      </SecondaryAnalysisWorkflow>
+    </SecondaryAnalysisInfo>
+  </SecondaryAnalysisInfo>
+  <DisableBclCopy>false</DisableBclCopy>
+</RunParameters>

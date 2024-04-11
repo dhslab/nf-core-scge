@@ -1,0 +1,14 @@
+    vep: 105.0
+    ClinVar: 202106
+    sift: sift5.2.2
+    gnomAD: r2.1.1
+    ESP: V2-SSA137
+    gencode: GENCODE
+    assembly: GRCh38.p13
+    regbuild: 1.0
+    1000genomes: phase3
+    HGMD-PUBLIC: 20204
+    dbSNP: 154
+    COSMIC: 92
+    polyphen: 2.2.2
+    genebuild: 2014-07

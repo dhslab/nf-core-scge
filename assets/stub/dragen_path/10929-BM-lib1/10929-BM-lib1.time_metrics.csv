@@ -1,0 +1,21 @@
+RUN TIME,,Time loading reference,00:00:50.828,50.83
+RUN TIME,,Time aligning reads,00:18:16.750,1096.75
+RUN TIME,,Time duplicate marking,00:00:51.716,51.72
+RUN TIME,,Time sorting and marking duplicates,00:44:34.441,2674.44
+RUN TIME,,Time DRAGStr calibration,00:00:14.376,14.38
+RUN TIME,,Time saving map/align output,00:47:08.911,2828.91
+RUN TIME,,Time processing depth of coverage,00:00:00.000,0.00
+RUN TIME,,Time loading systematic noise,00:00:30.294,30.29
+RUN TIME,,Time variant calling,00:46:38.087,2798.09
+RUN TIME,,Time calculating target counts,00:19:14.749,1154.75
+RUN TIME,,Time correcting GC bias,00:00:52.434,52.43
+RUN TIME,,Time normalizing case sample,00:00:23.826,23.83
+RUN TIME,,Time performing segmentation,00:00:14.847,14.85
+RUN TIME,,Time generating somatic model input,00:07:00.303,420.30
+RUN TIME,,Time fitting somatic model,00:00:18.497,18.50
+RUN TIME,,Time generating CNV calls,00:02:14.671,134.67
+RUN TIME,,Time generating CNV track files,00:00:16.318,16.32
+RUN TIME,,Time partitioning,00:18:16.288,1096.29
+RUN TIME,,Time structural variant calling,00:27:26.948,1646.95
+RUN TIME,,Time annotating outputs,00:22:02.871,1322.87
+RUN TIME,,Total runtime,01:59:46.760,7186.76

@@ -1,0 +1,30 @@
+{
+    "PARAMETERS":{
+        "MinVAF": 0.05,
+        "MaxAF": 0.1,
+        "MinReads": 5,
+        "MinCNVLength": 2000000,
+        "MinSvReads": 2,
+        "MinSvAbundance": 5.0,
+        "MinSvLength": 10000,
+        "MaxSvLength": 10000000,
+        "MinCoverage":20,
+        "MinFractionCoverage":90,
+        "NONSYNONYMOUS_ANNOTATIONS":["splice_acceptor_variant","splice_donor_variant","stop_gained","frameshift_variant","stop_lost","start_lost","transcript_ablation","transcript_amplification","inframe_insertion","inframe_deletion","missense_variant","protein_altering_variant"],
+        "ASSAY VERSION": "2.0",
+        "DISCLAIMER": "This laboratory developed test (LDT) was developed and its performance characteristics determined by the CLIA Licensed Environment laboratory at the McDonnell Genome Institute at Washington University (MGI-CLE, CLIA #26D2092546, CAP #9047655), Dr. David H. Spencer MD, PhD, FCAP, Medical Director. 4444 Forest Park Avenue, Rm 4111 St. Louis, Missouri 63108 (314) 286-1460 Fax: (314) 286-1810. The MGI-CLE laboratory is regulated under CLIA as certified to perform high-complexity testing. Interpretation of sequencing results and case sign out is performed by Pathology and Immunology faculty in the Division of Anatomic and Molecular Pathology (WU-AMP Core Laboratory, CLIA #26D2013203, CAP #7233522) Dr. Fouad Boulos, MD, Medical Director. Pathology Consult Services, 425 S. Euclid Ave, Suite 4711, Mailstop 8024-14-4711, St. Louis, MO 63110 (314)-362-7784 Fax: (314) 362-4080. The AMP core laboratory is regulated under CLIA as certified to perform high-complexity testing. This test has not been cleared or approved by the FDA."
+    },
+    "QC":{
+        "MAPPING/ALIGNING SUMMARY: Total bases": [150000000000],
+        "MAPPING/ALIGNING SUMMARY: Total input reads": [1000000000],
+        "MAPPING/ALIGNING SUMMARY: Q30 bases R1 (%)": [80],
+        "MAPPING/ALIGNING SUMMARY: Q30 bases R2 (%)": [80],
+        "MAPPING/ALIGNING SUMMARY: Mismatched bases R1 (%)": [0,0.9],
+        "MAPPING/ALIGNING SUMMARY: Mismatched bases R2 (%)": [0,0.9],
+        "MAPPING/ALIGNING SUMMARY: Insert length: mean": [300],
+        "MAPPING/ALIGNING SUMMARY: Mapped reads (%)": [95],
+        "MAPPING/ALIGNING SUMMARY: Number of duplicate marked reads (%)":[0,40],
+        "COVERAGE SUMMARY: Average alignment coverage over genome": [40],
+        "COVERAGE SUMMARY: PCT of genome with coverage >20x":[90]
+    }
+}

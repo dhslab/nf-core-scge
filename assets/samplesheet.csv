@@ -1,3 +1,7 @@
-sample,fastq_1,fastq_2
-SAMPLE_PAIRED_END,/path/to/fastq/files/AEG588A1_S1_L002_R1_001.fastq.gz,/path/to/fastq/files/AEG588A1_S1_L002_R2_001.fastq.gz
-SAMPLE_SINGLE_END,/path/to/fastq/files/AEG588A4_S4_L003_R1_001.fastq.gz,
+sample,id,read1,read2,type
+895870,895870-M1528254_normal,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R2_001.fastq.gz,normal
+895870,895870-dx-wgs,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R2_001.fastq.gz,tumor
+895870,895870-1687909a_relapse-wgs,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W20-4338-BM_S3_L003_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W20-4338-BM_S3_L003_R2_001.fastq.gz,tumor
+627311,627311-dx-wgs,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W18-9959-BM_S1_L003_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W18-9959-BM_S1_L003_R2_001.fastq.gz,tumor
+627311,627311-1660066a_relapse-wgs,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-6678-PB_S2_L003_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-6678-PB_S2_L003_R2_001.fastq.gz,tumor
+627311,627311-M1528253_normal,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528253-DNA_S5_L008_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528253-DNA_S5_L008_R2_001.fastq.gz,normal

@@ -1,0 +1,5 @@
+SV SUMMARY,10929-BM-lib1,Total number of structural variants (PASS),2259
+SV SUMMARY,10929-BM-lib1,Number of deletions (PASS),823,36.43
+SV SUMMARY,10929-BM-lib1,Number of insertions (PASS),823,36.43
+SV SUMMARY,10929-BM-lib1,Number of duplications (PASS),135,5.98
+SV SUMMARY,10929-BM-lib1,Number of breakend pairs (PASS),478,21.16

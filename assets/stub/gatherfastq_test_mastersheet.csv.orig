@@ -1,0 +1,3 @@
+id,fastq_list,demux_path,dragen_path,read1,read2
+10929-BM-lib1,REPLACEPATH/demux_fastq/fastq_list.csv,REPLACEPATH/demux_fastq/,REPLACEPATH/dragen_path/10929-BM-lib1/,REPLACEPATH/demux_fastq/10929-BM-lib1_S1_L008_R1_001.fastq.gz,REPLACEPATH/demux_fastq/10929-BM-lib1_S1_L008_R2_001.fastq.gz
+10940-BM-lib1,REPLACEPATH/demux_fastq/fastq_list.csv,REPLACEPATH/demux_fastq/,REPLACEPATH/dragen_path/10940-BM-lib1/,REPLACEPATH/demux_fastq/10940-BM-lib1_S2_L008_R1_001.fastq.gz,REPLACEPATH/demux_fastq/10940-BM-lib1_S2_L008_R2_001.fastq.gz
