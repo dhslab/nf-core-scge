@@ -33,7 +33,7 @@ ch_multiqc_custom_methods_description = params.multiqc_methods_description ? fil
 //
 // SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
 //
-include { SAMPLESHEET_TO_FASTQLISTS } from '../subworkflows/local/samplesheet_to_fastqlists.nf'
+include { SOMATIC_INPUT_CHECK } from '../subworkflows/local/somatic_input_check.nf'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -53,6 +53,37 @@ include { GET_INDELS                  } from '../modules/local/get_indels.nf'
 include { GET_TRANSGENE_JUNCTIONS     } from '../modules/local/get_transgene_junctions.nf'
 include { REFORMAT_CNV_DATA           } from '../modules/local/reformat_cnv_data.nf'
 
+def stageFileset(Map filePathMap) {
+    def basePathMap = [:]
+    def filePathsList = []
+
+    filePathMap.each { key, value ->
+        if (value != null) {
+            def filepath = file(value)
+            if (filepath.exists()) {
+                // Add basename and key to the map
+                basePathMap[key] = value.split('/')[-1]
+                // Add file path to the list
+                filePathsList << filepath
+            } else {
+                println "Warning: File at '${value}' for key '${key}' does not exist."
+            }
+        }
+    }
+    return [basePathMap, filePathsList]
+}
+
+// If MGI samplesheet is used, we need to set the 
+// data path because only files are given. This sets the 
+// data path to the samplesheet directory, or the data_path parameter.
+def data_path = ""
+def mastersheet = params.input
+if (params.mgi == true) {
+    data_path = new File(params.input).parentFile.absolutePath
+} else if (params.data_path != null){
+    data_path  = params.data_path
+}
+
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     RUN MAIN WORKFLOW
@@ -65,42 +96,69 @@ def multiqc_report = []
 workflow SCGE {
 
     ch_versions = Channel.empty()
+    ch_dragen_outputs = Channel.empty()
 
-    //
-    // SUBWORKFLOW: Read in samplesheet, validate and stage input files
-    //
-    SAMPLESHEET_TO_FASTQLISTS (
-        file(params.input)
-    )
-    ch_versions = ch_versions.mix(SAMPLESHEET_TO_FASTQLISTS.out.versions)
+    SOMATIC_INPUT_CHECK(Channel.fromPath(mastersheet), data_path)
 
-    DRAGEN_SCGE (
-        SAMPLESHEET_TO_FASTQLISTS.out.dragen_input
-    )
-    ch_versions = ch_versions.mix(DRAGEN_SCGE.out.versions)
+    ch_input_data = SOMATIC_INPUT_CHECK.out.input_data
 
-    dragen_files = DRAGEN_SCGE.out.dragen_output.map{meta, files -> 
-        def new_meta=[:] 
-        new_meta.id=meta.RGSM 
-        [new_meta,files]
-        }
+    ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
+
+    ch_dragen_outputs.dump()
+    ch_input_data.dump()
+
+    if (params.assay_inputs.hotspot_vcf != null){
+        params.dragen_inputs.hotspot_vcf = params.assay_inputs.hotspot_vcf
+        params.dragen_inputs.hotspot_vcf_index = params.assay_inputs.hotspot_vcf_index
+    }
+
+    ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
+    ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
+
+    if (params.run_dragen == true) {
+        DRAGEN_SCGE (ch_input_data, ch_dragen_inputs)
+        ch_versions = ch_versions.mix(DRAGEN_SCGE.out.versions)
+        ch_dragen_outputs = ch_dragen_outputs.mix(DRAGEN_SCGE.out.dragen_output)
+    }
     
-    ANNOTATE_VARIANTS (
-        dragen_files
+    ANNOTATE_VARIANTS (ch_dragen_outputs)
+    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
+
+    GET_INDELS (ch_dragen_outputs)
+    ch_versions = ch_versions.mix(GET_INDELS.out.versions)
+
+    GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
+    ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+
+    REFORMAT_CNV_DATA (ch_dragen_outputs)
+    ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+
+    CUSTOM_DUMPSOFTWAREVERSIONS (
+        ch_versions.unique().collectFile(name: 'collated_versions.yml')
     )
 
-    GET_INDELS (
-        dragen_files
-    )
+    //
+    // MODULE: MultiQC
+    //
+    workflow_summary    = WorkflowDragenmultiworkflow.paramsSummaryMultiqc(workflow, summary_params)
+    ch_workflow_summary = Channel.value(workflow_summary)
 
-    GET_TRANSGENE_JUNCTIONS (
-        dragen_files
-    )
+    methods_description    = WorkflowDragenmultiworkflow.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
+    ch_methods_description = Channel.value(methods_description)
 
-    REFORMAT_CNV_DATA (
-        dragen_files
-    )
+    ch_multiqc_files = Channel.empty()
+    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
+    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml'))
+    ch_multiqc_files = ch_multiqc_files.mix(CUSTOM_DUMPSOFTWAREVERSIONS.out.mqc_yml.collect())
 
+    MULTIQC (
+        ch_multiqc_files.collect(),
+        ch_multiqc_config.toList(),
+        ch_multiqc_custom_config.toList(),
+        ch_multiqc_logo.toList()
+    )
+    multiqc_report = MULTIQC.out.report.toList()
+*/
 
 }
 

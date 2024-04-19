@@ -6,14 +6,15 @@ process GET_INDELS {
 
     input:
     tuple val(meta), path(files)
+    path(targetfile)
 
     output:
-    tuple val(meta), path("${meta.id}.results.txt")
+    tuple val(meta), path("${meta.id}.indels.txt")
     path "versions.yml",    emit: versions
 
     script:
     """
-    getIndelsFromBam.py "$projectDir/assets/accessory_files/trac_trbc_merged.idt_offtarget.txt" ${meta.id}_tumor.cram ${meta.id}.cram > ${meta.id}.results.txt
+    getIndelsFromBam.py ${targetfile} ${meta.id}_tumor.cram ${meta.id}.cram > ${meta.id}.indels.txt
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

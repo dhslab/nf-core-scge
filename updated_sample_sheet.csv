@@ -1,3 +1,0 @@
-sample_id,read1,read2,type,fastqlist
-895870-M1528254_normal,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R2_001.fastq.gz,normal,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/normal_fastqlist.txt
-895870-dx-wgs,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R1_001.fastq.gz,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R2_001.fastq.gz,tumor,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/tumor_fastqlist.txt

@@ -1,2 +1,0 @@
-/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R1_001.fastq.gz
-/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/W19-3768-BM_S4_L003_R2_001.fastq.gz

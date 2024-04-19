@@ -1,2 +1,0 @@
-/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R1_001.fastq.gz
-/storage1/fs1/dspencer/Active/spencerlab/dnidhi/sample_data/tumor_normal_data/M1528254-DNA_S6_L008_R2_001.fastq.gz
