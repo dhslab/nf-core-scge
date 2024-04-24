@@ -28,7 +28,7 @@ process DRAGEN_SCGE {
     }
     """
     mkdir dragen && \\
-    /opt/edico/bin/dragen -r inputs/${dragen_inputs.reference} ${intermediate_dir} ${input} ${args_license}\\
+    /opt/edico/bin/dragen -r inputs/${dragen_inputs.dragen_hash} ${intermediate_dir} ${input} ${args_license}\\
                 --enable-map-align true \\
                 --enable-sort true \\
                 --enable-bam-indexing true \\

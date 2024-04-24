@@ -107,6 +107,11 @@ workflow SCGE {
     ch_dragen_outputs.dump()
     ch_input_data.dump()
 
+    // This creates a dragen hash if one is not passed
+//    if (params.dragen_hash == null) {
+//        DRAGEN_HASH(Channel.from(file(params.fasta).getName()),Channel.fromFile([params.fasta, params.fasta_index]))
+//    }
+
     if (params.assay_inputs.hotspot_vcf != null){
         params.dragen_inputs.hotspot_vcf = params.assay_inputs.hotspot_vcf
         params.dragen_inputs.hotspot_vcf_index = params.assay_inputs.hotspot_vcf_index
@@ -121,17 +126,20 @@ workflow SCGE {
         ch_dragen_outputs = ch_dragen_outputs.mix(DRAGEN_SCGE.out.dragen_output)
     }
     
-    ANNOTATE_VARIANTS (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
+    if (params.run_analysis == true) {
 
-    GET_INDELS (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(GET_INDELS.out.versions)
+        ANNOTATE_VARIANTS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
-    GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+        GET_INDELS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
-    REFORMAT_CNV_DATA (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+        GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+
+        REFORMAT_CNV_DATA (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+    }
 
     CUSTOM_DUMPSOFTWAREVERSIONS (
         ch_versions.unique().collectFile(name: 'collated_versions.yml')
@@ -140,10 +148,10 @@ workflow SCGE {
     //
     // MODULE: MultiQC
     //
-    workflow_summary    = WorkflowDragenmultiworkflow.paramsSummaryMultiqc(workflow, summary_params)
+    workflow_summary    = WorkflowScge.paramsSummaryMultiqc(workflow, summary_params)
     ch_workflow_summary = Channel.value(workflow_summary)
 
-    methods_description    = WorkflowDragenmultiworkflow.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
+    methods_description    = WorkflowScge.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
     ch_methods_description = Channel.value(methods_description)
 
     ch_multiqc_files = Channel.empty()
@@ -158,7 +166,6 @@ workflow SCGE {
         ch_multiqc_logo.toList()
     )
     multiqc_report = MULTIQC.out.report.toList()
-*/
 
 }
 
@@ -185,6 +192,7 @@ workflow.onError {
         println("💡 See here on how to configure pipeline: https://nf-co.re/docs/usage/configuration#tuning-workflow-resources 💡")
     }
 }
+
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
