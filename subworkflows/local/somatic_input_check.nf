@@ -164,10 +164,13 @@ workflow SOMATIC_INPUT_CHECK {
     .map { meta -> 
         if (meta.dragen_path != null){
             def new_meta = meta.subMap('id','assay','dragen_path')
-            return [ new_meta, file(meta.dragen_path).listFiles() ]
+            def file_paths = file(meta.dragen_path).listFiles().collect { it.toString() }
+            return [new_meta, file_paths]
+            // return [ new_meta, file(meta.dragen_path).listFiles() ]
         }
     }
     .set { ch_dragen_outputs }
+    ch_dragen_outputs.dump(tag: 'dragen_output')
 
     emit:
     dragen_outputs = ch_dragen_outputs

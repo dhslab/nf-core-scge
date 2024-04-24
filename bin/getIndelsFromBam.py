@@ -218,8 +218,8 @@ args = parser.parse_args()
 bed = args.bed
 
 # open bam file(s)
-expsamfile = pysam.AlignmentFile(args.expbamfile,"rc",reference_filename="/storage1/fs1/dspencer/Active/clinseq/projects/scge/cart_seq/refdata/singh/hg38_PLVM_CD19_CARv4_cd34.fa")
-consamfile = pysam.AlignmentFile(args.conbamfile,"rc",reference_filename="/storage1/fs1/dspencer/Active/clinseq/projects/scge/cart_seq/refdata/singh/hg38_PLVM_CD19_CARv4_cd34.fa")
+expsamfile = pysam.AlignmentFile(args.expbamfile,"rc",reference_filename="/storage1/fs1/dspencer/Active/clinseq/projects/scge/data/refdata/singh/hg38_PLVM_CD19_CARv4_cd34.fa")
+consamfile = pysam.AlignmentFile(args.conbamfile,"rc",reference_filename="/storage1/fs1/dspencer/Active/clinseq/projects/scge/data/refdata/singh/hg38_PLVM_CD19_CARv4_cd34.fa")
 
 distup = 20
 distdown = 20
