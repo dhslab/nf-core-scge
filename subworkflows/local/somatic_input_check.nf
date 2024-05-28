@@ -34,8 +34,6 @@ workflow SOMATIC_INPUT_CHECK {
     }
     .filter { it.sample_type != null || it.dragen_path != null }
     .set { ch_mastersheet }
-
-    ch_mastersheet.dump()
     
     ch_mastersheet
     .map { meta -> 
@@ -70,7 +68,7 @@ workflow SOMATIC_INPUT_CHECK {
             def read1 = []
             def read2 = []
 
-            // Create data rows
+             // Create data rows
             for (int i = 0; i < fqlist.size(); i++) {
                 def row = fqlist[i]
                 read1 << file(row[4])
@@ -81,8 +79,6 @@ workflow SOMATIC_INPUT_CHECK {
     }
     .filter { it[0].tumor != "" && it[0].normal != "" }
     .set { ch_fastqs }
-
-    ch_fastqs.dump()
 
     // Put read1 and read2 files into separate channels.
     ch_fastqs
@@ -130,7 +126,7 @@ workflow SOMATIC_INPUT_CHECK {
         meta['normal'] = normal.findAll { it != '' }.unique()[0]
         return [ meta, 'cram', crams ]
     }
-    .filter { it.tumor != "" && it.normal != "" }
+    .filter { it[0].tumor != "" && it[0].normal != "" }
     .set { ch_cram }
 
     ch_input_data = ch_input_data.mix(ch_cram)
@@ -159,6 +155,15 @@ workflow SOMATIC_INPUT_CHECK {
     .set { ch_bam }
 
     ch_input_data = ch_input_data.mix(ch_bam)
+
+    ch_hotspots = ch_mastersheet
+        .map{ row -> [row.uid, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]}
+        .unique()
+
+    ch_input_data = ch_input_data
+        .map{row -> [row[0].id, row]}
+        .join(ch_hotspots, by:0)
+        .map{id, info, hotspot -> [info, hotspot]}
 
     ch_mastersheet
     .map { meta -> 
@@ -194,6 +199,7 @@ def create_master_samplesheet(LinkedHashMap row) {
     meta.read2          = null
     meta.cram           = null
     meta.bam            = null
+    meta.hotspot_file   = row.hotspot_file ?: null
 
     if (row.fastq_list) {
         if (!file(row.fastq_list).exists()) {

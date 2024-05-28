@@ -2,7 +2,7 @@ process GET_TRANSGENE_JUNCTIONS {
     tag "$meta.id"
     label 'process_low'
     label 'final_output'
-    container "ghcr.io/dhslab/docker-baseimage:latest"
+    container "ghcr.io/dhslab/docker-cleutils"
 
     input:
     tuple val(meta), path(files)
