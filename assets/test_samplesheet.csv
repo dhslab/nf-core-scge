@@ -1,3 +1,2 @@
-sample,single_end,fastq_1,fastq_2
-SAMPLE1_PE_T1,False,https://raw.githubusercontent.com/nf-core/test-datasets/viralrecon/illumina/amplicon/sample1_R1.fastq.gz,https://raw.githubusercontent.com/nf-core/test-datasets/viralrecon/illumina/amplicon/sample1_R2.fastq.gz
-SAMPLE2_PE_T1,False,https://raw.githubusercontent.com/nf-core/test-datasets/viralrecon/illumina/amplicon/sample2_R1.fastq.gz,https://raw.githubusercontent.com/nf-core/test-datasets/viralrecon/illumina/amplicon/sample2_R2.fastq.gz
+id,dragen_path
+Donor_16_CART,/storage1/fs1/dspencer/Active/clinseq/projects/scge/workflow/sample_data/Donor_16_CART

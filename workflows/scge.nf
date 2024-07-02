@@ -47,6 +47,7 @@ include { SOMATIC_INPUT_CHECK } from '../subworkflows/local/somatic_input_check.
 include { FASTQC                      } from '../modules/nf-core/fastqc/main'
 include { MULTIQC                     } from '../modules/nf-core/multiqc/main'
 include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../modules/nf-core/custom/dumpsoftwareversions/main'
+include { MAKE_HOTSPOT_FILE           } from '../modules/local/make_hotspot_file.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { ANNOTATE_VARIANTS           } from '../modules/local/annotate_variants.nf'
 include { GET_INDELS                  } from '../modules/local/get_indels.nf'
@@ -97,26 +98,21 @@ workflow SCGE {
 
     ch_versions = Channel.empty()
     ch_dragen_outputs = Channel.empty()
+    hotspot_bed = params.hotspot_bed ? Channel.fromPath(params.hotspot_bed) : Channel.fromPath("$projectDir/assets/NO_FILE.bed")
 
     SOMATIC_INPUT_CHECK(Channel.fromPath(mastersheet), data_path)
 
     ch_input_data = SOMATIC_INPUT_CHECK.out.input_data
+    hotspot_input = ch_input_data.combine(hotspot_bed)
+    MAKE_HOTSPOT_FILE(hotspot_input)
+    ch_input_data = MAKE_HOTSPOT_FILE.out.hotspot_vcf
+        .map{ info, hotspot_vcf ->
+        def newinfo = []
+        newinfo = info + [hotspot_vcf]
+        newinfo
+        }
 
     ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
-
-    ch_dragen_outputs.dump()
-    ch_input_data.dump()
-
-    // This creates a dragen hash if one is not passed
-//    if (params.dragen_hash == null) {
-//        DRAGEN_HASH(Channel.from(file(params.fasta).getName()),Channel.fromFile([params.fasta, params.fasta_index]))
-//    }
-
-    if (params.assay_inputs.hotspot_vcf != null){
-        params.dragen_inputs.hotspot_vcf = params.assay_inputs.hotspot_vcf
-        params.dragen_inputs.hotspot_vcf_index = params.assay_inputs.hotspot_vcf_index
-    }
-
     ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
     ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
 
@@ -145,27 +141,26 @@ workflow SCGE {
         ch_versions.unique().collectFile(name: 'collated_versions.yml')
     )
 
-    //
     // MODULE: MultiQC
-    //
-    workflow_summary    = WorkflowScge.paramsSummaryMultiqc(workflow, summary_params)
-    ch_workflow_summary = Channel.value(workflow_summary)
+    
+    // workflow_summary    = WorkflowDragenmultiworkflow.paramsSummaryMultiqc(workflow, summary_params)
+    // ch_workflow_summary = Channel.value(workflow_summary)
 
-    methods_description    = WorkflowScge.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
-    ch_methods_description = Channel.value(methods_description)
+    // methods_description    = WorkflowDragenmultiworkflow.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
+    // ch_methods_description = Channel.value(methods_description)
 
-    ch_multiqc_files = Channel.empty()
-    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml'))
-    ch_multiqc_files = ch_multiqc_files.mix(CUSTOM_DUMPSOFTWAREVERSIONS.out.mqc_yml.collect())
+    // ch_multiqc_files = Channel.empty()
+    // ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
+    // ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml'))
+    // ch_multiqc_files = ch_multiqc_files.mix(CUSTOM_DUMPSOFTWAREVERSIONS.out.mqc_yml.collect())
 
-    MULTIQC (
-        ch_multiqc_files.collect(),
-        ch_multiqc_config.toList(),
-        ch_multiqc_custom_config.toList(),
-        ch_multiqc_logo.toList()
-    )
-    multiqc_report = MULTIQC.out.report.toList()
+    // MULTIQC (
+    //     ch_multiqc_files.collect(),
+    //     ch_multiqc_config.toList(),
+    //     ch_multiqc_custom_config.toList(),
+    //     ch_multiqc_logo.toList()
+    // )
+    // multiqc_report = MULTIQC.out.report.toList()
 
 }
 

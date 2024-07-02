@@ -6,7 +6,7 @@ process DRAGEN_SCGE {
     publishDir "$params.outdir/${meta.id}/", saveAs: { filename -> filename == "versions.yml" ? null : filename }, mode:'copy'
 
     input:
-    tuple val(meta), val(type), path("*")
+    tuple val(meta), val(type), path("*"), path(hotspot_file)
     tuple val(dragen_inputs), path("*", stageAs: 'inputs/*')
 
     output:
@@ -16,7 +16,8 @@ process DRAGEN_SCGE {
     script:
     def intermediate_dir = task.ext.intermediate_dir ? "--intermediate-results-dir ${task.ext.intermediate_dir}" : ""
     def args_license = task.ext.dragen_license_args ?: ''
-    def hotspotvcf = dragen_inputs.hotspot_vcf != null ? "--vc-somatic-hotspots inputs/${dragen_inputs.hotspot_vcf}" : ""
+    def hotspotvcf = hotspot_file.name != 'NO_FILE.vcf' ? "--vc-somatic-hotspots $hotspot_file" : ''
+    // def hotspotvcf = dragen_inputs.hotspot_vcf != null ? "--vc-somatic-hotspots inputs/${dragen_inputs.hotspot_vcf}" : ""
     def input = ""
     if (type == 'fastq') {
         input = "--tumor-fastq-list fastq_list.csv --tumor-fastq-list-sample-id ${meta.tumor} --fastq-list fastq_list.csv --fastq-list-sample-id ${meta.normal}"
@@ -57,7 +58,7 @@ process DRAGEN_SCGE {
     stub:
     def intermediate_dir = task.ext.intermediate_dir ? "--intermediate-results-dir ${task.ext.intermediate_dir}" : ""
     def args_license = task.ext.dragen_license_args ?: ''
-    def hotspotvcf = dragen_inputs.hotspot_vcf != null ? "--vc-somatic-hotspots inputs/${dragen_inputs.hotspot_vcf}" : ""
+    def hotspotvcf = hotspot_file.name != 'NO_FILE.vcf' ? "--vc-somatic-hotspots $hotspot_file" : ''
     def input = ""
     if (type == 'fastq') {
         input = "--tumor-fastq-list fastq_list.csv --tumor-fastq-list-sample-id ${meta.tumor} --fastq-list fastq_list.csv --fastq-list-sample-id ${meta.normal}"
