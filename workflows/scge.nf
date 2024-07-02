@@ -121,19 +121,21 @@ workflow SCGE {
         ch_versions = ch_versions.mix(DRAGEN_SCGE.out.versions)
         ch_dragen_outputs = ch_dragen_outputs.mix(DRAGEN_SCGE.out.dragen_output)
     }
+    
+    if (params.run_analysis == true) {
 
-    ch_dragen_outputs.dump(tag: 'dragen_output')
-    ANNOTATE_VARIANTS (ch_dragen_outputs, ch_assay_inputs, params.fasta)
-    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
+        ANNOTATE_VARIANTS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
-    GET_INDELS (ch_dragen_outputs, params.targetfile)
-    ch_versions = ch_versions.mix(GET_INDELS.out.versions)
+        GET_INDELS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
-    GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+        GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
 
-    REFORMAT_CNV_DATA (ch_dragen_outputs)
-    ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+        REFORMAT_CNV_DATA (ch_dragen_outputs)
+        ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+    }
 
     CUSTOM_DUMPSOFTWAREVERSIONS (
         ch_versions.unique().collectFile(name: 'collated_versions.yml')
@@ -185,6 +187,7 @@ workflow.onError {
         println("💡 See here on how to configure pipeline: https://nf-co.re/docs/usage/configuration#tuning-workflow-resources 💡")
     }
 }
+
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
