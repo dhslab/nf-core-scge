@@ -8,7 +8,7 @@ process GET_TRANSGENE_JUNCTIONS {
     tuple val(meta), path(files)
 
     output:
-    tuple val(meta), path("${meta.id}.transgene_out.tsv")
+    tuple val(meta), path("${meta.id}.transgene_out.tsv"), emit: transgene_file
     path "versions.yml"                                     , emit: versions
 
     script:

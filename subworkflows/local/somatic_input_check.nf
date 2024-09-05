@@ -156,8 +156,26 @@ workflow SOMATIC_INPUT_CHECK {
 
     ch_input_data = ch_input_data.mix(ch_bam)
 
+    ch_mastersheet
+    .map { meta -> 
+        if (meta.dragen_path != null){
+            def new_meta = [:]
+            new_meta['id'] = meta.id
+            return [new_meta]
+        }
+    }
+    .set{ch_ids}
+    ch_input_data = ch_input_data.mix(ch_ids)
+
     ch_hotspots = ch_mastersheet
-        .map{ row -> [row.uid, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]}
+        .map{ row -> 
+        if (row.uid != null) {
+            return [row.uid, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]
+            }
+        else {
+            return [row.id, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]
+            }
+        }
         .unique()
 
     ch_input_data = ch_input_data
@@ -175,7 +193,6 @@ workflow SOMATIC_INPUT_CHECK {
         }
     }
     .set { ch_dragen_outputs }
-    ch_dragen_outputs.dump(tag: 'dragen_output')
 
     emit:
     dragen_outputs = ch_dragen_outputs

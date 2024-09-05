@@ -50,6 +50,7 @@ include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../modules/nf-core/custom/dumpsoft
 include { MAKE_HOTSPOT_FILE           } from '../modules/local/make_hotspot_file.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { ANNOTATE_VARIANTS           } from '../modules/local/annotate_variants.nf'
+include { ANNOTATE_TRANSGENE_VARIANTS } from '../modules/local/annotate_transgene.nf'
 include { GET_INDELS                  } from '../modules/local/get_indels.nf'
 include { GET_TRANSGENE_JUNCTIONS     } from '../modules/local/get_transgene_junctions.nf'
 include { REFORMAT_CNV_DATA           } from '../modules/local/reformat_cnv_data.nf'
@@ -103,35 +104,50 @@ workflow SCGE {
     SOMATIC_INPUT_CHECK(Channel.fromPath(mastersheet), data_path)
 
     ch_input_data = SOMATIC_INPUT_CHECK.out.input_data
-    hotspot_input = ch_input_data.combine(hotspot_bed)
-    MAKE_HOTSPOT_FILE(hotspot_input)
-    ch_input_data = MAKE_HOTSPOT_FILE.out.hotspot_vcf
-        .map{ info, hotspot_vcf ->
-        def newinfo = []
-        newinfo = info + [hotspot_vcf]
-        newinfo
-        }
-
-    ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
-    ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
-    ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
+    ch_hotspots = ch_input_data.map{ meta, file -> return [meta[0]['id'], file] }
 
     if (params.run_dragen == true) {
+
+        hotspot_input = ch_input_data.combine(hotspot_bed)
+        MAKE_HOTSPOT_FILE(hotspot_input)
+        ch_input_data = MAKE_HOTSPOT_FILE.out.hotspot_vcf
+            .map{ info, hotspot_vcf ->
+            def newinfo = []
+            newinfo = info + [hotspot_vcf]
+            newinfo
+            }
+
+        ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
+        ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
+        ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
+
         DRAGEN_SCGE (ch_input_data, ch_dragen_inputs)
         ch_versions = ch_versions.mix(DRAGEN_SCGE.out.versions)
         ch_dragen_outputs = ch_dragen_outputs.mix(DRAGEN_SCGE.out.dragen_output)
+    } else {
+        ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
+        ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
+        ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
     }
     
     if (params.run_analysis == true) {
-
-        ANNOTATE_VARIANTS (ch_dragen_outputs)
+        
+        ANNOTATE_VARIANTS (ch_dragen_outputs, ch_assay_inputs, params.fasta)
         ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
-
-        GET_INDELS (ch_dragen_outputs)
+        
+        get_indels_input = ch_dragen_outputs
+            .map{ meta -> [meta[0]['id'], meta] }
+            .combine(ch_hotspots, by: 0)
+            .map{id, meta, hotspot_file -> [meta[0], meta[1], hotspot_file]}
+        GET_INDELS (get_indels_input)
         ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
         GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
         ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+
+        annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
+        ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
+        ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
         ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)

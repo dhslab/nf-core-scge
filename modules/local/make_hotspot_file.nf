@@ -25,7 +25,7 @@ process MAKE_HOTSPOT_FILE {
         def bed = bed_file.name != 'NO_FILE.bed' ? "--bed $bed_file" : ''
         def csv = csv_file.name != 'NO_FILE.csv' ? "--csv $csv_file" : ''
         """
-        make_hotspot_file.py $bed $csv --window $params.window
+        make_hotspot_file.py $bed $csv --window $params.window --id ${info[0].id}
 
         cat <<-END_VERSIONS > versions.yml
         "${task.process}":

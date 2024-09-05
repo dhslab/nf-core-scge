@@ -42,10 +42,10 @@ def main():
     parser.add_argument('--bed', type=checkfile, help="bed hotspot file")
     parser.add_argument('--csv', type=checkfile, help="csv hotspot file")
     parser.add_argument('--window', type=int, default=200, help="window")
+    parser.add_argument('--id', help="meta id")
     args = parser.parse_args()
 
     window = args.window 
-    # assumes csv_file ranges don't overlap
     data_df = pd.DataFrame()
     if (args.bed):
         bed_file = os.path.realpath(args.bed)
@@ -69,12 +69,13 @@ def main():
         row_df['Chromosome'] = rows['Chromosome']
         vcf_df = pd.concat([vcf_df, row_df], ignore_index=True)
     result_vcf = dataframe_to_vcf(vcf_df)
-    with open(f"hotspot.vcf", "w") as f:
+    id = args.id
+    with open(f"{id}.hotspot.vcf", "w") as f:
         f.write(result_vcf)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python script.py --bed <bed_file> --csv <csv_file> --window [window]")
+        print("Usage: python script.py --bed <bed_file> --csv <csv_file> --window [window] --id <id>")
         sys.exit(1)
     else:
         main()
