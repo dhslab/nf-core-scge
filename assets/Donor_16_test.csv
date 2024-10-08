@@ -1,3 +1,0 @@
-sample,id,read1,read2,type
-Donor16,Donor_16_Unedited-DNA,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/assets/test_fastqs/Donor_16_Unedited-DNA_S1_L006_R1_001.fastq,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/assets/test_fastqs/Donor_16_Unedited-DNA_S1_L006_R2_001.fastq,normal
-Donor16,Donor_16_CART,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/assets/test_fastqs/Donor_16_Edited-DNA_S2_R1_001.fastq,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/nf-core-scge/assets/test_fastqs/Donor_16_Edited-DNA_S2_R2_001.fastq,tumor

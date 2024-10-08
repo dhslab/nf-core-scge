@@ -1,3 +1,3 @@
-id,uid,sample_type,cram
-Donor_16_Unedited,Donor_16,normal,REPLACEPATH/crams/Donor_16_CART.cram
-Donor_16_Edited,Donor_16,tumor,REPLACEPATH/crams/Donor_16_CART_tumor.cram
+id,uid,sample_type,cram,hotspot_file
+Donor_16_Unedited,Donor_16,normal,REPLACEPATH/crams/Donor_16_CART.cram,REPLACEPATH/test_hotspot_file.csv
+Donor_16_Edited,Donor_16,tumor,REPLACEPATH/crams/Donor_16_CART_tumor.cram,REPLACEPATH/test_hotspot_file.csv

@@ -1,3 +1,0 @@
-id,uid,sample_type,cram,hotspot_file
-Donor_16_Unedited,Donor_16,normal,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/git_runs/scge/nf-core-scge/assets/stub/crams/Donor_16_CART.cram,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/git_runs/scge/nf-core-scge/assets/PDCD4_sgRNA2_combined_sites.csv
-Donor_16_Edited,Donor_16,tumor,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/git_runs/scge/nf-core-scge/assets/stub/crams/Donor_16_CART_tumor.cram,/storage1/fs1/dspencer/Active/spencerlab/dnidhi/pipelines/git_runs/scge/nf-core-scge/assets/PDCD4_sgRNA2_combined_sites.csv
