@@ -142,12 +142,14 @@ workflow SCGE {
         GET_INDELS (get_indels_input)
         ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
-        GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
-        ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+        if (params.transgene_analysis == true) {
+            GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
+            ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
 
-        annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
-        ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
-        ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
+            annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
+            ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
+            ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
+        }
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
         ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
