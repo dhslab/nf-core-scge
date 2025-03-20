@@ -54,6 +54,8 @@ include { ANNOTATE_TRANSGENE_VARIANTS } from '../modules/local/annotate_transgen
 include { GET_INDELS                  } from '../modules/local/get_indels.nf'
 include { GET_TRANSGENE_JUNCTIONS     } from '../modules/local/get_transgene_junctions.nf'
 include { REFORMAT_CNV_DATA           } from '../modules/local/reformat_cnv_data.nf'
+include { ANNOTATE_VCF                } from '../modules/local/annotate_vcf.nf'
+include { VEP_TO_TSV                  } from '../modules/local/vep_to_tsv.nf'
 
 def stageFileset(Map filePathMap) {
     def basePathMap = [:]
@@ -153,6 +155,18 @@ workflow SCGE {
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
         ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
+
+        annotate_vcf_input = ch_dragen_outputs.flatMap{ meta, files -> 
+            def cnv = files.find { it.endsWith('cnv.vcf.gz') }
+            def sv = files.find { it.endsWith('sv.vcf.gz') }
+            def vcf = files.find { it.endsWith("${meta.id}.vcf.gz") }
+            return [[meta, "cnv", cnv], [meta, "sv", sv], [meta, "vcf", vcf]] }
+        ANNOTATE_VCF(annotate_vcf_input)
+        ch_versions = ch_versions.mix(ANNOTATE_VCF.out.versions)
+
+        VEP_TO_TSV(ANNOTATE_VCF.out.annotated_vcf)
+        ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
+
     }
 
     CUSTOM_DUMPSOFTWAREVERSIONS (

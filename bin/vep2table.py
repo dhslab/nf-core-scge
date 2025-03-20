@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from io import StringIO
 import sys, os, re, tempfile, csv, pysam, json, binascii, argparse, subprocess, gzip
