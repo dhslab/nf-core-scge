@@ -43,7 +43,7 @@ process DRAGEN_SCGE {
                 --enable-variant-caller true --dbsnp inputs/${dragen_inputs.dbsnp} \\
                 --vc-systematic-noise inputs/${dragen_inputs.snv_noisefile} \\
                 --vc-enable-triallelic-filter false --vc-combine-phased-variants-distance 3 ${hotspotvcf}\\
-                --enable-sv true --sv-output-contigs true --sv-hyper-sensitivity true --sv-min-edge-observations 2 --sv-min-candidate-spanning-count 1 \\
+                --enable-sv true --sv-output-contigs true \\
                 --sv-use-overlap-pair-evidence true --sv-systematic-noise inputs/${dragen_inputs.sv_noisefile} \\
                 --enable-cnv true --cnv-use-somatic-vc-baf true --cnv-somatic-enable-het-calling true --cnv-enable-ref-calls false \\
                 --output-format ${params.alignment_file_format} \\
@@ -84,7 +84,7 @@ process DRAGEN_SCGE {
                 --enable-variant-caller true --dbsnp inputs/${dragen_inputs.dbsnp} \\
                 --vc-systematic-noise inputs/${dragen_inputs.snv_noisefile} \\
                 --vc-enable-triallelic-filter false --vc-combine-phased-variants-distance 3 ${hotspotvcf}\\
-                --enable-sv true --sv-output-contigs true --sv-hyper-sensitivity true --sv-min-edge-observations 2 --sv-min-candidate-spanning-count 1 \\
+                --enable-sv true --sv-output-contigs true --sv-hyper-sensitivity true \\
                 --sv-use-overlap-pair-evidence true --sv-systematic-noise inputs/${dragen_inputs.sv_noisefile} \\
                 --enable-cnv true --cnv-use-somatic-vc-baf true --cnv-somatic-enable-het-calling true --cnv-enable-ref-calls false \\
                 --output-format ${params.alignment_file_format} \\

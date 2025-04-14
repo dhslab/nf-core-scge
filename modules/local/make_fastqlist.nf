@@ -1,5 +1,5 @@
 process MAKE_FASTQLIST {
-    tag "$samplesheet"
+    tag "$meta.id"
     label 'process_single'
     container "quay.io/biocontainers/python:3.8.3"
 

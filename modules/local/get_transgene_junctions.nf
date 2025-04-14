@@ -9,7 +9,7 @@ process GET_TRANSGENE_JUNCTIONS {
 
     output:
     tuple val(meta), path("${meta.id}.transgene_out.tsv"), emit: transgene_file
-    path "versions.yml"                                     , emit: versions
+    path "versions.yml"                                  , emit: versions
 
     script:
     """

@@ -33,7 +33,7 @@ def add_sequence_column(row):
     chromosome = row["Chromosome"]
     start = row["Start"]
     end = row["End"]
-    fasta_file = "/storage1/fs1/dspencer/Active/spencerlab/refdata/hg38/all_sequences.fa"
+    fasta_file = "/storage2/fs1/dspencer/Active/spencerlab/refdata/hg38/all_sequences.fa"
     sequences = get_position(fasta_file, chromosome, start, end+1)
     return sequences
 

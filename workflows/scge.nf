@@ -144,6 +144,7 @@ workflow SCGE {
         GET_INDELS (get_indels_input)
         ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
+        ch_dragen_outputs.dump(tag: 'ch_dragen_outputs')
         if (params.transgene_analysis == true) {
             GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
             ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
@@ -157,8 +158,8 @@ workflow SCGE {
         ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
 
         annotate_vcf_input = ch_dragen_outputs.flatMap{ meta, files -> 
-            def cnv = files.find { it.endsWith('cnv.vcf.gz') }
-            def sv = files.find { it.endsWith('sv.vcf.gz') }
+            def cnv = files.find { it.endsWith("${meta.id}.cnv.vcf.gz") }
+            def sv = files.find { it.endsWith("${meta.id}.sv.vcf.gz") }
             def vcf = files.find { it.endsWith("${meta.id}.vcf.gz") }
             return [[meta, "cnv", cnv], [meta, "sv", sv], [meta, "vcf", vcf]] }
         ANNOTATE_VCF(annotate_vcf_input)

@@ -1,6 +1,6 @@
 process GET_INDELS {
     tag "$meta.id"
-    label 'process_low'
+    label 'process_high'
     label 'final_output'
     container "ghcr.io/dhslab/docker-baseimage:latest"
     errorStrategy 'ignore'

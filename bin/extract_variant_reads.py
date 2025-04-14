@@ -528,7 +528,7 @@ def get_indels(bam,controlbam,chr,start,end,fasta,window=100,distance=25,pam_pos
 def main():
 
     parser = argparse.ArgumentParser(description='Find indels in a bam file at BED coordinates')
-    parser.add_argument('-f','--fasta',type=str,default="/storage1/fs1/dspencer/Active/clinseq/projects/scge/data/refdata/singh_v4.3.6/hg38_PLVM_CD19_CARv4_cd34.fa",help='Reference fasta file')
+    parser.add_argument('-f','--fasta',type=str,default="/storage2/fs1/dspencer/Active/clinseq/projects/scge/data/refdata/singh_v4.3.6/hg38_PLVM_CD19_CARv4_cd34.fa",help='Reference fasta file')
     parser.add_argument('-w','--window',type=int,default=100,help='Distance between off-target sites for merging intervals.')
     parser.add_argument('-d','--distance',type=int,default=25,help='Window size around off-target site to identify mutations')
     parser.add_argument('-m','--minreads',type=int,default=1,help='Minimum supporting reads to report an indel/bnd event.')

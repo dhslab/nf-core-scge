@@ -385,15 +385,16 @@ def parse_svs(svvcffile,individual=0):
             if "PR" in variant.FORMAT:
                 PR =  variant.format("PR")[individual]
 
-            if "MAF" in variant.FORMAT:
+            if "MAF" in variant.FORMAT and "CN" in variant.FORMAT:
                 if len(variant.format("MAF"))==1:
                     abundance = round(variant.format("MAF")[0][0]* 100,2)
+                    print(variant.format("CN"))
                     CN = variant.format("CN")[0][0]
                 else:
                     abundance = round(variant.format("MAF")[individual][0]* 100,2)
                     CN = variant.format("CN")[individual][0]
 
-            else:
+            elif PR[0] + SR[0] + PR[1] + SR[1] > 0:
                 abundance = round((SR[1] + PR[1]) / (PR[0] + PR[1] + SR[0] + SR[1])*100,1)
 
             infostring = 'CN=' + str(CN) + ';PR_READS=' + str(PR[1]) + '/' + str(PR[0]+PR[1]) + ';SR_READS=' + str(SR[1]) + '/' + str(SR[0]+SR[1]) + ';CONTIG=' + str(variant.INFO.get('CONTIG'))
