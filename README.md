@@ -29,40 +29,53 @@
      workflows use the "tube map" design for that. See https://nf-co.re/docs/contributing/design_guidelines#examples for examples.   -->
 <!-- TODO nf-core: Fill in short bullet-pointed list of the default steps in the pipeline -->
 
-1. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))
-2. Present QC for raw reads ([`MultiQC`](http://multiqc.info/))
+1. Runs tumor normal dragen
+2. Get Indels
+3. Get Transgene Junctions
+4. Annotate Transgene Variants 
+5. Annotate sv, cnv, hard-filtered vcf
+6. Makes vep to tsv file
+7. Makes scge report
 
 ## Usage
 
-> [!NOTE]
-> If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/usage/installation) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/usage/introduction#how-to-run-a-pipeline) with `-profile test` before running the workflow on actual data.
+To run at dragen step, prepare a samplesheet with the following columns:
 
-<!-- TODO nf-core: Describe the minimum required steps to execute the pipeline, e.g. how to prepare samplesheets.
-     Explain what rows and columns represent. For instance (please edit as appropriate):
-
-First, prepare a samplesheet with your input data that looks as follows:
-
-`samplesheet.csv`:
+`dragen_samplesheet.csv`:
 
 ```csv
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
+id,uid,sample_type,fastq_list,hotspot_file
+tumor_sample_1,tumor_sample_1,tumor,/path/to/fastqlist,/path/to/hotspot_1
+normal_sample,tumor_sample_1,normal,/path/to/fastqlist,/path/to/hotspot_1
+tumor_sample_2,tumor_sample_2,tumor,/path/to/fastqlist,/path/to/hotspot_2
+normal_sample,tumor_sample_2,normal,/path/to/fastqlist,/path/to/hotspot_2
 ```
 
-Each row represents a fastq file (single-end) or a pair of fastq files (paired end).
+The hotspot file is optional.
 
--->
+To run the pipeline from the analysis step: prepare a samplesheet with the following columns:
+
+`analysis_samplesheet.csv`:
+
+```csv
+id,dragen_path,hotspot_file
+sample1,/path/to/dragen_output/sample1,/path/to/hotspot_1
+sample2,/path/to/dragen_output/sample2,/path/to/hotspot_2
+```
+
 
 Now, you can run the pipeline using:
 
-<!-- TODO nf-core: update the following command to include all required parameters for a minimal example -->
-
 ```bash
-nextflow run nf-core/scge \
-   -profile <docker/singularity/.../institute> \
-   --input samplesheet.csv \
+nextflow run dhslab/nf-core-scge \
+   -profile ris,<dragen2/dragen4/dragenaws> \
+   --input /path/to/samplesheet \
    --outdir <OUTDIR>
 ```
+
+#### Additional arguments: 
+--hotspot_bed - /path/to/hotspot.bed
+
 
 > [!WARNING]
 > Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_;

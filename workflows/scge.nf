@@ -34,6 +34,7 @@ ch_multiqc_custom_methods_description = params.multiqc_methods_description ? fil
 // SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
 //
 include { SOMATIC_INPUT_CHECK } from '../subworkflows/local/somatic_input_check.nf'
+include { MAKE_SCGE_REPORT } from '../subworkflows/local/make_scge_report.nf'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -152,6 +153,10 @@ workflow SCGE {
             annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
             ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
             ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
+            
+            indels_ch = GET_INDELS.out.indels_file
+            transgene_ch = GET_TRANSGENE_JUNCTIONS.out.transgene_file
+            MAKE_SCGE_REPORT (indels_ch, transgene_ch)
         }
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
@@ -160,7 +165,7 @@ workflow SCGE {
         annotate_vcf_input = ch_dragen_outputs.flatMap{ meta, files -> 
             def cnv = files.find { it.endsWith("${meta.id}.cnv.vcf.gz") }
             def sv = files.find { it.endsWith("${meta.id}.sv.vcf.gz") }
-            def vcf = files.find { it.endsWith("${meta.id}.vcf.gz") }
+            def vcf = files.find { it.endsWith("${meta.id}.hard-filtered.vcf.gz") }
             return [[meta, "cnv", cnv], [meta, "sv", sv], [meta, "vcf", vcf]] }
         ANNOTATE_VCF(annotate_vcf_input)
         ch_versions = ch_versions.mix(ANNOTATE_VCF.out.versions)
@@ -173,7 +178,7 @@ workflow SCGE {
     CUSTOM_DUMPSOFTWAREVERSIONS (
         ch_versions.unique().collectFile(name: 'collated_versions.yml')
     )
-
+    
     // MODULE: MultiQC
     
     // workflow_summary    = WorkflowDragenmultiworkflow.paramsSummaryMultiqc(workflow, summary_params)

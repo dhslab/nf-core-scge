@@ -13,7 +13,7 @@ process GET_TRANSGENE_JUNCTIONS {
 
     script:
     """
-    getTransgeneJunctions.v2.py -x 3130,5930 PLVM_CD19_CARv4_cd34 ${meta.id}_tumor.cram > ${meta.id}.transgene_out.tsv
+    getTransgeneJunctions.v2.py -x 3130,5930 ${params.transgene} ${meta.id}_tumor.cram > ${meta.id}.transgene_out.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

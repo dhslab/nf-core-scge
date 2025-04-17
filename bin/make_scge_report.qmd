@@ -1,0 +1,445 @@
+---
+params:
+  offtargets: ""
+  transgene: ""
+execute:
+  echo: false
+  warning: false
+format:
+    html:
+      mainfont: lualatex
+      self-contained: true
+      title-block-style: default  # Ensures proper styling
+      grid:
+        body-width: 1100px
+        margin-width: 150px
+        sidebar-width: 150px
+        gutter-width: 1.5em
+packages:
+  - tidyverse
+page-layout: article
+title-block-banner: "#E6F3FF"
+title-block-banner-color: black
+include-in-header:
+  - text: |
+      <style>
+      .callout.callout-style-default {
+        text-align: center;
+      }
+      </style>
+
+---
+```{r}
+#| include: false
+library(reticulate)
+use_python("/opt/conda/bin/python3")
+```
+<!-- Python code makes on target editing bar plot, and off target sites plot -->
+```{python}
+#| include: false
+import matplotlib.pyplot as plt
+
+plt.rcParams.update({
+    "text.usetex": False,
+    "font.family": "serif",
+    "mathtext.fontset": "cm",  # Computer Modern mathtext
+})
+
+def parse_offtarget_file(file_path, filter_on_target=False):
+    """Parse the off-target file and return x and y values."""
+    x_values, y_values = [], []
+    with open(file_path) as data:
+        header = data.readline()  # Skip header
+        for line in data:
+            stripped_line = line.rstrip().split("\t")
+            # Ensure the row has enough columns
+            if len(stripped_line) < 16:
+                continue
+            try:
+                chrom, start, end = stripped_line[0], stripped_line[1], stripped_line[2]
+                indel_fraction = float(stripped_line[6])
+                is_target = int(stripped_line[15])  # Check the is_target column
+                if filter_on_target and is_target != 1:
+                    continue
+                if not filter_on_target and is_target == 1:
+                    continue
+                if indel_fraction == 0:
+                    continue
+                loci = f"{chrom}:{start}-{end}"
+                x_values.append(loci)
+                y_values.append(indel_fraction * 100)  # Convert to percentage
+            except (ValueError, IndexError):
+                # Skip rows with invalid data
+                continue
+    return x_values, y_values
+
+def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type, highlight_line=None):
+    """Create and save a bar chart."""
+    if type == 'on target':
+        plt.figure(figsize=(9, 9.5))
+    else:
+        plt.figure(figsize=(9, 5))
+    plt.bar(x_values, y_values, color='skyblue')
+    if highlight_line:
+        plt.axhline(y=highlight_line['value'], color=highlight_line['color'], linestyle='-', linewidth=2)
+        plt.text(x=x_values[-1], y=highlight_line['value'], s=highlight_line['label'], 
+                 color=highlight_line['color'], fontsize=12, va='bottom', ha='left')
+    plt.xlabel(rf"{xlabel}", fontsize=20)
+    plt.ylabel(rf"{ylabel}", fontsize=20)
+    plt.xticks([])  # Remove x-axis ticks and labels
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.close()
+
+# On-targets plot (filtered from offtargets file)
+x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=True)
+sorted_data = sorted(zip(y_values, x_values), reverse=True)
+y_values, x_values = zip(*sorted_data)
+plot_bar_chart(
+    x_values, y_values, 
+    xlabel='On-target loci', 
+    ylabel='Indel frequency (%)', 
+    title='On-target editing', 
+    type='on target',
+    output_file='indel_freq.png'
+)
+
+# Off-targets plot
+x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=False)
+sorted_data = sorted(zip(y_values, x_values), reverse=True)
+y_values, x_values = zip(*sorted_data)
+plot_bar_chart(
+    x_values, y_values, 
+    xlabel='Predicted off-target sites', 
+    ylabel='Indel frequency (%)', 
+    title='Off-target sites', 
+    output_file='off_targets.png', 
+    type='off target',
+    highlight_line={'value': 1.0, 'color': 'red', 'label': '1.0%'}
+)
+```
+<div class="callout-box" style="background-color: #E6F3FF; text-align: center; padding: 8px; font-size: 1.2em;">
+  <h1>Somatic Editing Genome Report</h1>
+</div>
+<br>
+```{=html}
+<style>
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;  /* Makes columns equal width */
+    border: 1px solid #6495ED;  /* Add border around the entire table */
+    border-spacing: 0;  /* Removes space between cells */
+  }
+
+  td, th {
+    padding: 8px;  /* Increased from 2px to 8px */
+    text-align: left;  /* Changed from center to left */
+    border-right: 1px solid #6495ED;
+    width: 33.33%;  /* Makes each column take up exactly 1/3 of the table width */
+    line-height: 1.2;  /* Reduces line height */
+    margin: 0;  /* Removes any margin */
+  }
+
+  th {
+    background-color: #6495ED;
+    color: white;
+    font-size: 1.2em;
+    border-bottom: 1px solid #6495ED;  /* Add bottom border to header cells */
+  }
+
+  td {
+    background-color: #E6F3FF;
+  }
+
+  /* Remove the right border from the last column */
+  td:last-child, th:last-child {
+    border-right: none;
+  }
+
+  /* Remove any extra space from paragraphs inside cells */
+  td p {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Style for the off-target subtable */
+  .off-target-subtable td {
+    padding: 2px 4px;  /* 2px vertical, 4px horizontal padding */
+    line-height: 1.0;
+    text-align: center;
+  }
+
+  .off-target-subtable {
+    margin: 0;
+    border-spacing: 0;  /* Remove space between cells */
+    border-collapse: collapse;  /* Ensure borders touch */
+  }
+
+  .off-target-subtable td:first-child {
+    padding-right: 2px;  /* Less space after first column */
+  }
+
+  .off-target-subtable td:last-child {
+    padding-left: 2px;  /* Less space before last column */
+  }
+
+  .off-target-subtable img {
+    width: 100%; /* Ensures images fit perfectly within the columns */
+    height: auto;
+  }
+
+  .blue-bottom-border {
+    border-bottom: 2px solid #6495ED;
+  }
+
+  .equal-size-img {
+    width: 300px; /* Set a fixed width for the images */
+    height: 300px; /* Set a fixed height for the images */
+  }
+
+  /* Style for the nested table in the middle column */
+  .white-background-table .white-background-table td {
+    padding: 8px;  /* Reduced from 20px to 8px */
+    line-height: 1.4;  /* Reduced from 2.0 to 1.4 */
+    text-align: center;  /* Center align the text */
+  }
+
+  /* Add spacing for the middle column text */
+  .variant-text {
+    line-height: 1.4;  /* Reduced from 1.8 to 1.4 */
+    margin-bottom: 4px;  /* Reduced from 8px to 4px */
+  }
+
+  .variant-text p {
+    margin: 0;
+    padding: 0;
+  }
+
+  h1 {
+    margin-top: 10px;  /* Reduced space above headers */
+    margin-bottom: 10px;  /* Reduced space below headers */
+  }
+
+  /* Add header borders to subtables with smaller text */
+  .off-target-subtable th {
+    border-bottom: 2px solid #6495ED; /* Add a blue bottom border */
+    background-color: #E6F3FF; /* Optional: Match the background color */
+    color: black; /* Optional: Set text color */
+    padding: 4px; /* Adjust padding for better spacing */
+    font-size: 0.9em; /* Make the text smaller */
+  }
+  .genome-wide-subtable th {
+    border-top: 2px solid #6495ED; /* Add a blue top border */
+    border-bottom: 2px solid #6495ED; /* Add a blue bottom border */
+    background-color: #E6F3FF; /* Optional: Match the background color */
+    color: black; /* Optional: Set text color */
+    padding: 4px; /* Adjust padding for better spacing */
+    font-size: 0.9em; /* Make the text smaller */
+  }
+</style>
+
+<table>
+  <tr>
+    <th>Drug Product</th>
+    <th>Control Sample</th>
+    <th>Modifications</th>
+  </tr>
+  <tr>
+    <td>CART-TR-KO-D16</td>
+    <td>DONOR_16</td>
+    <td><strong>Transgene:</strong></td>
+  </tr>
+  <tr>
+    <td>Mean coverage: 191x</td>
+    <td>Mean coverage: 58x</td>
+    <td>`r params$transgene`</td>
+  </tr>
+  <tr>
+    <td></td>
+    <td></td>
+    <td><strong>gRNA:</strong></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td></td>
+    <td>TRAC, TRBC1/TRBC2</td>
+  </tr>
+</table>
+<tr>
+  <td></td>
+  <td></td>
+  <td><h1 style="margin-bottom: 0;"><em>On-target editing (TRAC, TRBC1, TRBC2)</em></h1></td>
+</tr>
+
+<style>
+  .white-background-table {
+    border-collapse: collapse;
+    width: 100%;
+    background-color: white;
+    table-layout: fixed; /* Ensures equal column width */
+    border: none;  /* Remove border around the entire table */
+    margin-bottom: 10px;  /* Added to control space between tables */
+  }
+
+  .white-background-table td, .white-background-table th {
+    padding: 8px;
+    text-align: center; /* Changed from left to center */
+    vertical-align: middle; /* Align content vertically in the middle */
+    border-right: none; /* Remove vertical lines */
+  }
+
+  .white-background-table th {
+    background-color: white;
+    color: black;
+    border-bottom: 2px solid #6495ED;
+    border-top: 2px solid #6495ED;
+  }
+
+  .white-background-table td {
+    background-color: white;
+  }
+
+  .white-background-table img {
+    width: 100%; /* Ensures images fit perfectly within the columns */
+    height: auto;
+  }
+
+  .blue-bottom-border {
+    border-bottom: 2px solid #6495ED;
+  }
+
+  .equal-size-img {
+    width: 300px; /* Set a fixed width for the images */
+    height: 300px; /* Set a fixed height for the images */
+  }
+
+  /* Style for the nested table in the middle column */
+  .white-background-table .white-background-table td {
+    padding: 20px;  /* Increased padding for more vertical spacing */
+    line-height: 2.0;  /* Increased line height for better spacing */
+    text-align: center;  /* Center align the text */
+  }
+
+  /* Add spacing for the middle column text */
+  .variant-text {
+    line-height: 1.4;  /* Reduced from 1.8 to 1.4 */
+    margin-bottom: 4px;  /* Reduced from 8px to 4px */
+  }
+
+  .variant-text p {
+    margin: 0;
+    padding: 0;
+  }
+
+  h1 {
+    margin-top: 10px;  /* Reduced space above headers */
+    margin-bottom: 10px;  /* Reduced space below headers */
+  }
+</style>
+
+<table class="white-background-table blue-bottom-border">
+  <tr>
+    <th>Indel frequency</th>
+    <th>On-target structural variants</th>
+    <th>Transgene integrations</th>
+  </tr>
+  <tr>
+    <td><img src="indel_freq.png" alt="Indel Frequency" class="equal-size-img"></td>
+    <td>
+      <table class="white-background-table">
+      <tr>
+        <td>TRAC: t(6;14)(q11.2;q14.3),t(6;15)(q11.2;q23)(0.5% of reads)</td>
+      </tr>
+      <tr>
+        <td>TRBC2: t(7;13)(q34;q33)(1.5% of reads)</td>
+      </tr>
+      <tr>
+        <td>Off-target genes affected: NONE</td>
+      </tr>
+      </table>
+    </td>
+    <td>
+      <img src="circos.png" alt="circos plot" class="equal-size-img">
+      <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: KMT2D</p>
+    </td>
+  </tr>
+</table>
+<tr>
+  <td></td>
+  <td></td>
+  <td><h1 style="margin-bottom: 0;"><em>Off-target mutations (196 sites screened)</em></h1></td>
+</tr>
+<table class="white-background-table blue-bottom-border">
+  <tr>
+    <th>Off target sites</th>
+    <th>Off-target sites > 1.0\% indel frequency</th>
+  </tr>
+  <tr>
+    <td><img src="off_targets.png" alt="Sample Image" class="equal-size-img"></td>
+    <td>
+      <table class="white-background-table off-target-subtable">
+      <tr>
+        <th>Genome Coordinate</th>
+        <th>% Indels</th>
+        <th>Annotation</th>
+      </tr>
+      <tr>
+        <td>chrX:1224411450</td>
+        <td>1.7%</td>
+        <td>Intergenic</td>
+      </tr>
+      <tr>
+        <td>chr13:81026391</td>
+        <td>1.1\%</td>
+        <td>Intergenic</td>
+      </tr>
+      <tr>
+        <td>chr15:64562142</td>
+        <td>2.2\%</td>
+        <td>ZNF609 intron 2</td>
+      </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<tr>
+  <td></td>
+  <td></td>
+  <td><h1 style="margin-bottom: 0;"><em>Genome integrity and gene mutation analysis</em></h1></td>
+</tr>
+<table class="white-background-table blue-bottom-border">
+  <tr>
+    <th>Genome-wide copy number analysis</th>
+    <th>Targeted gene mutation analysis</th>
+  </tr>
+  <tr>
+    <td><img src="genome_wide.png" alt="Sample Image" class="equal-size-img"></td>
+    <td>
+    <table class="white-background-table off-target-subtable">
+      <tr>
+        <th>Gene</th>
+        <th>Result</th>
+      </tr>
+      <tr>
+        <td>TP53</td>
+        <td>no mutations identified</td>
+      </tr>
+      <tr>
+        <td>DNMT3A</td>
+        <td>no mutations identified</td>
+      </tr>
+      <tr>
+        <td>RUNX1</td>
+        <td>no mutations identified</td>
+      </tr>
+      <tr>
+        <td>TET2</td>
+        <td>no mutations identified</td>
+      </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+
