@@ -560,7 +560,7 @@ def main():
     bedDf['Pos'] = bedDf['Start']
     bedDf['End'] = bedDf['Start']
     bedDf['Start'] = bedDf['Start'] - 1
-    bedDf['Info'] = bedDf.apply(lambda row: f"{row['Source']},{row['DNA_Sequence']},{row['PAM']},{row['Chromosome']},{row['Pos']},{row['Strand Direction']},{row['Mismatch']},{row['Bulge Type']},{row['Bulge Size']}", axis=1)
+    bedDf['Info'] = bedDf.apply(lambda row: f"{row['Source']},{row['DNA_Sequence']},{row['PAM']},{row['Chromosome']},{row['Pos']},{row['Strand']},{row['Mismatch']},{row['Bulge_Type']},{row['Bulge_Size']}", axis=1)
     bedDf['Ontarget'] = bedDf['On_target']
 
     # make pyranges object
