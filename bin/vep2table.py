@@ -388,7 +388,6 @@ def parse_svs(svvcffile,individual=0):
             if "MAF" in variant.FORMAT and "CN" in variant.FORMAT:
                 if len(variant.format("MAF"))==1:
                     abundance = round(variant.format("MAF")[0][0]* 100,2)
-                    print(variant.format("CN"))
                     CN = variant.format("CN")[0][0]
                 else:
                     abundance = round(variant.format("MAF")[individual][0]* 100,2)
