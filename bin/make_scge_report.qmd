@@ -93,8 +93,13 @@ def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type,
 
 # On-targets plot (filtered from offtargets file)
 x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=True)
-sorted_data = sorted(zip(y_values, x_values), reverse=True)
-y_values, x_values = zip(*sorted_data)
+if x_values:
+    sorted_data = sorted(zip(y_values, x_values), reverse=True)
+    y_values, x_values = zip(*sorted_data)
+else:
+    sorted_data = []
+    y_values, x_values = [], []
+
 plot_bar_chart(
     x_values, y_values, 
     xlabel='On-target loci', 
@@ -106,8 +111,13 @@ plot_bar_chart(
 
 # Off-targets plot
 x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=False)
-sorted_data = sorted(zip(y_values, x_values), reverse=True)
-y_values, x_values = zip(*sorted_data)
+if x_values:
+    sorted_data = sorted(zip(y_values, x_values), reverse=True)
+    y_values, x_values = zip(*sorted_data)
+else:
+    sorted_data = []
+    y_values, x_values = [], []
+
 plot_bar_chart(
     x_values, y_values, 
     xlabel='Predicted off-target sites', 
