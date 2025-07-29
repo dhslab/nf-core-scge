@@ -256,7 +256,7 @@ if(nrow(sv_data) > 0){
 ```
     </td>
     <td>
-      <img src="`r report_data$plots$circos`" alt="circos plot" class="equal-size-img">
+      `r if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) { paste0('<img src="', report_data$plots$circos, '" alt="circos plot" class="equal-size-img">') }`
       <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: `r {
         integration_data <- sv_data[sv_data$type == 'INS',]
         if(nrow(integration_data) > 0) {

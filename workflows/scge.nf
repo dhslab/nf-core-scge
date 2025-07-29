@@ -165,10 +165,13 @@ workflow SCGE {
 
             MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
             ch_versions = ch_versions.mix(MAKE_CIRCOS_PLOT.out.versions)
+            ch_circos_plot = MAKE_CIRCOS_PLOT.out.circos_png
 
             annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
             ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
             ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
+        } else {
+            ch_circos_plot = ch_dragen_outputs.map { meta, files -> [meta, "NO_FILE.png"] }
         }
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
@@ -186,13 +189,11 @@ workflow SCGE {
         ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
         // Combine all inputs for the report
-        report_inputs = Channel.combine(
-            GENERATE_CNA_BAF_PLOTS.out.cna_plot,
-            GENERATE_CNA_BAF_PLOTS.out.baf_plot,
-            MAKE_CIRCOS_PLOT.out.circos_png,
-            VEP_TO_TSV.out.vep_tsv, // This should be a channel of VEP TSVs
-            GET_INDELS.out.indels_file
-        )
+        report_inputs = GENERATE_CNA_BAF_PLOTS.out.cna_plot
+            .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
+            .join(ch_circos_plot)
+            .join(VEP_TO_TSV.out.vep_tsv)
+            .join(GET_INDELS.out.indels_file)
 
         COMPILE_REPORT_JSON(report_inputs)
         ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)

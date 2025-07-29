@@ -22,13 +22,14 @@ process COMPILE_REPORT_JSON {
     script:
     def args = task.ext.args ?: ''
     def transgene_str = meta.transgene ?: "N/A"
+    def circos_arg = circos_plot.name == "NO_FILE.png" ? "" : "--circos_plot ${circos_plot}"
     """
     compile_report_data.py \\
         --sample_id ${meta.id} \\
         --transgene "${transgene_str}" \\
         --cna_plot ${cna_plot} \\
         --baf_plot ${baf_plot} \\
-        --circos_plot ${circos_plot} \\
+        \${circos_arg} \\
         --on_target_sv_transgene ${on_target_sv_transgene} \\
         --off_target_indels ${off_target_indels} \\
         --output report_input.json

@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--transgene", required=True, help="Transgene description string.")
     parser.add_argument("--cna_plot", required=True, help="Path to CNA plot PNG.")
     parser.add_argument("--baf_plot", required=True, help="Path to BAF plot PNG.")
-    parser.add_argument("--circos_plot", required=True, help="Path to Circos plot PNG.")
+    parser.add_argument("--circos_plot", required=False, default=None, help="Path to Circos plot PNG.")
     parser.add_argument("--on_target_sv_transgene", required=True, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
     parser.add_argument("--off_target_indels", required=True, help="Path to off-target indel analysis file.")
     parser.add_argument("-o", "--output", required=True, help="Output JSON file path.")
@@ -52,7 +52,6 @@ def main():
         "plots": {
             "cna": args.cna_plot,
             "baf": args.baf_plot,
-            "circos": args.circos_plot
         },
         "tables": {
             "on_target_sv_transgene": on_target_sv_transgene_data,
@@ -62,6 +61,9 @@ def main():
             # We can add other metadata here if needed.
         }
     }
+
+    if args.circos_plot:
+        report_data["plots"]["circos"] = args.circos_plot
 
     # Write the compiled data to the output JSON file.
     with open(args.output, 'w') as f:
