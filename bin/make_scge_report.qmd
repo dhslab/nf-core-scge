@@ -1,7 +1,7 @@
 ---
 params:
-  offtargets: ""
-  transgene: ""
+  report_json: ""
+  off_target_threshold: 1.0
 execute:
   echo: false
   warning: false
@@ -9,7 +9,7 @@ format:
     html:
       mainfont: lualatex
       self-contained: true
-      title-block-style: default  # Ensures proper styling
+      title-block-style: default
       grid:
         body-width: 1100px
         margin-width: 150px
@@ -27,51 +27,48 @@ include-in-header:
         text-align: center;
       }
       </style>
-
 ---
 ```{r}
 #| include: false
 library(reticulate)
+library(jsonlite)
+library(dplyr)
+library(knitr)
 use_python("/opt/conda/bin/python3")
+report_data <- fromJSON(params$report_json)
 ```
 <!-- Python code makes on target editing bar plot, and off target sites plot -->
 ```{python}
 #| include: false
 import matplotlib.pyplot as plt
+import pandas as pd
 
-plt.rcParams.update({
-    "text.usetex": False,
-    "font.family": "serif",
-    "mathtext.fontset": "cm",  # Computer Modern mathtext
-})
+report_data = r.report_data
 
-def parse_offtarget_file(file_path, filter_on_target=False):
-    """Parse the off-target file and return x and y values."""
+def parse_offtarget_data(data):
+    """Parse the off-target data and return x and y values."""
     x_values, y_values = [], []
-    with open(file_path) as data:
-        header = data.readline()  # Skip header
-        for line in data:
-            stripped_line = line.rstrip().split("\t")
-            # Ensure the row has enough columns
-            if len(stripped_line) < 16:
+    for record in data:
+        try:
+            chrom, start, end = record['chrom'], record['start'], record['end']
+            indel_fraction = float(record['indel_fraction'])
+            is_target = int(record['is_target_site'])
+            
+            if indel_fraction == 0:
                 continue
-            try:
-                chrom, start, end = stripped_line[0], stripped_line[1], stripped_line[2]
-                indel_fraction = float(stripped_line[6])
-                is_target = int(stripped_line[15])  # Check the is_target column
-                if filter_on_target and is_target != 1:
-                    continue
-                if not filter_on_target and is_target == 1:
-                    continue
-                if indel_fraction == 0:
-                    continue
-                loci = f"{chrom}:{start}-{end}"
-                x_values.append(loci)
-                y_values.append(indel_fraction * 100)  # Convert to percentage
-            except (ValueError, IndexError):
-                # Skip rows with invalid data
-                continue
+
+            loci = f"{chrom}:{start}-{end}"
+            x_values.append(loci)
+            y_values.append(indel_fraction * 100)  # Convert to percentage
+        except (ValueError, IndexError, KeyError):
+            continue
     return x_values, y_values
+
+on_target_records = [r for r in report_data['tables']['off_target_indels'] if r.get('is_target_site') == '1']
+off_target_records = [r for r in report_data['tables']['off_target_indels'] if r.get('is_target_site') == '0']
+
+on_target_x, on_target_y = parse_offtarget_data(on_target_records)
+off_target_x, off_target_y = parse_offtarget_data(off_target_records)
 
 def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type, highlight_line=None):
     """Create and save a bar chart."""
@@ -82,57 +79,42 @@ def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type,
     plt.bar(x_values, y_values, color='skyblue')
     if highlight_line:
         plt.axhline(y=highlight_line['value'], color=highlight_line['color'], linestyle='-', linewidth=2)
-        plt.text(x=x_values[-1], y=highlight_line['value'], s=highlight_line['label'], 
-                 color=highlight_line['color'], fontsize=12, va='bottom', ha='left')
+        plt.text(x=len(x_values)-0.5, y=highlight_line['value'], s=highlight_line['label'], 
+                 color=highlight_line['color'], fontsize=12, va='bottom', ha='right')
     plt.xlabel(rf"{xlabel}", fontsize=20)
     plt.ylabel(rf"{ylabel}", fontsize=20)
-    plt.xticks([])  # Remove x-axis ticks and labels
+    plt.xticks([])
     plt.tight_layout()
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
 
-# On-targets plot (filtered from offtargets file)
-x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=True)
-if x_values:
-    sorted_data = sorted(zip(y_values, x_values), reverse=True)
-    y_values, x_values = zip(*sorted_data)
-else:
-    sorted_data = []
-    y_values, x_values = [], []
+if on_target_x:
+    plot_bar_chart(on_target_x, on_target_y, 'On-target loci', 'Indel frequency (%)', 'On-target editing', 'indel_freq.png', 'on target')
 
-plot_bar_chart(
-    x_values, y_values, 
-    xlabel='On-target loci', 
-    ylabel='Indel frequency (%)', 
-    title='On-target editing', 
-    type='on target',
-    output_file='indel_freq.png'
-)
-
-# Off-targets plot
-x_values, y_values = parse_offtarget_file(r.params['offtargets'], filter_on_target=False)
-if x_values:
-    sorted_data = sorted(zip(y_values, x_values), reverse=True)
-    y_values, x_values = zip(*sorted_data)
-else:
-    sorted_data = []
-    y_values, x_values = [], []
-
-plot_bar_chart(
-    x_values, y_values, 
-    xlabel='Predicted off-target sites', 
-    ylabel='Indel frequency (%)', 
-    title='Off-target sites', 
-    output_file='off_targets.png', 
-    type='off target',
-    highlight_line={'value': 1.0, 'color': 'red', 'label': '1.0%'}
-)
+if off_target_x:
+    plot_bar_chart(off_target_x, off_target_y, 'Predicted off-target sites', 'Indel frequency (%)', 'Off-target sites', 'off_targets.png', 'off target', {'value': r.params['off_target_threshold'], 'color': 'red', 'label': f"{r.params['off_target_threshold']}%"})
 ```
 <div class="callout-box" style="background-color: #E6F3FF; text-align: center; padding: 8px; font-size: 1.2em;">
   <h1>Somatic Editing Genome Report</h1>
 </div>
 <br>
-```{=html}
+```{r}
+#| echo: false
+#| results: 'asis'
+cat("<table>")
+cat("<tr><th>Drug Product</th><th>Control Sample</th><th>Modifications</th></tr>")
+cat(paste0("<tr><td>", report_data$sample_id, "</td><td>DONOR_16</td><td><strong>Transgene:</strong></td></tr>"))
+cat(paste0("<tr><td>Mean coverage: 191x</td><td>Mean coverage: 58x</td><td>", report_data$transgene_description, "</td></tr>"))
+cat("<tr><td></td><td></td><td><strong>gRNA:</strong></td></tr>")
+cat("<tr><td></td><td></td><td>TRAC, TRBC1/TRBC2</td></tr>")
+cat("</table>")
+```
+<tr>
+  <td></td>
+  <td></td>
+  <td><h1 style="margin-bottom: 0;"><em>On-target editing (TRAC, TRBC1, TRBC2)</em></h1></td>
+</tr>
+
 <style>
   table {
     border-collapse: collapse;
@@ -249,105 +231,6 @@ plot_bar_chart(
   }
 </style>
 
-<table>
-  <tr>
-    <th>Drug Product</th>
-    <th>Control Sample</th>
-    <th>Modifications</th>
-  </tr>
-  <tr>
-    <td>CART-TR-KO-D16</td>
-    <td>DONOR_16</td>
-    <td><strong>Transgene:</strong></td>
-  </tr>
-  <tr>
-    <td>Mean coverage: 191x</td>
-    <td>Mean coverage: 58x</td>
-    <td>`r params$transgene`</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td><strong>gRNA:</strong></td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td>TRAC, TRBC1/TRBC2</td>
-  </tr>
-</table>
-<tr>
-  <td></td>
-  <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>On-target editing (TRAC, TRBC1, TRBC2)</em></h1></td>
-</tr>
-
-<style>
-  .white-background-table {
-    border-collapse: collapse;
-    width: 100%;
-    background-color: white;
-    table-layout: fixed; /* Ensures equal column width */
-    border: none;  /* Remove border around the entire table */
-    margin-bottom: 10px;  /* Added to control space between tables */
-  }
-
-  .white-background-table td, .white-background-table th {
-    padding: 8px;
-    text-align: center; /* Changed from left to center */
-    vertical-align: middle; /* Align content vertically in the middle */
-    border-right: none; /* Remove vertical lines */
-  }
-
-  .white-background-table th {
-    background-color: white;
-    color: black;
-    border-bottom: 2px solid #6495ED;
-    border-top: 2px solid #6495ED;
-  }
-
-  .white-background-table td {
-    background-color: white;
-  }
-
-  .white-background-table img {
-    width: 100%; /* Ensures images fit perfectly within the columns */
-    height: auto;
-  }
-
-  .blue-bottom-border {
-    border-bottom: 2px solid #6495ED;
-  }
-
-  .equal-size-img {
-    width: 300px; /* Set a fixed width for the images */
-    height: 300px; /* Set a fixed height for the images */
-  }
-
-  /* Style for the nested table in the middle column */
-  .white-background-table .white-background-table td {
-    padding: 20px;  /* Increased padding for more vertical spacing */
-    line-height: 2.0;  /* Increased line height for better spacing */
-    text-align: center;  /* Center align the text */
-  }
-
-  /* Add spacing for the middle column text */
-  .variant-text {
-    line-height: 1.4;  /* Reduced from 1.8 to 1.4 */
-    margin-bottom: 4px;  /* Reduced from 8px to 4px */
-  }
-
-  .variant-text p {
-    margin: 0;
-    padding: 0;
-  }
-
-  h1 {
-    margin-top: 10px;  /* Reduced space above headers */
-    margin-bottom: 10px;  /* Reduced space below headers */
-  }
-</style>
-
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Indel frequency</th>
@@ -357,59 +240,66 @@ plot_bar_chart(
   <tr>
     <td><img src="indel_freq.png" alt="Indel Frequency" class="equal-size-img"></td>
     <td>
-      <table class="white-background-table">
-      <tr>
-        <td>TRAC: t(6;14)(q11.2;q14.3),t(6;15)(q11.2;q23)(0.5% of reads)</td>
-      </tr>
-      <tr>
-        <td>TRBC2: t(7;13)(q34;q33)(1.5% of reads)</td>
-      </tr>
-      <tr>
-        <td>Off-target genes affected: NONE</td>
-      </tr>
-      </table>
+```{r}
+#| echo: false
+#| results: 'asis'
+sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
+if(nrow(sv_data) > 0){
+    cat('<table class="white-background-table">')
+    for(i in 1:nrow(sv_data)){
+        cat(paste0("<tr><td>", sv_data[i, "csyntax"], "</td></tr>"))
+    }
+    cat("</table>")
+} else {
+    cat("<p>No structural variants found.</p>")
+}
+```
     </td>
     <td>
-      <img src="circos.png" alt="circos plot" class="equal-size-img">
-      <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: KMT2D</p>
+      <img src="`r report_data$plots$circos`" alt="circos plot" class="equal-size-img">
+      <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: `r {
+        integration_data <- sv_data[sv_data$type == 'INS',]
+        if(nrow(integration_data) > 0) {
+            paste(integration_data$known_genes, collapse=", ")
+        } else {
+            "None"
+        }
+      }`</p>
     </td>
   </tr>
 </table>
 <tr>
   <td></td>
   <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>Off-target mutations (196 sites screened)</em></h1></td>
+  <td><h1 style="margin-bottom: 0;"><em>Off-target mutations (`r length(report_data$tables$off_target_indels)` sites screened)</em></h1></td>
 </tr>
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Off target sites</th>
-    <th>Off-target sites > 1.0\% indel frequency</th>
+    <th>Off-target sites > 1.0% indel frequency</th>
   </tr>
   <tr>
     <td><img src="off_targets.png" alt="Sample Image" class="equal-size-img"></td>
     <td>
-      <table class="white-background-table off-target-subtable">
-      <tr>
-        <th>Genome Coordinate</th>
-        <th>% Indels</th>
-        <th>Annotation</th>
-      </tr>
-      <tr>
-        <td>chrX:1224411450</td>
-        <td>1.7%</td>
-        <td>Intergenic</td>
-      </tr>
-      <tr>
-        <td>chr13:81026391</td>
-        <td>1.1\%</td>
-        <td>Intergenic</td>
-      </tr>
-      <tr>
-        <td>chr15:64562142</td>
-        <td>2.2\%</td>
-        <td>ZNF609 intron 2</td>
-      </tr>
-      </table>
+```{r}
+#| echo: false
+#| results: 'asis'
+off_target_df <- as.data.frame(report_data$tables$off_target_indels)
+off_target_filtered <- off_target_df[as.numeric(off_target_df$indel_fraction) * 100 > r.params['off_target_threshold'] & off_target_df$is_target_site == '0',]
+if(nrow(off_target_filtered) > 0){
+    cat('<table class="white-background-table off-target-subtable">')
+    cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
+    for(i in 1:nrow(off_target_filtered)){
+        coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
+        indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
+        annotation <- off_target_filtered[i, "annotation"]
+        cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
+    }
+    cat("</table>")
+} else {
+    cat("<p>No off-target sites with > 1.0% indel frequency found.</p>")
+}
+```
     </td>
   </tr>
 </table>
@@ -424,9 +314,12 @@ plot_bar_chart(
     <th>Targeted gene mutation analysis</th>
   </tr>
   <tr>
-    <td><img src="genome_wide.png" alt="Sample Image" class="equal-size-img"></td>
     <td>
-    <table class="white-background-table off-target-subtable">
+        <img src="`r report_data$plots$cna`" alt="CNA Plot" class="equal-size-img">
+        <img src="`r report_data$plots$baf`" alt="BAF Plot" class="equal-size-img">
+    </td>
+    <td>
+      <table class="white-background-table off-target-subtable">
       <tr>
         <th>Gene</th>
         <th>Result</th>

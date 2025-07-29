@@ -57,6 +57,10 @@ include { GET_TRANSGENE_JUNCTIONS     } from '../modules/local/get_transgene_jun
 include { REFORMAT_CNV_DATA           } from '../modules/local/reformat_cnv_data.nf'
 include { ANNOTATE_VCF                } from '../modules/local/annotate_vcf.nf'
 include { VEP_TO_TSV                  } from '../modules/local/vep_to_tsv.nf'
+include { GENERATE_CNA_BAF_PLOTS      } from '../modules/local/generate_cna_baf_plots.nf'
+include { COMPILE_REPORT_JSON         } from '../modules/local/compile_report_json.nf'
+include { MAKE_CIRCOS_PLOT            } from '../modules/local/make_circos_plot.nf'
+include { TRANSFORM_TRANSGENE         } from '../modules/local/transform_transgene.nf'
 
 def stageFileset(Map filePathMap) {
     def basePathMap = [:]
@@ -132,7 +136,13 @@ workflow SCGE {
         ch_dragen_inputs = Channel.value(stageFileset(params.dragen_inputs))
         ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
     }
-    
+
+    dragen_baf = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tumor.baf.bedgraph.gz") }] }
+    dragen_cnv = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tn.tsv.gz") }] }
+
+    GENERATE_CNA_BAF_PLOTS(dragen_baf.join(dragen_cnv))
+    ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
+
     if (params.run_analysis == true) {
         
         ANNOTATE_VARIANTS (ch_dragen_outputs, ch_assay_inputs, params.fasta)
@@ -150,13 +160,15 @@ workflow SCGE {
             GET_TRANSGENE_JUNCTIONS (ch_dragen_outputs)
             ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
 
+            TRANSFORM_TRANSGENE(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
+            ch_versions = ch_versions.mix(TRANSFORM_TRANSGENE.out.versions)
+
+            MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
+            ch_versions = ch_versions.mix(MAKE_CIRCOS_PLOT.out.versions)
+
             annotate_transgene_input = ch_dragen_outputs.join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
             ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
             ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
-            
-            indels_ch = GET_INDELS.out.indels_file
-            transgene_ch = GET_TRANSGENE_JUNCTIONS.out.transgene_file
-            MAKE_SCGE_REPORT (indels_ch, transgene_ch)
         }
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
@@ -173,6 +185,19 @@ workflow SCGE {
         VEP_TO_TSV(ANNOTATE_VCF.out.annotated_vcf)
         ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
+        // Combine all inputs for the report
+        report_inputs = Channel.combine(
+            GENERATE_CNA_BAF_PLOTS.out.cna_plot,
+            GENERATE_CNA_BAF_PLOTS.out.baf_plot,
+            MAKE_CIRCOS_PLOT.out.circos_png,
+            VEP_TO_TSV.out.vep_tsv, // This should be a channel of VEP TSVs
+            GET_INDELS.out.indels_file
+        )
+
+        COMPILE_REPORT_JSON(report_inputs)
+        ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
+
+        MAKE_SCGE_REPORT(COMPILE_REPORT_JSON.out.json)
     }
 
     CUSTOM_DUMPSOFTWAREVERSIONS (

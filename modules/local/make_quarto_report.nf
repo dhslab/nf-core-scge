@@ -5,7 +5,7 @@ process MAKE_QUARTO_REPORT {
     container "ghcr.io/dhslab/docker-quarto-chromoseq:latest"
 
     input:
-    tuple val(meta), path(circos_plot), path(indels)
+    tuple val(meta), path(report_json)
     path(scge_report_qmd)
 
     output:
@@ -19,7 +19,7 @@ process MAKE_QUARTO_REPORT {
     """
     export PATH=\$PATH:/opt/conda/bin/
 
-    quarto render make_scge_report.qmd -P offtargets:"$indels" -P transgene:"${params.transgene}" --output "${meta.id}.scge_report.html"
+    quarto render ${scge_report_qmd} -P report_json:"${report_json}" -P off_target_threshold:${params.off_target_threshold} --output "${meta.id}.scge_report.html"
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

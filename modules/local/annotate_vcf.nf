@@ -16,8 +16,6 @@ process ANNOTATE_VCF {
     (type == "vcf" ? "hard_filtered.annotated.vcf" : 
     type == "cnv" ? ".cnv.annotated.vcf" : 
     type == "sv" ? ".sv.annotated.vcf" : "")
-    vepcache = params.assay_inputs.vepcache
-    cytobands = params.assay_inputs.cytobands
     """
     /usr/bin/perl \
    -I /opt/lib/perl/VEP/Plugins /opt/vep/src/ensembl-vep/vep \
@@ -27,12 +25,12 @@ process ANNOTATE_VCF {
    --symbol \
    --term SO \
    --flag_pick \
-   --custom $cytobands,cytobands,bed \
+   --custom ${params.assay_inputs.cytobands},cytobands,bed \
    -o $annotate_vcf_output \
    -i $input_vcf \
    --offline \
    --cache \
-   --max_af --dir $vepcache
+   --max_af --dir ${params.vep_cache}
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
