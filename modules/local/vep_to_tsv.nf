@@ -11,8 +11,8 @@ process VEP_TO_TSV {
     tuple val(meta), val(type), path(input)
 
     output:
-    tuple val(meta), path("$output")
-    path "versions.yml",    emit: versions
+    tuple val(meta), path("*.tsv"), emit: vep_tsv
+    path "versions.yml", emit: versions
 
     script:
     def args =
