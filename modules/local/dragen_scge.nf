@@ -6,7 +6,7 @@ process DRAGEN_SCGE {
     publishDir "$params.outdir/${meta.id}/", saveAs: { filename -> filename == "versions.yml" ? null : filename }, mode:'copy'
 
     input:
-    tuple val(meta), val(type), path("*"), path(hotspot_file)
+    tuple val(meta), val(type), val(crams), path(hotspot_file)
     tuple val(dragen_inputs), path("*", stageAs: 'inputs/*')
 
     output:
