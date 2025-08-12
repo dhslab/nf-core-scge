@@ -70,9 +70,9 @@ p_cn <- ggplot(dat,aes(x=index,y=cnratio)) +
         geom_vline(xintercept = dat$index[which(dat$chrom != lag(dat$chrom))],linetype=2,col="gray") +
         scale_x_continuous(limits=c(1,max(dat$index)),breaks=dat$index[which(dat$chrom != lag(dat$chrom))],labels = NULL,expand = expansion(mult=0.02),
                            sec.axis = dup_axis(breaks=labelDf$pos,labels = labelDf$label)) +
-        scale_y_continuous(name="copy number ratio",
-                           limits=c(min(-2,round(quantile(dat$cnratio,0.05,na.rm = T),0)),
-                                    max(2,round(quantile(dat$cnratio,0.05,na.rm = T,0.95),0))),expand = expansion(mult=c(0.01,0.02))) +
+         scale_y_continuous(name="copy number ratio",
+                            limits=c(min(-2,round(quantile(dat$cnratio,0.05,na.rm = TRUE),0)),
+                                     max(2,round(quantile(dat$cnratio,0.95,na.rm = TRUE),0))),expand = expansion(mult=c(0.01,0.02))) +
         scale_fill_stepsn(values=c(0,0.0001,1),colors = c(NA,"darkblue","darkblue")) +
         ggtitle(paste0("Copy number for ",caseid)) +
         theme_classic() + theme(plot.title = element_text(hjust=0.5),legend.position = "none",axis.ticks.x = element_blank(),axis.text.y = element_text(color = "black",size=10),axis.text.x.bottom = element_blank(),

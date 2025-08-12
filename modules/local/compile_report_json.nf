@@ -29,7 +29,7 @@ process COMPILE_REPORT_JSON {
         --transgene "${transgene_str}" \\
         --cna_plot ${cna_plot} \\
         --baf_plot ${baf_plot} \\
-        \${circos_arg} \\
+        ${circos_arg} \\
         --on_target_sv_transgene ${on_target_sv_transgene} \\
         --off_target_indels ${off_target_indels} \\
         --output report_input.json

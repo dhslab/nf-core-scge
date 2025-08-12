@@ -9,7 +9,7 @@ process GET_INDELS {
     tuple val(meta), path(files), path(hotspot_file)
 
     output:
-    tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
+    tuple val(meta), path("${meta.id}.indels.txt"), optional: true, emit: indels_file
     path "versions.yml",    emit: versions
 
     script:

@@ -13,7 +13,7 @@ process ANNOTATE_VCF {
 
     script:
     annotate_vcf_output = "${meta.id}" + 
-    (type == "vcf" ? "hard_filtered.annotated.vcf" : 
+    (type == "vcf" ? ".hard_filtered.annotated.vcf" : 
     type == "cnv" ? ".cnv.annotated.vcf" : 
     type == "sv" ? ".sv.annotated.vcf" : "")
     """

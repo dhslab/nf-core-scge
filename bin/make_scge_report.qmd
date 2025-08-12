@@ -51,8 +51,8 @@ def parse_offtarget_data(data):
     for record in data:
         try:
             chrom, start, end = record['chrom'], record['start'], record['end']
-            indel_fraction = float(record['indel_fraction'])
-            is_target = int(record['is_target_site'])
+            indel_fraction = float(record.get('indel_fraction', 0) or 0)
+            is_target = int(record.get('is_target', record.get('is_target_site', 0)) or 0)
             
             if indel_fraction == 0:
                 continue
@@ -64,8 +64,8 @@ def parse_offtarget_data(data):
             continue
     return x_values, y_values
 
-on_target_records = [r for r in report_data['tables']['off_target_indels'] if r.get('is_target_site') == '1']
-off_target_records = [r for r in report_data['tables']['off_target_indels'] if r.get('is_target_site') == '0']
+on_target_records = [r for r in report_data['tables']['off_target_indels'] if str(r.get('is_target', r.get('is_target_site', '0'))) == '1']
+off_target_records = [r for r in report_data['tables']['off_target_indels'] if str(r.get('is_target', r.get('is_target_site', '0'))) == '0']
 
 on_target_x, on_target_y = parse_offtarget_data(on_target_records)
 off_target_x, off_target_y = parse_offtarget_data(off_target_records)
@@ -260,7 +260,8 @@ if(nrow(sv_data) > 0){
       <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: `r {
         integration_data <- sv_data[sv_data$type == 'INS',]
         if(nrow(integration_data) > 0) {
-            paste(integration_data$known_genes, collapse=", ")
+            # Use VEP gene symbol column from TSV
+            paste(unique(integration_data$gene), collapse=", ")
         } else {
             "None"
         }
@@ -285,14 +286,14 @@ if(nrow(sv_data) > 0){
 #| echo: false
 #| results: 'asis'
 off_target_df <- as.data.frame(report_data$tables$off_target_indels)
-off_target_filtered <- off_target_df[as.numeric(off_target_df$indel_fraction) * 100 > r.params['off_target_threshold'] & off_target_df$is_target_site == '0',]
+off_target_filtered <- off_target_df[as.numeric(off_target_df$indel_fraction) * 100 > r.params['off_target_threshold'] & as.character(ifelse(!is.null(off_target_df$is_target), off_target_df$is_target, off_target_df$is_target_site)) == '0',]
 if(nrow(off_target_filtered) > 0){
     cat('<table class="white-background-table off-target-subtable">')
     cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
     for(i in 1:nrow(off_target_filtered)){
         coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
         indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
-        annotation <- off_target_filtered[i, "annotation"]
+        annotation <- if ("annotation" %in% names(off_target_filtered)) off_target_filtered[i, "annotation"] else off_target_filtered[i, "target_info"]
         cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
     }
     cat("</table>")

@@ -119,9 +119,10 @@ workflow SCGE {
         MAKE_HOTSPOT_FILE(hotspot_input)
         ch_input_data = MAKE_HOTSPOT_FILE.out.hotspot_vcf
             .map{ info, hotspot_vcf ->
-            def newinfo = []
-            newinfo = info + [hotspot_vcf]
-            newinfo
+                def meta = info[0]  // Extract metadata
+                def type = "wgs"    // Set appropriate type
+                def crams = []      // Set appropriate crams value
+                return [meta, type, crams, hotspot_vcf]
             }
 
         ch_dragen_outputs = ch_dragen_outputs.mix(SOMATIC_INPUT_CHECK.out.dragen_outputs)
@@ -137,20 +138,20 @@ workflow SCGE {
         ch_assay_inputs = Channel.value(stageFileset(params.assay_inputs))
     }
 
-    dragen_baf = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tumor.baf.bedgraph.gz") }] }
-    dragen_cnv = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tn.tsv.gz") }] }
-
-    GENERATE_CNA_BAF_PLOTS(dragen_baf.join(dragen_cnv))
-    ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
-
     if (params.run_analysis == true) {
+
+        dragen_baf = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tumor.baf.bedgraph.gz") }] }
+        dragen_cnv = ch_dragen_outputs.map{ meta, files -> [meta, files.find { it.endsWith(".tn.tsv.gz") }] }
+
+        GENERATE_CNA_BAF_PLOTS(dragen_baf.join(dragen_cnv))
+        ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
         
         ANNOTATE_VARIANTS (ch_dragen_outputs, ch_assay_inputs, params.fasta)
         ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
         
         get_indels_input = ch_dragen_outputs
             .map{ meta -> [meta[0]['id'], meta] }
-            .combine(ch_hotspots, by: 0)
+            .combine(ch_hotspots.map{ it[1] }, by: 0)
             .map{id, meta, hotspot_file -> [meta[0], meta[1], hotspot_file]}
         GET_INDELS (get_indels_input)
         ch_versions = ch_versions.mix(GET_INDELS.out.versions)
@@ -185,6 +186,7 @@ workflow SCGE {
         ANNOTATE_VCF(annotate_vcf_input)
         ch_versions = ch_versions.mix(ANNOTATE_VCF.out.versions)
 
+        // Convert annotated VCFs to TSVs; we will use the SV TSV for report tables
         VEP_TO_TSV(ANNOTATE_VCF.out.annotated_vcf)
         ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
@@ -192,7 +194,9 @@ workflow SCGE {
         report_inputs = GENERATE_CNA_BAF_PLOTS.out.cna_plot
             .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
             .join(ch_circos_plot)
-            .join(VEP_TO_TSV.out.vep_tsv)
+            .join(
+                VEP_TO_TSV.out.vep_tsv.filter{ meta, tsv -> tsv.getName().endsWith('.sv.annotated.tsv') || tsv.getName().contains('.sv.annotated.') }
+            )
             .join(GET_INDELS.out.indels_file)
 
         COMPILE_REPORT_JSON(report_inputs)
