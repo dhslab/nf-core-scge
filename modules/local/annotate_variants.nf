@@ -10,8 +10,12 @@ process ANNOTATE_VARIANTS {
     path(reference)
 
     output:
-    tuple val(meta), path("${meta.id}.hard-filtered.annotated.vcf.gz*", arity: '2'), emit: vcf
+    tuple val(meta), path("${meta.id}.hard-filtered.annotated.vcf.gz*", arity: '2', optional: true), emit: vcf
     path "versions.yml",    emit: versions
+
+    when:
+    // Only run when the staged input VCF exists
+    file("${meta.id}.hard-filtered.vcf.gz").exists()
 
     script:
     """

@@ -12,11 +12,17 @@ process REFORMAT_CNV_DATA {
 
     script:
     """
-    cnv_visualization.py -o ${meta.id}.cnv_visualization.tsv ${meta.id}.tumor.baf.bedgraph.gz ${meta.id}.tn.tsv.gz
+    set -euo pipefail
+    if [ -s "${meta.id}.tumor.baf.bedgraph.gz" ] && [ -s "${meta.id}.tn.tsv.gz" ]; then
+        cnv_visualization.py -o ${meta.id}.cnv_visualization.tsv "${meta.id}.tumor.baf.bedgraph.gz" "${meta.id}.tn.tsv.gz"
+    else
+        echo -e "sample\tmessage" > ${meta.id}.cnv_visualization.tsv
+        echo -e "${meta.id}\tCNA/BAF inputs unavailable" >> ${meta.id}.cnv_visualization.tsv
+    fi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        \$(cnv_visualization.py --version)
+        \$(cnv_visualization.py --version || echo "n/a")
     END_VERSIONS
     """
 

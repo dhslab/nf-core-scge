@@ -146,15 +146,32 @@ workflow SCGE {
         GENERATE_CNA_BAF_PLOTS(dragen_baf.join(dragen_cnv))
         ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
         
-        ANNOTATE_VARIANTS (ch_dragen_outputs, ch_assay_inputs, params.fasta)
+        // Only run variant annotation when a hard-filtered VCF exists in precomputed outputs
+        ch_av_inputs = ch_dragen_outputs.filter { meta, files ->
+            files.find { it.endsWith("${meta.id}.hard-filtered.vcf.gz") } != null
+        }
+        ANNOTATE_VARIANTS (ch_av_inputs, ch_assay_inputs, params.fasta)
         ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
         
+        // Build input for GET_INDELS by joining dragen outputs with per-sample hotspot file
+        // Key both channels by sample id for a proper join
         get_indels_input = ch_dragen_outputs
-            .map{ meta -> [meta[0]['id'], meta] }
-            .combine(ch_hotspots.map{ it[1] }, by: 0)
-            .map{id, meta, hotspot_file -> [meta[0], meta[1], hotspot_file]}
+            .map { meta, files -> [ meta.id, [ meta, files ] ] }
+            .join(ch_hotspots)
+            .map { id, mf, hotspot_tuple -> [ mf[0], mf[1], file(hotspot_tuple[1]) ] }
         GET_INDELS (get_indels_input)
         ch_versions = ch_versions.mix(GET_INDELS.out.versions)
+
+        // Prepare indels channel with a safe fallback placeholder when GET_INDELS emits nothing
+        ch_indels_fallback = ch_dragen_outputs.map { meta, files -> [ meta, file("$projectDir/assets/NO_OFFTARGET.csv") ] }
+        ch_indels_actual   = GET_INDELS.out.indels_file.map { meta, indels -> [ meta, indels ] }
+        ch_indels          = ch_indels_fallback
+                                .mix(ch_indels_actual)
+                                .groupTuple()
+                                .map { meta, files ->
+                                    def chosen = files.find { it.getName().endsWith('.indels.txt') } ?: files[0]
+                                    [ meta, chosen ]
+                                }
 
         ch_dragen_outputs.dump(tag: 'ch_dragen_outputs')
         if (params.transgene_analysis == true) {
@@ -172,17 +189,21 @@ workflow SCGE {
             ANNOTATE_TRANSGENE_VARIANTS (annotate_transgene_input)
             ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
         } else {
-            ch_circos_plot = ch_dragen_outputs.map { meta, files -> [meta, "NO_FILE.png"] }
+            // No transgene analysis requested; emit a null/empty placeholder token
+            ch_circos_plot = ch_dragen_outputs.map { meta, files -> [meta, null] }
         }
 
         REFORMAT_CNV_DATA (ch_dragen_outputs)
         ch_versions = ch_versions.mix(REFORMAT_CNV_DATA.out.versions)
 
-        annotate_vcf_input = ch_dragen_outputs.flatMap{ meta, files -> 
-            def cnv = files.find { it.endsWith("${meta.id}.cnv.vcf.gz") }
-            def sv = files.find { it.endsWith("${meta.id}.sv.vcf.gz") }
-            def vcf = files.find { it.endsWith("${meta.id}.hard-filtered.vcf.gz") }
-            return [[meta, "cnv", cnv], [meta, "sv", sv], [meta, "vcf", vcf]] }
+        annotate_vcf_input = ch_dragen_outputs
+            .flatMap{ meta, files -> 
+                def cnv = files.find { it.endsWith("${meta.id}.cnv.vcf.gz") }
+                def sv  = files.find { it.endsWith("${meta.id}.sv.vcf.gz") }
+                def vcf = files.find { it.endsWith("${meta.id}.hard-filtered.vcf.gz") }
+                return [[meta, "cnv", cnv], [meta, "sv", sv], [meta, "vcf", vcf]]
+            }
+            .filter { trio -> trio[2] != null }
         ANNOTATE_VCF(annotate_vcf_input)
         ch_versions = ch_versions.mix(ANNOTATE_VCF.out.versions)
 
@@ -190,14 +211,25 @@ workflow SCGE {
         VEP_TO_TSV(ANNOTATE_VCF.out.annotated_vcf)
         ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
+        // Prepare SV TSV channel with a safe fallback placeholder when none are available
+        ch_sv_tsv_fallback = ch_dragen_outputs.map { meta, files -> [ meta, file("$projectDir/assets/NO_SV.tsv") ] }
+        ch_sv_tsv_actual   = VEP_TO_TSV.out.vep_tsv
+                                .filter{ meta, tsv -> tsv.getName().endsWith('.sv.annotated.tsv') || tsv.getName().contains('.sv.annotated.') }
+                                .map { meta, tsv -> [meta, tsv] }
+        ch_sv_tsv          = ch_sv_tsv_fallback
+                                .mix(ch_sv_tsv_actual)
+                                .groupTuple()
+                                .map { meta, files ->
+                                    def chosen = files.find { it.getName().contains('.sv.annotated.') } ?: files[0]
+                                    [ meta, chosen ]
+                                }
+
         // Combine all inputs for the report
         report_inputs = GENERATE_CNA_BAF_PLOTS.out.cna_plot
             .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
             .join(ch_circos_plot)
-            .join(
-                VEP_TO_TSV.out.vep_tsv.filter{ meta, tsv -> tsv.getName().endsWith('.sv.annotated.tsv') || tsv.getName().contains('.sv.annotated.') }
-            )
-            .join(GET_INDELS.out.indels_file)
+            .join(ch_sv_tsv)
+            .join(ch_indels)
 
         COMPILE_REPORT_JSON(report_inputs)
         ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
@@ -205,9 +237,10 @@ workflow SCGE {
         MAKE_SCGE_REPORT(COMPILE_REPORT_JSON.out.json)
     }
 
-    CUSTOM_DUMPSOFTWAREVERSIONS (
-        ch_versions.unique().collectFile(name: 'collated_versions.yml')
-    )
+    // Temporarily disabled to avoid early failure when no versions are present
+    // CUSTOM_DUMPSOFTWAREVERSIONS (
+    //     ch_versions.unique().collectFile(name: 'collated_versions.yml')
+    // )
     
     // MODULE: MultiQC
     

@@ -36,19 +36,27 @@ library(dplyr)
 library(knitr)
 use_python("/opt/conda/bin/python3")
 report_data <- fromJSON(params$report_json)
+off_target_threshold_value <- as.numeric(params$off_target_threshold)
+report_json_path <- params$report_json
 ```
 <!-- Python code makes on target editing bar plot, and off target sites plot -->
 ```{python}
 #| include: false
+import json
 import matplotlib.pyplot as plt
 import pandas as pd
 
-report_data = r.report_data
+# Load JSON directly to avoid R<->Python type conversion edge cases
+report_json_path = r['report_json_path']
+with open(report_json_path, 'r') as _fh:
+    report_data = json.load(_fh)
 
 def parse_offtarget_data(data):
     """Parse the off-target data and return x and y values."""
     x_values, y_values = [], []
     for record in data:
+        if not isinstance(record, dict):
+            continue
         try:
             chrom, start, end = record['chrom'], record['start'], record['end']
             indel_fraction = float(record.get('indel_fraction', 0) or 0)
@@ -64,8 +72,9 @@ def parse_offtarget_data(data):
             continue
     return x_values, y_values
 
-on_target_records = [r for r in report_data['tables']['off_target_indels'] if str(r.get('is_target', r.get('is_target_site', '0'))) == '1']
-off_target_records = [r for r in report_data['tables']['off_target_indels'] if str(r.get('is_target', r.get('is_target_site', '0'))) == '0']
+offtarget_list = report_data.get('tables', {}).get('off_target_indels', [])
+on_target_records = [rec for rec in offtarget_list if isinstance(rec, dict) and str(rec.get('is_target', rec.get('is_target_site', '0'))) == '1']
+off_target_records = [rec for rec in offtarget_list if isinstance(rec, dict) and str(rec.get('is_target', rec.get('is_target_site', '0'))) == '0']
 
 on_target_x, on_target_y = parse_offtarget_data(on_target_records)
 off_target_x, off_target_y = parse_offtarget_data(off_target_records)
@@ -92,7 +101,17 @@ if on_target_x:
     plot_bar_chart(on_target_x, on_target_y, 'On-target loci', 'Indel frequency (%)', 'On-target editing', 'indel_freq.png', 'on target')
 
 if off_target_x:
-    plot_bar_chart(off_target_x, off_target_y, 'Predicted off-target sites', 'Indel frequency (%)', 'Off-target sites', 'off_targets.png', 'off target', {'value': r.params['off_target_threshold'], 'color': 'red', 'label': f"{r.params['off_target_threshold']}%"})
+    thr = float(r['off_target_threshold_value'])
+    plot_bar_chart(
+        off_target_x,
+        off_target_y,
+        'Predicted off-target sites',
+        'Indel frequency (%)',
+        'Off-target sites',
+        'off_targets.png',
+        'off target',
+        {'value': thr, 'color': 'red', 'label': f"{thr}%"}
+    )
 ```
 <div class="callout-box" style="background-color: #E6F3FF; text-align: center; padding: 8px; font-size: 1.2em;">
   <h1>Somatic Editing Genome Report</h1>
@@ -246,8 +265,19 @@ cat("</table>")
 sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
 if(nrow(sv_data) > 0){
     cat('<table class="white-background-table">')
-    for(i in 1:nrow(sv_data)){
-        cat(paste0("<tr><td>", sv_data[i, "csyntax"], "</td></tr>"))
+    # Prefer csyntax if present; otherwise fall back to 'note' or a compact row summary
+    if ("csyntax" %in% names(sv_data)) {
+        for(i in 1:nrow(sv_data)){
+            cat(paste0("<tr><td>", sv_data[i, "csyntax"], "</td></tr>"))
+        }
+    } else if ("note" %in% names(sv_data)) {
+        for(i in 1:nrow(sv_data)){
+            cat(paste0("<tr><td>", sv_data[i, "note"], "</td></tr>"))
+        }
+    } else {
+        for(i in 1:nrow(sv_data)){
+            cat(paste0("<tr><td>", paste0(names(sv_data), ": ", as.character(unlist(sv_data[i, , drop=FALSE])) , collapse = " | "), "</td></tr>"))
+        }
     }
     cat("</table>")
 } else {
@@ -258,12 +288,15 @@ if(nrow(sv_data) > 0){
     <td>
       `r if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) { paste0('<img src="', report_data$plots$circos, '" alt="circos plot" class="equal-size-img">') }`
       <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: `r {
-        integration_data <- sv_data[sv_data$type == 'INS',]
-        if(nrow(integration_data) > 0) {
-            # Use VEP gene symbol column from TSV
+        if ("type" %in% names(sv_data) && "gene" %in% names(sv_data)) {
+          integration_data <- subset(sv_data, type == 'INS')
+          if (nrow(integration_data) > 0) {
             paste(unique(integration_data$gene), collapse=", ")
-        } else {
+          } else {
             "None"
+          }
+        } else {
+          "None"
         }
       }`</p>
     </td>
@@ -277,7 +310,7 @@ if(nrow(sv_data) > 0){
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Off target sites</th>
-    <th>Off-target sites > 1.0% indel frequency</th>
+    <th>Off-target sites > `r off_target_threshold_value`% indel frequency</th>
   </tr>
   <tr>
     <td><img src="off_targets.png" alt="Sample Image" class="equal-size-img"></td>
@@ -286,7 +319,10 @@ if(nrow(sv_data) > 0){
 #| echo: false
 #| results: 'asis'
 off_target_df <- as.data.frame(report_data$tables$off_target_indels)
-off_target_filtered <- off_target_df[as.numeric(off_target_df$indel_fraction) * 100 > r.params['off_target_threshold'] & as.character(ifelse(!is.null(off_target_df$is_target), off_target_df$is_target, off_target_df$is_target_site)) == '0',]
+off_target_filtered <- off_target_df[
+  as.numeric(off_target_df$indel_fraction) * 100 > as.numeric(params$off_target_threshold) &
+  as.character(ifelse(!is.null(off_target_df$is_target), off_target_df$is_target, off_target_df$is_target_site)) == '0',
+]
 if(nrow(off_target_filtered) > 0){
     cat('<table class="white-background-table off-target-subtable">')
     cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
@@ -298,7 +334,7 @@ if(nrow(off_target_filtered) > 0){
     }
     cat("</table>")
 } else {
-    cat("<p>No off-target sites with > 1.0% indel frequency found.</p>")
+    cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
 }
 ```
     </td>

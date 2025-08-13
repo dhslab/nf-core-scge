@@ -5,7 +5,7 @@ process GENERATE_CNA_BAF_PLOTS {
     container 'ghcr.io/dhslab/docker-clerbase:250719'
 
     input:
-    tuple val(meta), path(dragen_baf), path(dragen_cnv)
+    tuple val(meta), val(dragen_baf), val(dragen_cnv)
 
     output:
     tuple val(meta), path("cna_plot.png"), emit: cna_plot
@@ -18,18 +18,37 @@ process GENERATE_CNA_BAF_PLOTS {
     script:
     def args = task.ext.args ?: ''
     """
-    generate_cna_baf_plots.R \\
-        ${meta.id} \\
-        ${dragen_baf} \\
-        ${dragen_cnv}
+    set -euo pipefail
+
+    baf_path="${dragen_baf}"
+    cnv_path="${dragen_cnv}"
+
+    if [ -n "\$baf_path" ] && [ -n "\$cnv_path" ] && [ -e "\$baf_path" ] && [ -e "\$cnv_path" ]; then
+        generate_cna_baf_plots.R \
+            ${meta.id} \
+            \$baf_path \
+            \$cnv_path
+    else
+        echo "[GENERATE_CNA_BAF_PLOTS] Missing BAF/CNV inputs for ${meta.id}; creating placeholder plots" >&2
+        R --vanilla <<'RSCRIPT'
+        png("cna_plot.png", width=1800, height=900, res=150)
+        par(mar=c(0,0,0,0))
+        plot.new(); text(0.5, 0.5, "CNA plot unavailable", cex=2)
+        dev.off()
+        png("baf_plot.png", width=1800, height=900, res=150)
+        par(mar=c(0,0,0,0))
+        plot.new(); text(0.5, 0.5, "BAF plot unavailable", cex=2)
+        dev.off()
+RSCRIPT
+    fi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         r-base: \$(R --version | sed 's/.*version \\([0-9.]*\\).*/\\1/')
-        ggplot2: \$(R -e "library(ggplot2); sessionInfo()" | grep ggplot2 | awk '{print \$2}')
-        dplyr: \$(R -e "library(dplyr); sessionInfo()" | grep dplyr | awk '{print \$2}')
-        cowplot: \$(R -e "library(cowplot); sessionInfo()" | grep cowplot | awk '{print \$2}')
-        genomicranges: \$(R -e "library(GenomicRanges); sessionInfo()" | grep GenomicRanges | awk '{print \$2}')
+        ggplot2: \$(R -e "suppressMessages(library(ggplot2)); sessionInfo()" | grep ggplot2 | awk '{print \$2}')
+        dplyr: \$(R -e "suppressMessages(library(dplyr)); sessionInfo()" | grep dplyr | awk '{print \$2}')
+        cowplot: \$(R -e "suppressMessages(library(cowplot)); sessionInfo()" | grep cowplot | awk '{print \$2}')
+        genomicranges: \$(R -e "suppressMessages(library(GenomicRanges)); sessionInfo()" | grep GenomicRanges | awk '{print \$2}')
     END_VERSIONS
     """
 } 

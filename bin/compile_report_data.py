@@ -21,6 +21,7 @@ def parse_offtarget_file(file_path):
             records.append(row_dict)
     return records
 
+
 def main():
     """
     Main function to parse arguments and compile data.
@@ -41,9 +42,15 @@ def main():
     off_target_data = parse_offtarget_file(args.off_target_indels)
 
     # Parse the on-target SV and transgene data
-    on_target_sv_transgene_df = pd.read_csv(args.on_target_sv_transgene, sep='\t')
+    # Keep 'NA' as literal strings to avoid NaN in JSON, and read all columns as strings
+    on_target_sv_transgene_df = pd.read_csv(
+        args.on_target_sv_transgene,
+        sep='\t',
+        keep_default_na=False,
+        na_filter=False,
+        dtype=str,
+    )
     on_target_sv_transgene_data = on_target_sv_transgene_df.to_dict(orient='records')
-
 
     # Create a dictionary to hold all the report data.
     report_data = {
@@ -67,7 +74,7 @@ def main():
 
     # Write the compiled data to the output JSON file.
     with open(args.output, 'w') as f:
-        json.dump(report_data, f, indent=4)
+        json.dump(report_data, f, indent=4, allow_nan=False)
 
 if __name__ == "__main__":
     main() 

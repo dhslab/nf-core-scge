@@ -2,15 +2,15 @@ process COMPILE_REPORT_JSON {
     tag "${meta.id}"
     label 'process_low'
 
-    container 'ghcr.io/dhslab/docker-clerbase:250719'
+    container 'ghcr.io/dhslab/docker-baseimage:latest'
 
     input:
     tuple val(meta),
           path(cna_plot),
           path(baf_plot),
-          path(circos_plot),
-          path(on_target_sv_transgene),
-          path(off_target_indels)
+          val(circos_plot),
+          val(on_target_sv_transgene),
+          val(off_target_indels)
 
     output:
     tuple val(meta), path("report_input.json"), emit: json
@@ -22,9 +22,9 @@ process COMPILE_REPORT_JSON {
     script:
     def args = task.ext.args ?: ''
     def transgene_str = meta.transgene ?: "N/A"
-    def circos_arg = circos_plot.name == "NO_FILE.png" ? "" : "--circos_plot ${circos_plot}"
+    def circos_arg = (circos_plot && circos_plot.toString().endsWith(".png") && file(circos_plot).exists()) ? "--circos_plot ${circos_plot}" : ""
     """
-    compile_report_data.py \\
+    python3 ${projectDir}/bin/compile_report_data.py \\
         --sample_id ${meta.id} \\
         --transgene "${transgene_str}" \\
         --cna_plot ${cna_plot} \\

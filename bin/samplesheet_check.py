@@ -162,11 +162,23 @@ def main():
 
     df = pd.concat([df_reads,df_cram,df_bam,df_dragen],axis=0,ignore_index=True)
 
-    # Check file existence for 'cram' and 'bam'
-    for col in ['cram', 'bam', 'read1', 'read2','dragen_path']:
+    # Check file existence for files that should be staged or mounted
+    for col in ['cram', 'bam', 'read1', 'read2']:
         if col in df.columns:
             if df[col].notna().any() and not df[df[col].notna()][col].apply(os.path.exists).all():
                 raise FileNotFoundError(f"Some files in the '{col}' column do not exist.")
+
+    # 'dragen_path' may be an absolute host path not mounted inside the container.
+    # Do not hard-fail here; emit a warning and proceed. Downstream processes will stage required files.
+    if 'dragen_path' in df.columns and df['dragen_path'].notna().any():
+        exists_mask = df[df['dragen_path'].notna()]['dragen_path'].apply(os.path.exists)
+        if not exists_mask.all():
+            missing_count = (~exists_mask).sum()
+            print(
+                f"Warning: {missing_count} 'dragen_path' entries are not accessible in the current environment. "
+                "Proceeding, but ensure downstream steps can access DRAGEN outputs.",
+                file=sys.stderr,
+            )
 
     if df.shape[0] == 0:
         sys.exit(f"No rows in samplesheet {args.samplesheet} after checking.")
