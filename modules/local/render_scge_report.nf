@@ -1,11 +1,11 @@
-process MAKE_QUARTO_REPORT {
+process RENDER_SCGE_REPORT {
     tag "${meta.id}"
     label "process_low"
     label 'final_output'
     container "ghcr.io/dhslab/docker-quarto-chromoseq:latest"
 
     input:
-    tuple val(meta), path(report_json)
+    tuple val(meta), path(report_json), path(cna_plot), path(baf_plot)
     path(scge_report_qmd)
 
     output:

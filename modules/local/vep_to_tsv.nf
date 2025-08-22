@@ -16,10 +16,10 @@ process VEP_TO_TSV {
 
     script:
     def args =
-    (type == "vcf" ? "-i 1 -v" : 
-    type == "cnv" ? "-i 0 -s" : 
+    (type == "vcf" ? "-i 1 -v" :
+    type == "cnv" ? "-i 0 -s" :
     type == "sv" ? "-i 1 -s" : "")
-    output = input.getName().replaceAll(/\.vcf$/, ".tsv")
+    def output = input.getName().replaceFirst('\\.vcf\\.gz\$', '.tsv')
     """
     vep2table.py $args $input -o $output
 

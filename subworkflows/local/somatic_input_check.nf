@@ -22,181 +22,80 @@ workflow SOMATIC_INPUT_CHECK {
     .csv
     .splitCsv ( header:true, sep:',' )
     .map { create_master_samplesheet(it) }
-    .map { meta -> 
-        if (meta.id == params.tumorid){
-            meta.sample_type = 'tumor'
-            meta.uid = params.id
-        } else if (meta.id == params.normalid){
-            meta.sample_type = 'normal'
-            meta.uid = params.id
-        }   
-        return meta 
-    }
-    .filter { it.sample_type != null || it.dragen_path != null }
-    .set { ch_mastersheet }
-    
-    ch_mastersheet
-    .map { meta -> 
-        if (meta.read1 != null && meta.read2 != null){
-            def new_meta = [:]
-            new_meta['id'] = meta.uid
-            new_meta['assay'] = meta.assay
-            def sample_id = ""
-            if (meta.sample_id != null){
-                sample_id = '.' + meta.sample_id
-            }
-            def rgid = meta.flowcell + sample_id + '.' + meta.i7index + '.' + meta.i5index + '.' + meta.lane 
-            def rglb = meta.id + '.' + meta.i7index + '.' + meta.i5index
-            tumor_id = ""
-            normal_id = ""
-            if (meta.sample_type == 'tumor'){
-                tumor_id = meta.id
-            } else if (meta.sample_type == 'normal'){
-                normal_id = meta.id
-            }
-
-            [ new_meta, tumor_id, normal_id, [ rgid, meta.id, rglb, meta.lane, file(meta.read1), file(meta.read2) ] ]
-        }
-    }
+    .map { row -> [ row.uid ?: row.id, row ] }
     .groupTuple()
-    .map { meta, tumor, normal, fqlist -> 
-            new_meta = meta.subMap('id', 'assay')
-            new_meta['tumor'] = tumor.findAll { it != '' }.unique()[0]
-            new_meta['normal'] = normal.findAll { it != '' }.unique()[0]
+    .map { key, rows ->
+        def tumor_rows = rows.findAll { it.sample_type == 'tumor' }
+        def normal_rows = rows.findAll { it.sample_type == 'normal' }
 
-            def fileList = ['RGID,RGSM,RGLB,Lane,Read1File,Read2File']
-            def read1 = []
-            def read2 = []
+        // We expect one tumor and one normal, but can handle multiple rows (e.g. for multiple fastqs)
+        if (!tumor_rows.isEmpty() && !normal_rows.isEmpty()) {
+            def tumor_meta = tumor_rows.first().subMap('id', 'assay', 'dragen_path', 'uid')
+            def normal_meta = normal_rows.first().subMap('id', 'assay', 'dragen_path', 'uid')
+            tumor_meta.normal_id = normal_meta.id // Keep track of the paired normal
+            
+            // Collect all files from the respective DRAGEN output paths
+            def tumor_files = tumor_rows.collect { it.dragen_path }.unique().findAll { it != null }.collect { file(it).listFiles().collect{it.toString()} }.flatten()
+            def normal_files = normal_rows.collect { it.dragen_path }.unique().findAll { it != null }.collect { file(it).listFiles().collect{it.toString()} }.flatten()
+            
+            def all_files = []
+            all_files.addAll(tumor_files)
+            all_files.addAll(normal_files)
 
-             // Create data rows
-            for (int i = 0; i < fqlist.size(); i++) {
-                def row = fqlist[i]
-                read1 << file(row[4])
-                read2 << file(row[5])
-                fileList << [ row[0], row[1], row[2], row[3], row[4].toString().split('/')[-1], row[5].toString().split('/')[-1] ].join(',')
-            }
-            return [ new_meta, fileList.join('\n'), read1, read2 ]
-    }
-    .filter { it[0].tumor != "" && it[0].normal != "" }
-    .set { ch_fastqs }
-
-    // Put read1 and read2 files into separate channels.
-    ch_fastqs
-    .map { meta, fqlist, read1, read2 -> [ meta, read1 ] }
-    .transpose()
-    .set { ch_read1 }
-
-    ch_fastqs
-    .map { meta, fqlist, read1, read2 -> [ meta, read2 ] }
-    .transpose()
-    .set { ch_read2 }
-
-    // Make fastq_list file from string.
-    ch_fastqs
-    .map { meta, fqlist, read1, read2 -> [ meta, fqlist ] } | MAKE_FASTQLIST
-
-    // Concatenate read1, read2, and fastqlist channels and group by meta.
-    MAKE_FASTQLIST.out.fastq_list
-    .concat(ch_read1,ch_read2)
-    .transpose()
-    .groupTuple()
-    .map { meta, files -> 
-        return [ meta, 'fastq', files ]
-    }
-    .set { ch_input_data }
-
-    // Organize cram files into a channel.
-    // this saves the cram file names as values and the files as a list of files
-    ch_mastersheet
-    .map { meta -> 
-        if (meta.cram != null){
-            def new_meta = [:]
-            new_meta['id'] = meta.uid
-            new_meta['assay'] = meta.assay
-            if (meta.sample_type == 'tumor'){
-                return [ new_meta, file(meta.cram).getName(), '', [ file(meta.cram), file(meta.cram + '.crai') ] ]
-            } else if (meta.sample_type == 'normal'){
-                return [ new_meta, '', file(meta.cram).getName(), [ file(meta.cram), file(meta.cram + '.crai') ] ]
-            }
-        }
-    }
-    .groupTuple()
-    .map { meta, tumor, normal, crams ->
-        meta['tumor'] = tumor.findAll { it != '' }.unique()[0]
-        meta['normal'] = normal.findAll { it != '' }.unique()[0]
-        return [ meta, 'cram', crams ]
-    }
-    .filter { it[0].tumor != "" && it[0].normal != "" }
-    .set { ch_cram }
-
-    ch_input_data = ch_input_data.mix(ch_cram)
-
-    // Organize bam files into a channel.
-    ch_mastersheet
-    .map { meta -> 
-        if (meta.bam != null){
-            def new_meta = [:]
-            new_meta['id'] = meta.uid
-            new_meta['assay'] = meta.assay
-            if (meta.sample_type == 'tumor'){
-                return [ new_meta, file(meta.bam).getName(), '', [ file(meta.bam), file(meta.bam + '.crai') ] ]
-            } else if (meta.sample_type == 'normal'){
-                return [ new_meta, '', file(meta.bam).getName(), [ file(meta.bam), file(meta.bam + '.crai') ] ]
-            }
-        }
-    }
-    .groupTuple()
-    .map { meta, tumor, normal, bams ->
-        meta['tumor'] = tumor.findAll { it != '' }.unique()[0]
-        meta['normal'] = normal.findAll { it != '' }.unique()[0]
-        return [ meta, 'bam', bams ]
-    }
-    .filter { it.tumor != "" && it.normal != "" }
-    .set { ch_bam }
-
-    ch_input_data = ch_input_data.mix(ch_bam)
-
-    ch_mastersheet
-    .map { meta -> 
-        if (meta.dragen_path != null){
-            def new_meta = [:]
-            new_meta['id'] = meta.id
-            return [new_meta]
-        }
-    }
-    .set{ch_ids}
-    ch_input_data = ch_input_data.mix(ch_ids)
-
-    ch_hotspots = ch_mastersheet
-        .map{ row -> 
-        if (row.uid != null) {
-            return [row.uid, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]
-            }
-        else {
-            return [row.id, row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"]
-            }
-        }
-        .unique()
-
-    ch_input_data = ch_input_data
-        .map{row -> [row[0].id, row]}
-        .join(ch_hotspots, by:0)
-        .map{id, info, hotspot -> [info, hotspot]}
-
-    ch_mastersheet
-    .map { meta -> 
-        if (meta.dragen_path != null){
-            def new_meta = meta.subMap('id','assay','dragen_path')
-            def file_paths = file(meta.dragen_path).listFiles().collect { it.toString() }
-            return [new_meta, file_paths]
-            // return [ new_meta, file(meta.dragen_path).listFiles() ]
+            return [ tumor_meta, all_files ]
+        } else {
+            // Handle cases with only precomputed dragen_path and no tumor/normal pairs
+            def meta = rows.first().subMap('id', 'assay', 'dragen_path')
+            def files = rows.collect{it.dragen_path}.unique().findAll { it != null }.collect{ file(it).listFiles().collect{it.toString()} }.flatten()
+            return [ meta, files ]
         }
     }
     .set { ch_dragen_outputs }
 
+
+    // The following logic for fastqs, crams, and bams is for DRAGEN runs.
+    // Since we are running with --run_dragen false, we can simplify this subworkflow
+    // to primarily focus on emitting the ch_dragen_outputs channel correctly.
+    // The ch_input_data and ch_hotspots are still needed for analysis mode.
+    ch_mastersheet = SAMPLESHEET_CHECK.out.csv
+        .splitCsv( header:true, sep:',' )
+        .map { create_master_samplesheet(it) }
+        .filter { it.sample_type == 'tumor' || it.dragen_path != null } // Only process tumors or samples with dragen_path
+
+
+    ch_input_data = ch_mastersheet.map{ row ->
+        def meta = row.subMap('id', 'assay', 'uid', 'sample_type')
+        // When not running dragen, we don't need files, just the metadata
+        [meta, []]
+    }
+
+    ch_hotspots = ch_mastersheet
+        .map{ row ->
+            def hs = params.hotspot_csv ?: row.hotspot_file ?: "$projectDir/assets/NO_FILE.csv"
+            def key = row.uid ?: row.id
+            [key, hs]
+        }
+        .unique()
+
+
+    // This join is probably not needed in analysis only mode, but we keep it for now.
+    ch_input_data = ch_input_data
+        .map{ meta, files ->
+            def key = meta.uid ?: meta.id
+            [key, [meta, files]]
+        }
+        .join(ch_hotspots, by: 0)
+        .map{ id, info, hotspot ->
+            // The structure for ch_input_data is [meta, file_list]
+            // In analysis mode, the file list is empty, but we add the hotspot file
+            [info[0], [info[1], hotspot]]
+        }
+
+
     emit:
     dragen_outputs = ch_dragen_outputs
     input_data = ch_input_data
+    hotspots = ch_hotspots
 }
 
 def create_master_samplesheet(LinkedHashMap row) {

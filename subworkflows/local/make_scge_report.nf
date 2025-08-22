@@ -1,12 +1,12 @@
 // make scge report
 
-include { MAKE_QUARTO_REPORT } from '../../modules/local/make_quarto_report.nf'
+include { RENDER_SCGE_REPORT } from '../../modules/local/render_scge_report.nf'
 
 workflow MAKE_SCGE_REPORT {
     take:
-    ch_report_json
+    ch_report_input
 
     main:
-    MAKE_QUARTO_REPORT(ch_report_json, params.scge_report_qmd)
+    RENDER_SCGE_REPORT(ch_report_input, params.scge_report_qmd)
     
 }

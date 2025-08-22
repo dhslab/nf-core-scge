@@ -122,9 +122,10 @@ def get_runinfo(cramfile,reference=None):
 
 def vepToTable(csq,header):
     fields = header['Description'].strip('"').split("|")
-    df = pd.DataFrame(columns=fields)
+    data = []
     for i in csq.split(','):
-        df = pd.concat([df,pd.DataFrame([dict(zip(df.columns,i.split("|")))])],axis=0,ignore_index=True)
+        data.append(dict(zip(fields, i.split("|"))))
+    df = pd.DataFrame(data)
 
     # if no symbol, use Gene ID
     df.loc[df['SYMBOL']=='','SYMBOL'] = df.loc[df['SYMBOL']=='','Gene']
@@ -175,7 +176,8 @@ def parse_small_variants(vcffile,individual=0):
     #
     #########################################
 
-    variants = pd.DataFrame(columns=['type','filters','chrom','pos','ref','alt','gene','gene_id','transcript','consequence','csyntax','psyntax','exon','intron','pop_af','annotations','coverage','altreads','vaf'])
+    variants_data = []
+    variants_columns = ['type','filters','chrom','pos','ref','alt','gene','gene_id','transcript','consequence','csyntax','psyntax','exon','intron','pop_af','annotations','coverage','altreads','vaf']
 
     vcf = VCF(vcffile)
 
@@ -268,15 +270,17 @@ def parse_small_variants(vcffile,individual=0):
             popmaf = round(float(popmaf)*100,3)
 
         # only include all variants <=0.1% and ns or specific noncoding variants 
-        variants = pd.concat([variants,pd.DataFrame([dict(zip(variants.columns,[vartype,varfilter,str(variant.CHROM),variant.POS,variant.REF,variant.ALT[0],gene,gene_id,transcript,consequence,csyntax,psyntax,exon,intron,popmaf,customannotation,totalReads,variantReads,abundance]))])])
-
+        variants_data.append(dict(zip(variants_columns,[vartype,varfilter,str(variant.CHROM),variant.POS,variant.REF,variant.ALT[0],gene,gene_id,transcript,consequence,csyntax,psyntax,exon,intron,popmaf,customannotation,totalReads,variantReads,abundance])))
+    
+    variants = pd.DataFrame(variants_data, columns=variants_columns)
     return variants
 
 def parse_svs(svvcffile,individual=0):
 
     nonSynon = ["splice_acceptor_variant","splice_donor_variant","stop_gained","frameshift_variant","stop_lost","start_lost","transcript_ablation","transcript_amplification","inframe_insertion","inframe_deletion","missense_variant","protein_altering_variant"]
 
-    svs = pd.DataFrame(columns=['type','chrom1','pos1','chrom2','pos2','length','csyntax','psyntax','bands','known_genes','known_gene_detail','total_genes','filters','id','abundance','info'])
+    svs_data = []
+    svs_columns = ['type','chrom1','pos1','chrom2','pos2','length','csyntax','psyntax','bands','known_genes','known_gene_detail','total_genes','filters','id','abundance','info']
 
     ########################
     #
@@ -403,7 +407,7 @@ def parse_svs(svvcffile,individual=0):
             else:
                 filter = ';'.join(filter)
 
-            svs = pd.concat([svs,pd.DataFrame([dict(zip(svs.columns,[vartype,chr,pos1,chr,pos2,svlen,csyntax,psyntax,bandstring,genestring,genedetail,total_genes,filter,str(variant.ID),abundance,infostring]))])])
+            svs_data.append(dict(zip(svs_columns,[vartype,chr,pos1,chr,pos2,svlen,csyntax,psyntax,bandstring,genestring,genedetail,total_genes,filter,str(variant.ID),abundance,infostring])))
 
     # now handle BNDs, which each have 2 entries.
     # this includes translocations and inversions
@@ -558,10 +562,11 @@ def parse_svs(svvcffile,individual=0):
         else:
             filter = ';'.join(filter)
 
-        svs = pd.concat([svs,pd.DataFrame([dict(zip(svs.columns,[vartype,chr1,pos1,chr2,pos2,svlen,csyntax,psyntax,bandstring,genestring,genedetail,total_genes,filter,str(variant.ID) + ";" + str(mate.ID),abundance,infostring]))])])
+        svs_data.append(dict(zip(svs_columns,[vartype,chr1,pos1,chr2,pos2,svlen,csyntax,psyntax,bandstring,genestring,genedetail,total_genes,filter,str(variant.ID) + ";" + str(mate.ID),abundance,infostring])))
 
         alreadydone.add(variant.ID)
-
+    
+    svs = pd.DataFrame(svs_data, columns=svs_columns)
     return svs
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

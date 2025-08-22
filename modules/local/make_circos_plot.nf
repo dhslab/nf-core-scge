@@ -7,7 +7,7 @@ process  MAKE_CIRCOS_PLOT {
     tuple val(meta), path(circos_input)
 
     output:
-    tuple val(meta), path("*png"), emit: circos_png
+    tuple val(meta), path("*png"), emit: circos_plot
 
     script:
     """

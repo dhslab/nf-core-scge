@@ -3,7 +3,26 @@
     PRINT PARAMS SUMMARY
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
+
 include { paramsSummaryLog; paramsSummaryMap } from 'plugin/nf-validation'
+
+def logo = NfcoreTemplate.logo(workflow, params.monochrome_logs)
+def citation = '\n' + WorkflowMain.citation(workflow) + '\n'
+def summary_params = paramsSummaryMap(workflow)
+
+// Print parameter summary log to screen
+log.info logo + paramsSummaryLog(workflow) + citation
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    CONFIG FILES
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+ch_multiqc_config          = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
+ch_multiqc_custom_config   = params.multiqc_config ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) : Channel.empty()
+ch_multiqc_logo            = params.multiqc_logo   ? Channel.fromPath( params.multiqc_logo, checkIfExists: true ) : Channel.empty()
+ch_multiqc_custom_methods_description = params.multiqc_methods_description ? file(params.multiqc_methods_description, checkIfExists: true) : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -65,13 +84,15 @@ def stageFileset(Map filePathMap) {
     return [basePathMap, filePathsList]
 }
 
-def generateMetaFromCsv(csv_file) {
-    def lines = csv_file.text.readLines()
-    def headers = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
-    return lines.drop(1).collect { line ->
-        def fields = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
-        [headers, fields].transpose().collectEntries { k, v -> v ? [(k): v] : [:] }
-    }.findAll { it }
+// If MGI samplesheet is used, we need to set the
+// data path because only files are given. This sets the
+// data path to the samplesheet directory, or the data_path parameter.
+def data_path = ""
+def mastersheet = params.input
+if (params.mgi == true) {
+    data_path = new File(params.input).parentFile.absolutePath
+} else if (params.data_path != null){
+    data_path  = params.data_path
 }
 
 /*
@@ -81,31 +102,17 @@ def generateMetaFromCsv(csv_file) {
 */
 
 workflow SCGE {
-
-    def logo = NfcoreTemplate.logo(workflow, params.monochrome_logs)
-    def citation = '\n' + WorkflowMain.citation(workflow) + '\n'
-    def summary_params = paramsSummaryMap(workflow)
-
-    // Print parameter summary log to screen
-    log.info logo + paramsSummaryLog(workflow) + citation
-
-    ch_multiqc_config          = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
-    ch_multiqc_custom_config   = params.multiqc_config ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_logo            = params.multiqc_logo   ? Channel.fromPath( params.multiqc_logo, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_custom_methods_description = params.multiqc_methods_description ? file(params.multiqc_methods_description, checkIfExists: true) : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
-
-    // If MGI samplesheet is used, we need to set the
-    // data path because only files are given. This sets the
-    // data path to the samplesheet directory, or the data_path parameter.
-    def data_path = ""
-    def mastersheet = params.input
-    if (params.mgi == true) {
-        data_path = new File(params.input).parentFile.absolutePath
-    } else if (params.data_path != null){
-        data_path  = params.data_path
-    }
-
     def multiqc_report = []
+
+    // Parse CSV files from PARSE_INPUT_SAMPLESHEET for each sample into 'meta'
+    def generateMetaFromCsv(csv_file) {
+        def lines = csv_file.text.readLines()
+        def headers = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
+        return lines.drop(1).collect { line ->
+            def fields = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
+            [headers, fields].transpose().collectEntries { k, v -> v ? [(k): v] : [:] }
+        }.findAll { it }
+    }
 
     ch_versions = Channel.empty()
     ch_dragen_outputs = Channel.empty()
@@ -117,7 +124,9 @@ workflow SCGE {
     // - hotspot file (now a parameter and not in the input sheet)
     // - VEP cache
     // FastA reference
-    ch_fasta_reference = Channel.fromPath(params.fasta, checkIfExists: true)
+    ch_fasta_reference = params.fasta ?
+        Channel.fromPath("${params.fasta}*", checkIfExists: true).collect() :
+        Channel.empty()
     // Vep cache
     ch_vep_cache = params.vep_cache ?
         Channel.fromPath(params.vep_cache, checkIfExists: true).collect() :
@@ -196,21 +205,13 @@ workflow SCGE {
     GET_INDELS(ch_get_indels_input)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
-    ch_vcf_for_annotation = ch_dragen_output.map { meta, dragen_path ->
-        def vcf_file = file("${dragen_path}/${meta.id}.hard-filtered.vcf.gz")
-        if (vcf_file.exists()) {
-            return [meta, vcf_file]
-        } else {
-            log.warn "VCF file not found for sample ${meta.id}: ${vcf_file}"
-            return null
-        }
-    }.filter { it != null }
 
-    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference.first(), ch_vep_cache.first())
+    // USe this single process to annotate the hard-filtered, sv, and cnv VCF files and return all three.
+    ch_assay_inputs = ch_dragen_output.map { meta, files -> [ [:], file(params.input) ] }
+    ANNOTATE_VARIANTS (ch_dragen_output, ch_assay_inputs, ch_fasta_reference)
     ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
-    ANNOTATE_VARIANTS.out.vcf.view()
-    VEP_TO_TSV(ANNOTATE_VARIANTS.out.vcf.map { meta, vcf -> [meta, "vcf", vcf] })
+    VEP_TO_TSV(ANNOTATE_VARIANTS.out.vcf)
         ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
     GET_TRANSGENE_JUNCTIONS(ch_dragen_output)
@@ -234,12 +235,13 @@ workflow SCGE {
     //     ch_versions.unique().collectFile(name: 'collated_versions.yml')
     // )
 
+    /*
     ch_coverage_metrics = ch_dragen_output.map { meta, dragen_path ->
         def coverage_file = file("${dragen_path}/${meta.id}.wgs_coverage_metrics_tumor.csv")
         if (coverage_file.exists()) {
             return [meta.id, coverage_file]
         } else {
-            log.warn "Coverage. metrics file not found for sample ${meta.id}: ${coverage_file}"
+            log.warn "Coverage metrics file not found for sample ${meta.id}: ${coverage_file}"
             return [meta.id, null]
         }
     }
@@ -248,25 +250,19 @@ workflow SCGE {
     def ch_plots = GENERATE_CNA_BAF_PLOTS.out.cna_plot
         .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
         .map { meta, cna, baf -> [meta.id, meta, cna, baf] }
-    ch_plots.view { "Plots: $it" }
 
     def ch_circos = MAKE_CIRCOS_PLOT.out.circos_plot
         .map { meta, circos -> [meta.id, circos] }
-    ch_circos.view { "Circos: $it" }
 
     def ch_annotated_transgene = ANNOTATE_TRANSGENE_VARIANTS.out.annotated_transgene_variants
         .map { meta, transgene -> [meta.id, transgene] }
-    ch_annotated_transgene.view { "Annotated Transgene: $it" }
 
-    def ch_vep_tsv = VEP_TO_TSV.out.vep_tsv
+    def ch_vep_tsv = VEP_TO_TSV.out.tsv
         .map { meta, tsv -> [meta.id, tsv] }
-    ch_vep_tsv.view { "VEP TSV: $it" }
 
     def ch_indels = GET_INDELS.out.indels_file
         .map { meta, indels -> [meta.id, indels] }
-    ch_indels.view { "Indels: $it" }
 
-    ch_coverage_metrics.view { "Coverage Metrics: $it" }
 
     ch_plots
         .join(ch_circos, by: 0)
@@ -281,18 +277,9 @@ workflow SCGE {
 
 
     COMPILE_REPORT_JSON(ch_compile_report_input)
-    ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
 
-    def ch_plots_for_report = GENERATE_CNA_BAF_PLOTS.out.cna_plot
-        .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
-        .map { meta, cna, baf -> [meta.id, cna, baf] }
-
-    def ch_report_input = COMPILE_REPORT_JSON.out.json
-        .map { meta, json -> [meta.id, meta, json] }
-        .join(ch_plots_for_report)
-        .map { id, meta, json, cna, baf -> [meta, json, cna, baf] }
-
-    MAKE_SCGE_REPORT(ch_report_input)
+    MAKE_SCGE_REPORT(COMPILE_REPORT_JSON.out.json)
+    */
 
     // MODULE: MultiQC
     workflow_summary    = WorkflowScge.paramsSummaryMultiqc(workflow, summary_params)
@@ -313,6 +300,7 @@ workflow SCGE {
         ch_multiqc_logo.toList()
     )
     multiqc_report = MULTIQC.out.report.toList()
+
 }
 
 /*
@@ -338,6 +326,7 @@ workflow.onError {
         println("💡 See here on how to configure pipeline: https://nf-co.re/docs/usage/configuration#tuning-workflow-resources 💡")
     }
 }
+
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

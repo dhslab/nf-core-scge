@@ -10,7 +10,9 @@ process COMPILE_REPORT_JSON {
           path(baf_plot),
           val(circos_plot),
           val(on_target_sv_transgene),
-          val(off_target_indels)
+          val(vcf_tsv),
+          val(off_target_indels),
+          val(coverage_metrics)
 
     output:
     tuple val(meta), path("report_input.json"), emit: json
@@ -21,17 +23,24 @@ process COMPILE_REPORT_JSON {
 
     script:
     def args = task.ext.args ?: ''
-    def transgene_str = meta.transgene ?: "N/A"
+    def transgene_str = params.transgene ?: (meta.transgene ?: "N/A")
+    def control_sample = params.control_sample ?: (meta.normal ?: "N/A")
+    def grnas_str = params.grnas ?: ""
     def circos_arg = (circos_plot && circos_plot.toString().endsWith(".png") && file(circos_plot).exists()) ? "--circos_plot ${circos_plot}" : ""
+    def coverage_args = (coverage_metrics instanceof java.util.List) ? coverage_metrics.collect{ "--coverage_metrics ${it}" }.join(' ') : ""
     """
     python3 ${projectDir}/bin/compile_report_data.py \\
         --sample_id ${meta.id} \\
         --transgene "${transgene_str}" \\
+        --control_sample "${control_sample}" \\
+        --grnas "${grnas_str}" \\
         --cna_plot ${cna_plot} \\
         --baf_plot ${baf_plot} \\
         ${circos_arg} \\
         --on_target_sv_transgene ${on_target_sv_transgene} \\
+        --vcf_tsv ${vcf_tsv} \\
         --off_target_indels ${off_target_indels} \\
+        ${coverage_args} \\
         --output report_input.json
 
     cat <<-END_VERSIONS > versions.yml

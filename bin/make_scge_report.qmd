@@ -38,6 +38,84 @@ use_python("/opt/conda/bin/python3")
 report_data <- fromJSON(params$report_json)
 off_target_threshold_value <- as.numeric(params$off_target_threshold)
 report_json_path <- params$report_json
+
+# -- Prepare SV table HTML --
+sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
+sv_table_html <- ""
+if(nrow(sv_data) > 0){
+    sv_rows <- ""
+    # Prefer csyntax if present; otherwise fall back to 'note' or a compact row summary
+    if ("csyntax" %in% names(sv_data)) {
+        for(i in 1:nrow(sv_data)){
+            sv_rows <- paste0(sv_rows, "<tr><td>", sv_data[i, "csyntax"], "</td></tr>")
+        }
+    } else if ("note" %in% names(sv_data)) {
+        for(i in 1:nrow(sv_data)){
+            sv_rows <- paste0(sv_rows, "<tr><td>", sv_data[i, "note"], "</td></tr>")
+        }
+    } else {
+        for(i in 1:nrow(sv_data)){
+            sv_rows <- paste0(sv_rows, "<tr><td>", paste0(names(sv_data), ": ", as.character(unlist(sv_data[i, , drop=FALSE])) , collapse = " | "), "</td></tr>")
+        }
+    }
+    sv_table_html <- paste0('<table class="white-background-table">', sv_rows, '</table>')
+} else {
+    if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
+        sv_table_html <- "<p>No coding structural variants found. See circos plot for all variants.</p>"
+    } else {
+        sv_table_html <- "<p>No structural variants found.</p>"
+    }
+}
+
+# -- Prepare Circos plot HTML --
+circos_html <- ""
+if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
+  file.copy(from = report_data$plots$circos, to = "circos.png", overwrite = TRUE)
+  img_tag <- '<img src="circos.png" alt="circos plot" class="equal-size-img">'
+  
+  insertions <- "None"
+  if ("type" %in% names(sv_data) && "gene" %in% names(sv_data)) {
+    integration_data <- subset(sv_data, type == 'INS')
+    if (nrow(integration_data) > 0) {
+      insertions <- paste(unique(integration_data$gene), collapse=", ")
+    }
+  }
+  p_tag <- paste0('<p style="text-align: center; margin-top: 8px;">Coding sequence insertions: ', insertions, '</p>')
+  circos_html <- paste0(img_tag, p_tag)
+}
+
+# -- Prepare CNA/BAF plots HTML --
+cna_plot_html <- if (!is.null(report_data$plots$cna) && file.exists(report_data$plots$cna) && file.info(report_data$plots$cna)$size > 0) {
+  paste0('<img src="', report_data$plots$cna, '" alt="CNA Plot" class="equal-size-img">')
+} else {
+  '<div class="plot-unavailable"><p>CNA plot not available</p></div>'
+}
+baf_plot_html <- if (!is.null(report_data$plots$baf) && file.exists(report_data$plots$baf) && file.info(report_data$plots$baf)$size > 0) {
+  paste0('<img src="', report_data$plots$baf, '" alt="BAF Plot" class="equal-size-img">')
+} else {
+  '<div class="plot-unavailable"><p>BAF plot not available</p></div>'
+}
+
+# -- Prepare Targeted Gene Mutations table HTML --
+targeted_gene_mutations_html <- ""
+if (!is.null(report_data$tables$targeted_gene_mutations)) {
+  tgm <- as.data.frame(report_data$tables$targeted_gene_mutations)
+  if (nrow(tgm) > 0 && all(c('gene','result') %in% colnames(tgm))) {
+    for (i in 1:nrow(tgm)) {
+      targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', tgm[i, 'gene'], '</td><td>', tgm[i, 'result'], '</td></tr>')
+    }
+  } else {
+    default_genes <- c('TP53','DNMT3A','RUNX1','TET2')
+    for (g in default_genes) {
+      targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', g, '</td><td>no data</td></tr>')
+    }
+  }
+} else {
+  default_genes <- c('TP53','DNMT3A','RUNX1','TET2')
+  for (g in default_genes) {
+    targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', g, '</td><td>no data</td></tr>')
+  }
+}
 ```
 <!-- Python code makes on target editing bar plot, and off target sites plot -->
 ```{python}
@@ -122,16 +200,20 @@ if off_target_x:
 #| results: 'asis'
 cat("<table>")
 cat("<tr><th>Drug Product</th><th>Control Sample</th><th>Modifications</th></tr>")
-cat(paste0("<tr><td>", report_data$sample_id, "</td><td>DONOR_16</td><td><strong>Transgene:</strong></td></tr>"))
-cat(paste0("<tr><td>Mean coverage: 191x</td><td>Mean coverage: 58x</td><td>", report_data$transgene_description, "</td></tr>"))
+control_sample <- ifelse(!is.null(report_data$metadata$control_sample), report_data$metadata$control_sample, "N/A")
+cat(paste0("<tr><td>", report_data$sample_id, "</td><td>", control_sample, "</td><td><strong>Transgene:</strong></td></tr>"))
+tumor_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$tumor), paste0("Mean coverage: ", report_data$metadata$mean_coverage$tumor, "x"), "Mean coverage: N/A")
+normal_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$normal), paste0("Mean coverage: ", report_data$metadata$mean_coverage$normal, "x"), "Mean coverage: N/A")
+cat(paste0("<tr><td>", tumor_cov, "</td><td>", normal_cov, "</td><td>", report_data$transgene_description, "</td></tr>"))
 cat("<tr><td></td><td></td><td><strong>gRNA:</strong></td></tr>")
-cat("<tr><td></td><td></td><td>TRAC, TRBC1/TRBC2</td></tr>")
+grna_txt <- if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas) > 0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"
+cat(paste0("<tr><td></td><td></td><td>", grna_txt, "</td></tr>"))
 cat("</table>")
 ```
 <tr>
   <td></td>
   <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>On-target editing (TRAC, TRBC1, TRBC2)</em></h1></td>
+  <td><h1 style="margin-bottom: 0;"><em>On-target editing (`r if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas)>0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"`)</em></h1></td>
 </tr>
 
 <style>
@@ -258,48 +340,8 @@ cat("</table>")
   </tr>
   <tr>
     <td><img src="indel_freq.png" alt="Indel Frequency" class="equal-size-img"></td>
-    <td>
-```{r}
-#| echo: false
-#| results: 'asis'
-sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
-if(nrow(sv_data) > 0){
-    cat('<table class="white-background-table">')
-    # Prefer csyntax if present; otherwise fall back to 'note' or a compact row summary
-    if ("csyntax" %in% names(sv_data)) {
-        for(i in 1:nrow(sv_data)){
-            cat(paste0("<tr><td>", sv_data[i, "csyntax"], "</td></tr>"))
-        }
-    } else if ("note" %in% names(sv_data)) {
-        for(i in 1:nrow(sv_data)){
-            cat(paste0("<tr><td>", sv_data[i, "note"], "</td></tr>"))
-        }
-    } else {
-        for(i in 1:nrow(sv_data)){
-            cat(paste0("<tr><td>", paste0(names(sv_data), ": ", as.character(unlist(sv_data[i, , drop=FALSE])) , collapse = " | "), "</td></tr>"))
-        }
-    }
-    cat("</table>")
-} else {
-    cat("<p>No structural variants found.</p>")
-}
-```
-    </td>
-    <td>
-      `r if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) { paste0('<img src="', report_data$plots$circos, '" alt="circos plot" class="equal-size-img">') }`
-      <p style="text-align: center; margin-top: 8px;">Coding sequence insertions: `r {
-        if ("type" %in% names(sv_data) && "gene" %in% names(sv_data)) {
-          integration_data <- subset(sv_data, type == 'INS')
-          if (nrow(integration_data) > 0) {
-            paste(unique(integration_data$gene), collapse=", ")
-          } else {
-            "None"
-          }
-        } else {
-          "None"
-        }
-      }`</p>
-    </td>
+    <td>`r knitr::asis_output(sv_table_html)`</td>
+    <td>`r knitr::asis_output(circos_html)`</td>
   </tr>
 </table>
 <tr>
@@ -352,31 +394,16 @@ if(nrow(off_target_filtered) > 0){
   </tr>
   <tr>
     <td>
-        <img src="`r report_data$plots$cna`" alt="CNA Plot" class="equal-size-img">
-        <img src="`r report_data$plots$baf`" alt="BAF Plot" class="equal-size-img">
+      `r knitr::asis_output(cna_plot_html)`
+      `r knitr::asis_output(baf_plot_html)`
     </td>
     <td>
       <table class="white-background-table off-target-subtable">
-      <tr>
-        <th>Gene</th>
-        <th>Result</th>
-      </tr>
-      <tr>
-        <td>TP53</td>
-        <td>no mutations identified</td>
-      </tr>
-      <tr>
-        <td>DNMT3A</td>
-        <td>no mutations identified</td>
-      </tr>
-      <tr>
-        <td>RUNX1</td>
-        <td>no mutations identified</td>
-      </tr>
-      <tr>
-        <td>TET2</td>
-        <td>no mutations identified</td>
-      </tr>
+        <tr>
+          <th>Gene</th>
+          <th>Result</th>
+        </tr>
+        `r knitr::asis_output(targeted_gene_mutations_html)`
       </table>
     </td>
   </tr>

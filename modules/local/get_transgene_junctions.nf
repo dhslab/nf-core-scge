@@ -13,7 +13,8 @@ process GET_TRANSGENE_JUNCTIONS {
 
     script:
     """
-    getTransgeneJunctions.py -x 3130,5930 ${params.transgene} ${meta.id}_tumor.cram > ${meta.id}.transgene_out.tsv
+    TUMOR_CRAM=\$(ls dragen/*_tumor.cram | head -n1)
+    getTransgeneJunctions.py -x 3130,5930 ${params.transgene} \$TUMOR_CRAM > ${meta.id}.transgene_out.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
