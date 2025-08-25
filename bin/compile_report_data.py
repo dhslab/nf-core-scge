@@ -22,6 +22,18 @@ def parse_offtarget_file(file_path):
     return records
 
 
+def parse_coverage_file(file_path):
+    """Parse a coverage file and return the coverage value."""
+    if not file_path:
+        return None
+    try:
+        with open(file_path, 'r') as f:
+            line = f.readline().strip()
+            return float(line.split(',')[-1])
+    except (IOError, ValueError, IndexError):
+        return None
+
+
 def main():
     """
     Main function to parse arguments and compile data.
@@ -37,7 +49,8 @@ def main():
     parser.add_argument("--off_target_indels", required=True, help="Path to off-target indel analysis file.")
     parser.add_argument("--control_sample", required=False, default="N/A", help="Control/normal sample identifier.")
     parser.add_argument("--grnas", required=False, default="", help="Comma-separated list of gRNAs.")
-    parser.add_argument("--coverage_metrics", action='append', default=None, help="Path(s) to coverage metrics files (can pass multiple).")
+    parser.add_argument("--tumor_coverage", required=False, help="Path to tumor coverage metrics file.")
+    parser.add_argument("--normal_coverage", required=False, help="Path to normal coverage metrics file.")
     parser.add_argument("-o", "--output", required=True, help="Output JSON file path.")
     
     args = parser.parse_args()
@@ -61,6 +74,7 @@ def main():
             "Location", "Consequence", "SYMBOL", "BIOTYPE", "EXON",
             "INTRON", "STRAND", "Canonical", "Pick"
         ])
+
     on_target_sv_transgene_data = on_target_sv_transgene_df.to_dict(orient='records')
 
     # Parse targeted gene mutations (small variants) TSV if present
@@ -125,71 +139,15 @@ def main():
             "control_sample": args.control_sample,
             "assay": "WGS",
             "grnas": [s.strip() for s in args.grnas.split(",") if s.strip()],
-            "mean_coverage": { "tumor": None, "normal": None }
+            "mean_coverage": {
+                "tumor": parse_coverage_file(args.tumor_coverage),
+                "normal": parse_coverage_file(args.normal_coverage)
+            }
         }
     }
 
     if args.circos_plot:
         report_data["plots"]["circos"] = args.circos_plot
-
-    # Parse coverage metrics if provided
-    def try_parse_mean_coverage(file_path):
-        try:
-            # Heuristic: support simple TSV/CSV with columns including 'mean_coverage' or 'MEAN_COVERAGE'
-            import os
-            import csv
-            with open(file_path, 'r') as fh:
-                sample_content = fh.read(4096)
-            delimiter = '\t' if '\t' in sample_content and ',' not in sample_content else ','
-            rows = []
-            with open(file_path, 'r') as fh:
-                reader = csv.DictReader(fh, delimiter=delimiter)
-                for row in reader:
-                    rows.append({k.strip(): v for k, v in row.items()})
-            if not rows:
-                return None
-            header = rows[0].keys()
-            cov_key = None
-            for cand in ['mean_coverage','MEAN_COVERAGE','Mean_Coverage','MEAN_COV','MEAN']:
-                if cand in header:
-                    cov_key = cand
-                    break
-            sample_key = None
-            for cand in ['sample','SAMPLE','id','ID','name','NAME']:
-                if cand in header:
-                    sample_key = cand
-                    break
-            if cov_key is None:
-                return None
-            # If two rows exist, assume first is tumor (case id), second is control if present
-            tumor_cov = None
-            normal_cov = None
-            if sample_key is not None:
-                for r in rows:
-                    sid = str(r[sample_key])
-                    if sid == args.sample_id:
-                        tumor_cov = float(r[cov_key])
-                    elif sid == args.control_sample:
-                        normal_cov = float(r[cov_key])
-            if tumor_cov is None and rows:
-                tumor_cov = float(rows[0][cov_key])
-            if normal_cov is None and len(rows) > 1:
-                normal_cov = float(rows[1][cov_key])
-            return {"tumor": tumor_cov, "normal": normal_cov}
-        except Exception:
-            return None
-
-    if args.coverage_metrics:
-        for cov_path in args.coverage_metrics:
-            cov = try_parse_mean_coverage(cov_path)
-            if cov is not None:
-                # Only set if values exist; prefer first successful parse
-                if cov.get('tumor') is not None:
-                    report_data['metadata']['mean_coverage']['tumor'] = cov['tumor']
-                if cov.get('normal') is not None:
-                    report_data['metadata']['mean_coverage']['normal'] = cov['normal']
-                if report_data['metadata']['mean_coverage']['tumor'] is not None and report_data['metadata']['mean_coverage']['normal'] is not None:
-                    break
 
     # Minimal schema validation
     def require(path, container):

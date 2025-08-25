@@ -14,7 +14,7 @@ process ANNOTATE_TRANSGENE_VARIANTS {
     script:
     """
     awk 'BEGIN {FS=OFS="\\t"} NR > 1 {sub(/^chr/, "", \$1); for (i = 1; i < NF; i++) {printf "%s%s", \$i, (i == NF-1 ? "\\n" : OFS)}}' ${meta.id}.transgene_out.tsv > ${meta.id}.edited.transgene.tsv && \\
-    /opt/vep/src/ensembl-vep/vep --offline --cache --dir ${params.vep_cache} --fasta ${params.fasta} --symbol --term SO --flag_pick --per_gene --tab --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick --format region -i ${meta.id}.edited.transgene.tsv -o ${meta.id}.transgene.annotated.tsv
+    /opt/vep/src/ensembl-vep/vep --offline --cache --dir ${params.vep_cache} --fasta ${params.fasta} --symbol --term SO --flag_pick --per_gene --tab --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick --coding_only -i ${meta.id}.edited.transgene.tsv -o ${meta.id}.transgene.annotated.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

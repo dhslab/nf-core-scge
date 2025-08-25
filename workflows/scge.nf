@@ -234,16 +234,18 @@ workflow SCGE {
     //     ch_versions.unique().collectFile(name: 'collated_versions.yml')
     // )
 
-    ch_coverage_metrics = ch_dragen_output.map { meta, dragen_path ->
-        def coverage_file = file("${dragen_path}/${meta.id}.wgs_coverage_metrics_tumor.csv")
-        if (coverage_file.exists()) {
-            return [meta.id, coverage_file]
+    ch_coverage_files = ch_dragen_output.map { meta, dragen_path ->
+        def tumor_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_tumor.csv")
+        def normal_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_normal.csv")
+        if (tumor_cov_file.exists() && normal_cov_file.exists()) {
+            return [meta.id, tumor_cov_file, normal_cov_file]
         } else {
-            log.warn "Coverage. metrics file not found for sample ${meta.id}: ${coverage_file}"
-            return [meta.id, null]
+            if (!tumor_cov_file.exists()) log.warn "Tumor coverage metrics file not found for sample ${meta.id}: ${tumor_cov_file}"
+            if (!normal_cov_file.exists()) log.warn "Normal coverage metrics file not found for sample ${meta.id}: ${normal_cov_file}"
+            return [meta.id, null, null]
         }
     }
-    .filter { it[1] != null }
+    .filter { it[1] != null && it[2] != null }
 
     def ch_plots = GENERATE_CNA_BAF_PLOTS.out.cna_plot
         .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
@@ -266,16 +268,15 @@ workflow SCGE {
         .map { meta, indels -> [meta.id, indels] }
     ch_indels.view { "Indels: $it" }
 
-    ch_coverage_metrics.view { "Coverage Metrics: $it" }
-
     ch_plots
         .join(ch_circos, by: 0)
         .join(ch_annotated_transgene, by: 0)
         .join(ch_vep_tsv, by: 0)
         .join(ch_indels, by: 0)
-        .join(ch_coverage_metrics, by: 0)
-        .map { id, meta, cna, baf, circos, transgene, tsv, indels, coverage ->
-            [meta, cna, baf, circos, transgene, tsv, indels, coverage]
+        .join(ch_coverage_files, by: 0)
+        .map { id, meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov ->
+            def timestamp = new Date().getTime()
+            [meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov, timestamp]
         }
         .set { ch_compile_report_input }
 

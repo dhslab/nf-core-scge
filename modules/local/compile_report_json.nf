@@ -12,7 +12,9 @@ process COMPILE_REPORT_JSON {
           val(on_target_sv_transgene),
           val(vcf_tsv),
           val(off_target_indels),
-          val(coverage_metrics)
+          path(tumor_cov),
+          path(normal_cov),
+          val(timestamp)
 
     output:
     tuple val(meta), path("report_input.json"), emit: json
@@ -27,7 +29,8 @@ process COMPILE_REPORT_JSON {
     def control_sample = params.control_sample ?: (meta.normal ?: "N/A")
     def grnas_str = params.grnas ?: ""
     def circos_arg = (circos_plot && circos_plot.toString().endsWith(".png") && file(circos_plot).exists()) ? "--circos_plot ${circos_plot}" : ""
-    def coverage_args = (coverage_metrics instanceof java.util.List) ? coverage_metrics.collect{ "--coverage_metrics ${it}" }.join(' ') : ""
+    def tumor_coverage_arg = tumor_cov ? "--tumor_coverage ${tumor_cov}" : ""
+    def normal_coverage_arg = normal_cov ? "--normal_coverage ${normal_cov}" : ""
     """
     python3 ${projectDir}/bin/compile_report_data.py \\
         --sample_id ${meta.id} \\
@@ -40,7 +43,8 @@ process COMPILE_REPORT_JSON {
         --on_target_sv_transgene ${on_target_sv_transgene} \\
         --vcf_tsv ${vcf_tsv} \\
         --off_target_indels ${off_target_indels} \\
-        ${coverage_args} \\
+        ${tumor_coverage_arg} \\
+        ${normal_coverage_arg} \\
         --output report_input.json
 
     cat <<-END_VERSIONS > versions.yml
