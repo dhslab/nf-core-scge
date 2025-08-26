@@ -196,6 +196,9 @@ workflow SCGE {
     GET_INDELS(ch_get_indels_input)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
+    ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
+    ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
+
     ch_vcf_for_annotation = ch_dragen_output.map { meta, dragen_path ->
         def vcf_file = file("${dragen_path}/${meta.id}.hard-filtered.vcf.gz")
         if (vcf_file.exists()) {
@@ -264,7 +267,7 @@ workflow SCGE {
         .map { meta, tsv -> [meta.id, tsv] }
     ch_vep_tsv.view { "VEP TSV: $it" }
 
-    def ch_indels = GET_INDELS.out.indels_file
+    def ch_indels = ANNOTATE_OFFTARGETS.out.annotated_indels
         .map { meta, indels -> [meta.id, indels] }
     ch_indels.view { "Indels: $it" }
 

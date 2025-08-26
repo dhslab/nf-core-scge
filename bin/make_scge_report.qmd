@@ -210,11 +210,7 @@ grna_txt <- if(!is.null(report_data$metadata$grnas) && length(report_data$metada
 cat(paste0("<tr><td></td><td></td><td>", grna_txt, "</td></tr>"))
 cat("</table>")
 ```
-<tr>
-  <td></td>
-  <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>On-target editing (`r if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas)>0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"`)</em></h1></td>
-</tr>
+<h1 style="margin-bottom: 0;"><em>On-target editing (`r if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas)>0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"`)</em></h1>
 
 <style>
   table {
@@ -344,11 +340,7 @@ cat("</table>")
     <td>`r knitr::asis_output(circos_html)`</td>
   </tr>
 </table>
-<tr>
-  <td></td>
-  <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>Off-target mutations (`r length(report_data$tables$off_target_indels)` sites screened)</em></h1></td>
-</tr>
+<h1 style="margin-bottom: 0;"><em>Off-target mutations (`r length(report_data$tables$off_target_indels)` sites screened)</em></h1>
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Off target sites</th>
@@ -371,7 +363,7 @@ if(nrow(off_target_filtered) > 0){
     for(i in 1:nrow(off_target_filtered)){
         coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
         indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
-        annotation <- if ("annotation" %in% names(off_target_filtered)) off_target_filtered[i, "annotation"] else off_target_filtered[i, "target_info"]
+        annotation <- off_target_filtered[i, "Annotation"]
         cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
     }
     cat("</table>")
@@ -379,15 +371,15 @@ if(nrow(off_target_filtered) > 0){
     cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
 }
 ```
-    </td>
   </tr>
 </table>
-<tr>
-  <td></td>
-  <td></td>
-  <td><h1 style="margin-bottom: 0;"><em>Genome integrity and gene mutation analysis</em></h1></td>
-</tr>
+
+<br>
+
 <table class="white-background-table blue-bottom-border">
+  <tr>
+    <th colspan="2" style="text-align:center;"><h1 style="margin-bottom: 0;"><em>Genome integrity and gene mutation analysis</em></h1></th>
+  </tr>
   <tr>
     <th>Genome-wide copy number analysis</th>
     <th>Targeted gene mutation analysis</th>
