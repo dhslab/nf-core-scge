@@ -22,7 +22,7 @@ process VEP_TO_TSV {
     def output = input.getName().replaceFirst('\\.vcf\\.gz\$', '.tsv')
     """
     vep2table.py $args $input -o $output
-
+    
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         python: \$(python --version | sed 's/Python //g')

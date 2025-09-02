@@ -1,7 +1,7 @@
 process ANNOTATE_OFFTARGETS {
     tag "$meta.id"
     label 'process_low'
-    container "ghcr.io/dhslab/docker-vep:release_105" // Use the same VEP container
+    container "ghcr.io/dhslab/docker-vep_release113:250810" // Use the same VEP container
 
     input:
     tuple val(meta), path(indels_file)

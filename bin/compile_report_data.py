@@ -6,6 +6,8 @@
 import argparse
 import json
 import pandas as pd
+import os
+from io import StringIO
 
 def parse_offtarget_file(file_path):
     """Parse the off-target file and return a list of dictionaries."""
@@ -44,6 +46,7 @@ def main():
     parser.add_argument("--cna_plot", required=False, default=None, help="Path to CNA plot PNG.")
     parser.add_argument("--baf_plot", required=False, default=None, help="Path to BAF plot PNG.")
     parser.add_argument("--circos_plot", required=False, default=None, help="Path to Circos plot PNG.")
+    parser.add_argument("--hotspot_file", required=False, default=None, help="Path to hotspot CSV file.")
     parser.add_argument("--on_target_sv_transgene", required=True, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
     parser.add_argument("--vcf_tsv", required=True, help="Path to VEP-annotated small variant TSV for targeted gene mutations.")
     parser.add_argument("--off_target_indels", required=True, help="Path to off-target indel analysis file.")
@@ -59,23 +62,24 @@ def main():
     off_target_data = parse_offtarget_file(args.off_target_indels)
 
     # Parse the on-target SV and transgene data
-    # Keep 'NA' as literal strings to avoid NaN in JSON, and read all columns as strings
-    try:
-        on_target_sv_transgene_df = pd.read_csv(
-            args.on_target_sv_transgene,
-            sep='	',
-            comment='#',
-            keep_default_na=False,
-            na_filter=False,
-            dtype=str,
-        )
-    except pd.errors.EmptyDataError:
-        on_target_sv_transgene_df = pd.DataFrame(columns=[
-            "Location", "Consequence", "SYMBOL", "BIOTYPE", "EXON",
-            "INTRON", "STRAND", "Canonical", "Pick"
-        ])
-
-    on_target_sv_transgene_data = on_target_sv_transgene_df.to_dict(orient='records')
+    on_target_sv_transgene_data = []
+    if args.on_target_sv_transgene and os.path.exists(args.on_target_sv_transgene):
+        lines = []
+        with open(args.on_target_sv_transgene, 'r') as f:
+            for line in f:
+                # Skip VEP header comments
+                if line.startswith('##'):
+                    continue
+                lines.append(line)
+        
+        if lines:
+            # Re-join the remaining lines (header + data) into a single string
+            data_str = "".join(lines)
+            # Use pandas to read from the string, which handles the # in the header
+            df = pd.read_csv(StringIO(data_str), sep='\\t', engine='python')
+            # Clean the leading '#' from the first column name
+            df.rename(columns={df.columns[0]: df.columns[0].lstrip('#')}, inplace=True)
+            on_target_sv_transgene_data = df.to_dict('records')
 
     # Parse targeted gene mutations (small variants) TSV if present
     targeted_gene_mutations = []
@@ -128,6 +132,7 @@ def main():
         "plots": {
             "cna": args.cna_plot,
             "baf": args.baf_plot,
+            "circos": args.circos_plot
         },
         "tables": {
             "on_target_sv_transgene": on_target_sv_transgene_data,
@@ -136,6 +141,7 @@ def main():
         },
         "metadata": {
             "drug_product": args.sample_id,
+            "hotspot_file": args.hotspot_file,
             "control_sample": args.control_sample,
             "assay": "WGS",
             "grnas": [s.strip() for s in args.grnas.split(",") if s.strip()],
@@ -145,9 +151,6 @@ def main():
             }
         }
     }
-
-    if args.circos_plot:
-        report_data["plots"]["circos"] = args.circos_plot
 
     # Minimal schema validation
     def require(path, container):

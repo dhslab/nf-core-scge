@@ -26,61 +26,106 @@ include-in-header:
       .callout.callout-style-default {
         text-align: center;
       }
+      .variant-sub-table {
+        width: 100%;
+        border: none !important;
+        table-layout: auto !important;
+      }
+      .variant-sub-table th, .variant-sub-table td {
+        border: none !important;
+        background-color: transparent !important;
+        text-align: left;
+        width: auto;
+      }
       </style>
 ---
 ```{r}
-#| include: false
-library(reticulate)
+#| echo: false
+#| message: false
+#| warning: false
+#| results: "asis"
+
+# -- Libs --
 library(jsonlite)
 library(dplyr)
+library(tidyr)
 library(knitr)
-use_python("/opt/conda/bin/python3")
+
+# Read JSON data
 report_data <- fromJSON(params$report_json)
 off_target_threshold_value <- as.numeric(params$off_target_threshold)
 report_json_path <- params$report_json
 
-# -- Prepare SV table HTML --
-sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
-sv_table_html <- ""
-if(nrow(sv_data) > 0){
-    sv_rows <- ""
-    # Prefer csyntax if present; otherwise fall back to 'note' or a compact row summary
-    if ("csyntax" %in% names(sv_data)) {
-        for(i in 1:nrow(sv_data)){
-            sv_rows <- paste0(sv_rows, "<tr><td>", sv_data[i, "csyntax"], "</td></tr>")
-        }
-    } else if ("note" %in% names(sv_data)) {
-        for(i in 1:nrow(sv_data)){
-            sv_rows <- paste0(sv_rows, "<tr><td>", sv_data[i, "note"], "</td></tr>")
-        }
-    } else {
-        for(i in 1:nrow(sv_data)){
-            sv_rows <- paste0(sv_rows, "<tr><td>", paste0(names(sv_data), ": ", as.character(unlist(sv_data[i, , drop=FALSE])) , collapse = " | "), "</td></tr>")
-        }
+# Extract target gene from sample ID, assuming "GENE-KO-DNA" format
+target_gene_symbol <- sub("-KO-DNA", "", report_data$sample_id)
+
+# Read hotspot file to get gRNA display string
+hotspot_file_path <- report_data$metadata$hotspot_file
+grna_display_string <- "N/A" # Default
+
+if (!is.null(hotspot_file_path) && file.exists(hotspot_file_path)) {
+  try({
+    hotspot_data <- read.csv(hotspot_file_path)
+    if ("On_target" %in% colnames(hotspot_data)) {
+      on_target_grnas <- subset(hotspot_data, On_target == 1)
+      if (nrow(on_target_grnas) > 0 && "Chromosome" %in% colnames(on_target_grnas) && "Start" %in% colnames(on_target_grnas)) {
+        grna_locations <- paste0(on_target_grnas$Chromosome, ":", on_target_grnas$Start)
+        grna_display_string <- paste(unique(grna_locations), collapse=", ")
+      }
     }
-    sv_table_html <- paste0('<table class="white-background-table">', sv_rows, '</table>')
-} else {
-    if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
-        sv_table_html <- "<p>No coding structural variants found. See circos plot for all variants.</p>"
+  }, silent = TRUE)
+}
+
+# -- Prepare On- and Off-Target Coding Sequence Variants Tables --
+sv_table_html <- "<p>No on-target SV/transgene data available in the report.</p>"
+transgene_df <- report_data$tables$on_target_sv_transgene
+
+# The data is already parsed into a data frame from the JSON.
+if (!is.null(transgene_df) && nrow(transgene_df) > 0) {
+    # Coerce to data.frame if it's a list (fromJSON behavior)
+    if (is.list(transgene_df) && !is.data.frame(transgene_df)) {
+        transgene_df <- dplyr::bind_rows(transgene_df)
+    }
+
+    # Filter for coding variants using a broad set of terms
+    coding_terms <- c("coding_sequence", "frameshift", "missense", "inframe_insertion", "inframe_deletion", "stop_gained")
+    coding_pattern <- paste(coding_terms, collapse = "|")
+    
+    # Ensure the required columns exist
+    if ("Consequence" %in% colnames(transgene_df) && "SYMBOL" %in% colnames(transgene_df)) {
+        coding_variants <- transgene_df[grepl(coding_pattern, transgene_df$Consequence, ignore.case = TRUE), ]
+        
+        if (nrow(coding_variants) > 0) {
+            # Handle multiple transcript annotations for a single variant
+            # Prioritize annotations with an EXON number and then de-duplicate.
+            sv_display_data <- coding_variants %>%
+              arrange(Location, desc(EXON != "-")) %>%
+              distinct(Location, .keep_all = TRUE) %>%
+              select(Location, SYMBOL, EXON)
+
+            colnames(sv_display_data) <- c("Location", "Gene Symbol", "Exon")
+            
+            # Generate HTML table
+            sv_table_html <- knitr::kable(sv_display_data, format = "html", row.names = FALSE, escape = FALSE, table.attr = 'class="table table-bordered"')
+        } else {
+            sv_table_html <- "<p style='text-align:center;'>No coding variants found</p>"
+        }
     } else {
-        sv_table_html <- "<p>No structural variants found.</p>"
+        sv_table_html <- paste0(
+            "<p>Required columns not found in the data.</p>",
+            "<p>Available: ", paste(colnames(transgene_df), collapse=", "), "</p>"
+        )
     }
 }
 
 # -- Prepare Circos plot HTML --
 circos_html <- ""
+# The sv_data object is needed for the circos plot logic, so we must recreate it here.
+sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
 if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
   file.copy(from = report_data$plots$circos, to = "circos.png", overwrite = TRUE)
   img_tag <- '<img src="circos.png" alt="circos plot" class="equal-size-img">'
-  
-  insertions <- "None"
-  if ("type" %in% names(sv_data) && "gene" %in% names(sv_data)) {
-    integration_data <- subset(sv_data, type == 'INS')
-    if (nrow(integration_data) > 0) {
-      insertions <- paste(unique(integration_data$gene), collapse=", ")
-    }
-  }
-  p_tag <- paste0('<p style="text-align: center; margin-top: 8px;">Coding sequence insertions: ', insertions, '</p>')
+  p_tag <- paste0('<p style="text-align: center; margin-top: 8px;">All Transgene Integrations</p>')
   circos_html <- paste0(img_tag, p_tag)
 }
 
@@ -206,11 +251,10 @@ tumor_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$tumor), paste0("
 normal_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$normal), paste0("Mean coverage: ", report_data$metadata$mean_coverage$normal, "x"), "Mean coverage: N/A")
 cat(paste0("<tr><td>", tumor_cov, "</td><td>", normal_cov, "</td><td>", report_data$transgene_description, "</td></tr>"))
 cat("<tr><td></td><td></td><td><strong>gRNA:</strong></td></tr>")
-grna_txt <- if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas) > 0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"
-cat(paste0("<tr><td></td><td></td><td>", grna_txt, "</td></tr>"))
+cat(paste0("<tr><td></td><td></td><td>", grna_display_string, "</td></tr>"))
 cat("</table>")
 ```
-<h1 style="margin-bottom: 0;"><em>On-target editing (`r if(!is.null(report_data$metadata$grnas) && length(report_data$metadata$grnas)>0) paste(report_data$metadata$grnas, collapse=", ") else "N/A"`)</em></h1>
+<h1 style="margin-bottom: 0;"><em>On-target editing (`r grna_display_string`)</em></h1>
 
 <style>
   table {
@@ -331,13 +375,13 @@ cat("</table>")
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Indel frequency</th>
-    <th>On-target structural variants</th>
     <th>Transgene integrations</th>
+    <th>Coding Sequence Variants</th>
   </tr>
   <tr>
     <td><img src="indel_freq.png" alt="Indel Frequency" class="equal-size-img"></td>
-    <td>`r knitr::asis_output(sv_table_html)`</td>
     <td>`r knitr::asis_output(circos_html)`</td>
+    <td>`r knitr::asis_output(sv_table_html)`</td>
   </tr>
 </table>
 <h1 style="margin-bottom: 0;"><em>Off-target mutations (`r length(report_data$tables$off_target_indels)` sites screened)</em></h1>

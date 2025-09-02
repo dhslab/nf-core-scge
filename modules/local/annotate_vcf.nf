@@ -2,7 +2,7 @@ process ANNOTATE_VCF {
     tag "$meta.id"
     label 'process_low'
     label 'final_output'
-    container "ghcr.io/dhslab/docker-vep:release_105"
+    container "ghcr.io/dhslab/docker-vep_release113:250810"
 
     input:
     tuple val(meta), val(type), path(input_vcf)

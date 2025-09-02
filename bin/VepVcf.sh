@@ -15,7 +15,7 @@ computegroup="compute-dspencer"
 queue="general"
 
 bsub -g ${jobgroup} -G ${computegroup} -q ${queue} -oo %J.vep.log -eo %J.vep.err \
-     -M 8000000 -R"select[mem>8000] rusage[mem=8000]" -q general -a "docker(ghcr.io/dhslab/docker-vep:release_105)" \
+     -M 8000000 -R"select[mem>8000] rusage[mem=8000]" -q general -a "docker(ghcr.io/dhslab/docker-vep_release113:250810)" \
      /usr/bin/perl \
         -I /opt/lib/perl/VEP/Plugins /opt/vep/src/ensembl-vep/vep \
         --format vcf \

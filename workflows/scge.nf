@@ -44,6 +44,7 @@ include { MAKE_CIRCOS_PLOT            } from '../modules/local/make_circos_plot.
 include { TRANSFORM_TRANSGENE         } from '../modules/local/transform_transgene.nf'
 include { ANNOTATE_OFFTARGETS         } from '../modules/local/annotate_offtargets.nf'
 include { BND_FROM_INDELS_TO_VCF      } from '../modules/local/bnd_from_indels_to_vcf.nf'
+include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf.nf'
 
 def stageFileset(Map filePathMap) {
     def basePathMap = [:]
@@ -224,10 +225,15 @@ workflow SCGE {
 
     MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
 
+    ch_transgene_fasta = Channel.fromPath(params.transgene_fasta)
 
-    ch_annotate_transgene_variants_input = ch_dragen_output
-        .join(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
-        .map { meta, files, transgene_file -> [meta, files, transgene_file] }
+    TRANSGENE_TO_VCF(
+        GET_TRANSGENE_JUNCTIONS.out.transgene_file,
+        ch_transgene_fasta
+    )
+    ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
+
+    ch_annotate_transgene_variants_input = ch_dragen_output.join(TRANSGENE_TO_VCF.out.vcf)
 
     ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
     ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)

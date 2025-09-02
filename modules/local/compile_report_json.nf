@@ -9,9 +9,9 @@ process COMPILE_REPORT_JSON {
           path(cna_plot),
           path(baf_plot),
           val(circos_plot),
-          val(on_target_sv_transgene),
-          val(vcf_tsv),
-          val(off_target_indels),
+          path(on_target_sv_transgene),
+          path(vcf_tsv),
+          path(off_target_indels),
           path(tumor_cov),
           path(normal_cov),
           val(timestamp)
@@ -27,7 +27,8 @@ process COMPILE_REPORT_JSON {
     def args = task.ext.args ?: ''
     def transgene_str = params.transgene ?: (meta.transgene ?: "N/A")
     def control_sample = params.control_sample ?: (meta.normal ?: "N/A")
-    def grnas_str = params.grnas ?: ""
+    def grnas_str = params.grnas ?: meta.id
+    def hotspot_file_arg = meta.hotspot_file ? "--hotspot_file ${meta.hotspot_file}" : ""
     def circos_arg = (circos_plot && circos_plot.toString().endsWith(".png") && file(circos_plot).exists()) ? "--circos_plot ${circos_plot}" : ""
     def tumor_coverage_arg = tumor_cov ? "--tumor_coverage ${tumor_cov}" : ""
     def normal_coverage_arg = normal_cov ? "--normal_coverage ${normal_cov}" : ""
@@ -37,6 +38,7 @@ process COMPILE_REPORT_JSON {
         --transgene "${transgene_str}" \\
         --control_sample "${control_sample}" \\
         --grnas "${grnas_str}" \\
+        ${hotspot_file_arg} \\
         --cna_plot ${cna_plot} \\
         --baf_plot ${baf_plot} \\
         ${circos_arg} \\
