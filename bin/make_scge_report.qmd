@@ -61,7 +61,7 @@ target_gene_symbol <- sub("-KO-DNA", "", report_data$sample_id)
 
 # Read hotspot file to get gRNA display string
 hotspot_file_path <- report_data$metadata$hotspot_file
-grna_display_string <- "N/A" # Default
+grna_display_string <- target_gene_symbol # Default to gene name
 
 if (!is.null(hotspot_file_path) && file.exists(hotspot_file_path)) {
   try({
@@ -70,7 +70,10 @@ if (!is.null(hotspot_file_path) && file.exists(hotspot_file_path)) {
       on_target_grnas <- subset(hotspot_data, On_target == 1)
       if (nrow(on_target_grnas) > 0 && "Chromosome" %in% colnames(on_target_grnas) && "Start" %in% colnames(on_target_grnas)) {
         grna_locations <- paste0(on_target_grnas$Chromosome, ":", on_target_grnas$Start)
-        grna_display_string <- paste(unique(grna_locations), collapse=", ")
+        grna_locations_str <- paste(unique(grna_locations), collapse=", ")
+        if (nchar(grna_locations_str) > 0) {
+          grna_display_string <- paste0(target_gene_symbol, " (", grna_locations_str, ")")
+        }
       }
     }
   }, silent = TRUE)
@@ -254,7 +257,7 @@ cat("<tr><td></td><td></td><td><strong>gRNA:</strong></td></tr>")
 cat(paste0("<tr><td></td><td></td><td>", grna_display_string, "</td></tr>"))
 cat("</table>")
 ```
-<h1 style="margin-bottom: 0;"><em>On-target editing (`r grna_display_string`)</em></h1>
+<h1 style="margin-bottom: 0;"><em>On-target editing (`r target_gene_symbol`)</em></h1>
 
 <style>
   table {
@@ -384,7 +387,7 @@ cat("</table>")
     <td>`r knitr::asis_output(sv_table_html)`</td>
   </tr>
 </table>
-<h1 style="margin-bottom: 0;"><em>Off-target mutations (`r length(report_data$tables$off_target_indels)` sites screened)</em></h1>
+<h1 style="margin-bottom: 0;"><em>Off-target mutations (`r nrow(as.data.frame(report_data$tables$off_target_indels))` sites screened)</em></h1>
 <table class="white-background-table blue-bottom-border">
   <tr>
     <th>Off target sites</th>
