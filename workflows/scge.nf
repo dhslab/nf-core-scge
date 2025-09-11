@@ -135,6 +135,9 @@ workflow SCGE {
     ch_mastersheet = params.input ?
         Channel.fromPath("${params.input}", checkIfExists: true) :
         Channel.empty()
+    ch_crispr_model = params.crispr_model ?
+        Channel.fromPath("${params.crispr_model}", checkIfExists: true) :
+        Channel.empty()
 
     //
     // This input check needs to be overhauled. See assets/stub/sample_mastersheet.csv
@@ -194,7 +197,7 @@ workflow SCGE {
         .join(ch_hotspot_file)
         .map { id, meta, files, hotspot_file -> [meta, files, hotspot_file] }
 
-    GET_INDELS(ch_get_indels_input)
+    GET_INDELS(ch_get_indels_input, ch_crispr_model)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
     ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
