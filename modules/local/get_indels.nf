@@ -68,6 +68,9 @@ process GET_INDELS {
         --control-bam \${CONTROL_CRAM} \
         --enable-crispr-prediction \
         --crispr-model ${crispr_model} \
+        --crispr-threshold 0.7 \
+        --filter-off-target-fp \
+        -v \
         -o ${meta.id}.indels.txt
 
     # Extract ML results into a separate file, preserving the header

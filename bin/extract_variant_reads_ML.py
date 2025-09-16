@@ -858,6 +858,7 @@ def main():
     parser.add_argument('--crispr-threshold',type=float,default=0.70,help='Probability threshold for CRISPR prediction (default: 0.70)')
     parser.add_argument('--enable-crispr-prediction',action='store_true',help='Enable CRISPR read prediction (uses default model and target-file as targets)')
     parser.add_argument('--targets-csv',type=str,help='Alternative target sites CSV file for feature extraction (optional - uses target-file if not specified)')
+    parser.add_argument('--filter-off-target-fp', action='store_true', help='Filter off-target sites that are likely false positives (indel reads > 0 but no predicted CRISPR reads).')
     
     # Required BAM files and target file
     parser.add_argument('--edited-bam',type=str,required=True,help='Edited/experimental BAM/CRAM file')
@@ -1035,6 +1036,13 @@ def main():
                 print(f"    Predicted {crispr_predicted_reads}/{total_reads} reads as CRISPR-related (≥{args.crispr_threshold})", file=sys.stderr)
                 print(f"    Average prediction probability: {crispr_prediction_probability:.1f}%", file=sys.stderr)
 
+        # Filter off-target false positives if enabled
+        if args.filter_off_target_fp:
+            if ontarget == 0 and indel_reads > 0 and crispr_predicted_reads == 0:
+                if args.verbose:
+                    print(f"  Filtering FP off-target site {row['Chromosome']}:{row['Start']}-{row['End']} (indel_reads: {indel_reads}, predicted_reads: {crispr_predicted_reads})", file=sys.stderr)
+                continue
+        
         # Output results
         output_fields = [
             row['Chromosome'], row['Start'], row['End'], 
