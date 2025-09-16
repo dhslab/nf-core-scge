@@ -859,6 +859,7 @@ def main():
     parser.add_argument('--enable-crispr-prediction',action='store_true',help='Enable CRISPR read prediction (uses default model and target-file as targets)')
     parser.add_argument('--targets-csv',type=str,help='Alternative target sites CSV file for feature extraction (optional - uses target-file if not specified)')
     parser.add_argument('--filter-off-target-fp', action='store_true', help='Filter off-target sites that are likely false positives (indel reads > 0 but no predicted CRISPR reads).')
+    parser.add_argument('--fp-log', type=str, help='Log file for filtered false positive off-target sites.')
     
     # Required BAM files and target file
     parser.add_argument('--edited-bam',type=str,required=True,help='Edited/experimental BAM/CRAM file')
@@ -976,6 +977,11 @@ def main():
         header_columns.extend(['crispr_predicted_reads', 'crispr_prediction_fraction', 'crispr_prediction_probability'])
     print("\t".join(header_columns), flush=True)
 
+    fp_log = None
+    if args.fp_log:
+        fp_log = open(args.fp_log, 'w')
+        fp_log.write("\t".join(header_columns) + "\n")
+
     # ========================================================================
     # STEP 5: Process each genomic interval
     # ========================================================================
@@ -1041,6 +1047,17 @@ def main():
             if ontarget == 0 and indel_reads > 0 and crispr_predicted_reads == 0:
                 if args.verbose:
                     print(f"  Filtering FP off-target site {row['Chromosome']}:{row['Start']}-{row['End']} (indel_reads: {indel_reads}, predicted_reads: {crispr_predicted_reads})", file=sys.stderr)
+                
+                if fp_log:
+                    log_fields = [
+                        row['Chromosome'], row['Start'], row['End'], 
+                        ';'.join([str(x) for x in row['Pos']]), total_reads, indel_reads, indel_fraction,
+                        control_total_reads, control_indel_reads, control_indel_fraction,
+                        len(indels), indel_keys, len(bnds), bnd_keys, offtargetsites, ontarget
+                    ]
+                    if args.enable_crispr_prediction:
+                        log_fields.extend([crispr_predicted_reads, crispr_prediction_fraction, round(crispr_prediction_probability, 1)])
+                    fp_log.write("\t".join([str(field) for field in log_fields]) + "\n")
                 continue
         
         # Output results
@@ -1060,6 +1077,9 @@ def main():
     
     if args.outfile:
         sys.stdout.close()
+
+    if fp_log:
+        fp_log.close()
 
     expsamfile.close()
     consamfile.close()

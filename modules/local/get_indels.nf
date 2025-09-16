@@ -12,6 +12,7 @@ process GET_INDELS {
     output:
     tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
     tuple val(meta), path("${meta.id}.ml_results.txt"), emit: ml_results
+    tuple val(meta), path("${meta.id}.fp_filtered.txt"), emit: fp_log
     path "versions.yml",    emit: versions
 
     script:
@@ -70,6 +71,7 @@ process GET_INDELS {
         --crispr-model ${crispr_model} \
         --crispr-threshold 0.7 \
         --filter-off-target-fp \
+        --fp-log ${meta.id}.fp_filtered.txt \
         -v \
         -o ${meta.id}.indels.txt
 
