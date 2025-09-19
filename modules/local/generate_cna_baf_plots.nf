@@ -7,7 +7,7 @@ process GENERATE_CNA_BAF_PLOTS {
     publishDir "${params.outdir}/pipeline_info/cna_baf_plots/${meta.id}", mode: 'copy', pattern: '*.png'
 
     input:
-    tuple val(meta), path(dragen_files)
+    tuple val(meta), path(files)
 
     output:
     tuple val(meta), path("*cna_plot.png"), emit: cna_plot

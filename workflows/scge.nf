@@ -213,7 +213,7 @@ workflow SCGE {
         }
     }.filter { it != null }
 
-    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference.first(), ch_vep_cache.first())
+    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference, ch_vep_cache)
     ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
     ANNOTATE_VARIANTS.out.vcf.view()
@@ -231,12 +231,14 @@ workflow SCGE {
     ch_transgene_fasta = Channel.fromPath(params.transgene_fasta)
 
     TRANSGENE_TO_VCF(
-        GET_TRANSGENE_JUNCTIONS.out.transgene_file,
-        ch_transgene_fasta
+        GET_TRANSGENE_JUNCTIONS.out.transgene_file
     )
     ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
 
-    ch_annotate_transgene_variants_input = ch_dragen_output.join(TRANSGENE_TO_VCF.out.vcf)
+    ch_annotate_transgene_variants_input = ch_dragen_output
+        .map { meta, files -> [meta.id, meta, files] }
+        .join(TRANSGENE_TO_VCF.out.transgene_vcf.map { meta, vcf -> [meta.id, vcf] })
+        .map { id, meta, files, vcf -> [meta, files, vcf] }
 
     ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
     ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
