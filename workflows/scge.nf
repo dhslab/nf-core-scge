@@ -1,21 +1,3 @@
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    PRINT PARAMS SUMMARY
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-include { paramsSummaryLog; paramsSummaryMap } from 'plugin/nf-validation'
-
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    IMPORT LOCAL MODULES/SUBWORKFLOWS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-
-//
-// SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
-//
-include { SOMATIC_INPUT_CHECK } from '../subworkflows/local/somatic_input_check.nf'
-include { MAKE_SCGE_REPORT } from '../subworkflows/local/make_scge_report.nf'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -23,12 +5,16 @@ include { MAKE_SCGE_REPORT } from '../subworkflows/local/make_scge_report.nf'
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-//
-// MODULE: Installed directly from nf-core/modules
-//
+include { softwareVersionsToYAML      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { paramsSummaryMap            } from 'plugin/nf-schema'
+include { paramsSummaryMultiqc        } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { methodsDescriptionText      } from '../subworkflows/local/utils_nfcore_chromoseq_pipeline'
+include { MULTIQC                     } from '../modules/nf-core/multiqc/main'
 include { FASTQC                      } from '../modules/nf-core/fastqc/main'
 include { MULTIQC                     } from '../modules/nf-core/multiqc/main'
 include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../modules/nf-core/custom/dumpsoftwareversions/main'
+
+include { SOMATIC_INPUT_CHECK         } from '../subworkflows/local/somatic_input_check.nf'
 include { MAKE_HOTSPOT_FILE           } from '../modules/local/make_hotspot_file.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { ANNOTATE_VARIANTS           } from '../modules/local/annotate_variants.nf'
@@ -45,26 +31,8 @@ include { TRANSFORM_TRANSGENE         } from '../modules/local/transform_transge
 include { ANNOTATE_OFFTARGETS         } from '../modules/local/annotate_offtargets.nf'
 include { BND_FROM_INDELS_TO_VCF      } from '../modules/local/bnd_from_indels_to_vcf.nf'
 include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf.nf'
+include { MAKE_SCGE_REPORT            } from '../subworkflows/local/make_scge_report.nf'
 
-def stageFileset(Map filePathMap) {
-    def basePathMap = [:]
-    def filePathsList = []
-
-    filePathMap.each { key, value ->
-        if (value != null) {
-            def filepath = file(value)
-            if (filepath.exists()) {
-                // Add basename and key to the map
-                basePathMap[key] = value.split('/')[-1]
-                // Add file path to the list
-                filePathsList << filepath
-            } else {
-                println "Warning: File at '${value}' for key '${key}' does not exist."
-            }
-        }
-    }
-    return [basePathMap, filePathsList]
-}
 
 def generateMetaFromCsv(csv_file) {
     def lines = csv_file.text.readLines()
@@ -77,68 +45,122 @@ def generateMetaFromCsv(csv_file) {
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    CREATE CHANNELS FOR INPUT PARAMETERS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+
+// DRAGEN reference directory
+ch_reference_dir = params.refdir
+    ? Channel.fromPath(params.refdir, type: 'dir', checkIfExists: true).collect()
+    : Channel.empty()
+
+// DRAGEN adapter sequences for read 1
+ch_adapter1_file = params.adapter1
+    ? Channel.fromPath(params.adapter1, checkIfExists: true).collect()
+    : []
+
+// DRAGEN adapter sequences for read 2
+ch_adapter2_file = params.adapter2
+    ? Channel.fromPath(params.adapter2, checkIfExists: true).collect()
+    : []
+
+// DRAGEN intermediate directory
+if (params.intermediate_dir?.toString()?.startsWith('/staging')) {
+    ch_intermediate_dir = Channel.of(params.intermediate_dir).map{ [ it, [] ] }.collect()
+} else if (params.intermediate_dir) {
+    ch_intermediate_dir = Channel.fromPath(params.intermediate_dir).map{ [ [], it ] }.collect()
+} else {
+    ch_intermediate_dir = [ [], [] ]
+}
+
+// DRAGEN hotspots
+ch_dragen_hotspots = params.dragen_hotspots
+    ? Channel.fromPath("${params.dragen_hotspots}*", checkIfExists: true).collect()
+    : []
+
+// SNV systematic noise BED file
+ch_snv_noisefile = params.snv_noisefile
+    ? Channel.fromPath(params.snv_noisefile, checkIfExists: true).collect()
+    : []
+
+// SV systematic noise BED file
+ch_sv_noisefile = params.sv_noisefile
+    ? Channel.fromPath(params.sv_noisefile, checkIfExists: true).collect()
+    : []
+
+// High confidence CNV VCF file
+ch_cnv_population_vcf = params.cnv_population_vcf
+    ? Channel.fromPath(params.cnv_population_vcf, checkIfExists: true).collect()
+    : []
+
+// CRAM reference file
+ch_cram_reference = params.cram_reference
+    ? Channel.fromPath("${params.cram_reference}*", checkIfExists: true).collect()
+    : []
+
+ch_fasta_reference = params.fasta
+    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
+    : Channel.empty()
+
+// Vep cache
+ch_vep_cache = params.vep_cache
+    ? Channel.fromPath(params.vep_cache, checkIfExists: true).collect()
+    : Channel.empty()
+
+// Gene regions
+ch_editing_targets = params.editing_targets ?
+        Channel.fromPath("${params.editing_targets}", checkIfExists: true) :
+        Channel.empty()
+
+// Transgene name
+ch_transgene_name = params.transgene_name ?
+        Channel.from("${params.transgene_name}") :
+        Channel.empty()
+
+/*
+~~~~~~~~~~~~~~~~~~
+MultiQC parameters
+~~~~~~~~~~~~~~~~~~
+*/
+
+ch_multiqc_config = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
+
+ch_multiqc_custom_config = params.multiqc_config 
+    ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) 
+    : Channel.empty()
+
+ch_multiqc_logo = params.ch_multiqc_logo
+    ? Channel.fromPath( params.multiqc_logo, checkIfExists: true )
+    : Channel.empty()
+
+ch_multiqc_custom_methods_description = params.multiqc_methods_description 
+    ? file(params.multiqc_methods_description, checkIfExists: true) 
+    : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
+
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     RUN MAIN WORKFLOW
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
 workflow SCGE {
 
-    def logo = NfcoreTemplate.logo(workflow, params.monochrome_logs)
-    def citation = '\n' + WorkflowMain.citation(workflow) + '\n'
-    def summary_params = paramsSummaryMap(workflow)
+    take:
+    ch_input_samplesheet  // channel: [ path(file) ]
 
-    // Print parameter summary log to screen
-    log.info logo + paramsSummaryLog(workflow) + citation
-
-    ch_multiqc_config          = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
-    ch_multiqc_custom_config   = params.multiqc_config ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_logo            = params.multiqc_logo   ? Channel.fromPath( params.multiqc_logo, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_custom_methods_description = params.multiqc_methods_description ? file(params.multiqc_methods_description, checkIfExists: true) : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
-
-    // If MGI samplesheet is used, we need to set the
-    // data path because only files are given. This sets the
-    // data path to the samplesheet directory, or the data_path parameter.
-    def data_path = ""
-    def mastersheet = params.input
-    if (params.mgi == true) {
-        data_path = new File(params.input).parentFile.absolutePath
-    } else if (params.data_path != null){
-        data_path  = params.data_path
-    }
-
-    def multiqc_report = []
-
+    main:
     ch_versions = Channel.empty()
-    ch_dragen_outputs = Channel.empty()
 
     //
-    // *** Main inputs can be made into channels here. ***
+    // MODULE: Parse input samplesheet to format samples for processing.
+    //         Output of this process is one csv file for each edited/control sample pair.
     //
-    // - reference fasta file (and fai)
-    // - hotspot file (now a parameter and not in the input sheet)
-    // - VEP cache
-    // FastA reference
-    ch_fasta_reference = Channel.fromPath(params.fasta, checkIfExists: true)
-    // Vep cache
-    ch_vep_cache = params.vep_cache ?
-        Channel.fromPath(params.vep_cache, checkIfExists: true).collect() :
-        Channel.empty()
-    // Gene regions
-    ch_editing_targets = params.editing_targets ?
-        Channel.fromPath("${params.editing_targets}", checkIfExists: true) :
-        Channel.empty()
-    // Gene regions
-    ch_transgene_name = params.transgene_name ?
-        Channel.from("${params.transgene_name}") :
-        Channel.empty()
-    // input mastersheet
-    ch_mastersheet = params.input ?
-        Channel.fromPath("${params.input}", checkIfExists: true) :
-        Channel.empty()
-
-    //
-    // This input check needs to be overhauled. See assets/stub/sample_mastersheet.csv
-    //
+    PARSE_INPUT_SAMPLESHEET (
+        ch_input_samplesheet
+    )
+    ch_versions = ch_versions.mix(PARSE_INPUT_SAMPLESHEET.out.versions)
 
     // Channel of meta data for alignment samples
     ch_samples = ch_mastersheet
