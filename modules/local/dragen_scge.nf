@@ -5,8 +5,7 @@ process DRAGEN_SCGE {
     publishDir "$params.outdir/${meta.id}/", saveAs: { filename -> filename == "versions.yml" ? null : filename }, mode:'copy'
 
     input:
-    tuple val(meta), val(type), val(crams)
-    path(hotspot_file)
+    tuple val(meta), path(tumor_reads, stageAs: "tumor_fastq_files/*"), path(tumor_fastq_list), path(normal_reads, stageAs: "normal_fastq_files/*"), path(normal_fastq_list)
     tuple val(intermediate_directory_value), path(intermediate_directory)
     path(reference_dir)
     path(adapter1)
@@ -15,6 +14,7 @@ process DRAGEN_SCGE {
     path(sv_noise_file)
     path(snv_noise_file)
     path(cnv_population_vcf)
+    path(hotspots)
 
     output:
     tuple val(meta), path("dragen/*"),   emit: dragen_output
@@ -23,6 +23,20 @@ process DRAGEN_SCGE {
 
     script:
     def exe_path = ['dragenaws', 'awsbatch'].any{ workflow.profile.contains(it) } ? "/opt/edico" : "/opt/dragen/4.3.6"
+
+    def input_args = []
+
+    if (tumor_fastq_list?.toString()?.endsWith('.csv') && normal_fastq_list?.toString()?.endsWith('.csv')) {
+        input_args << "--tumor-fastq-list ${tumor_fastq_list}"
+        input_args << "--tumor-fastq-list-sample-id ${meta.edited_id}"
+        input_args << "--fastq-list ${normal_fastq_list}"
+        input_args << "--fastq-list-sample-id ${meta.control_id}"
+    }
+    if (input_args.isEmpty()) {
+        error("No valid input provided. Expected a fastq_list.csv file, or one or more BAM/CRAM files.")
+    }
+
+    def input = input_args.join(' ').trim()
 
     def alignment_params = [
         task.ext.dragen_license_args                  ?: "",
@@ -34,19 +48,10 @@ process DRAGEN_SCGE {
         sv_noise_file                                 ? "--sv-systematic-noise ${sv_noise_file}"                             : "",
         snv_noise_file                                ? "--vc-systematic-noise ${snv_noise_file}"                            : "",
         intermediate_directory                        ? "--intermediate-results-dir ${intermediate_directory}"               : "",
-        intermediate_directory_value                  ? "--intermediate-results-dir ${intermediate_directory_value}"         : "",
-        cnv_population_vcf                            ? "--cnv-population-b-allele-vcf ${cnv_population_vcf}"                : ""
+        intermediate_directory_value                  ? "--intermediate-results-dir ${intermediate_directory_value}"         : ""
+//        cnv_population_vcf                            ? "--cnv-population-b-allele-vcf ${cnv_population_vcf}"                : ""
     ].join(' ').trim()
 
-    def input = ""
-    if (type == 'fastq') {
-        input = "--tumor-fastq-list fastq_list.csv --tumor-fastq-list-sample-id ${meta.tumor} --fastq-list fastq_list.csv --fastq-list-sample-id ${meta.normal}"
-    } else if (type == 'cram') {
-        input = "--tumor-cram-input ${meta.tumor} --cram-input ${meta.normal}"
-    }
-    if (type == 'bam') {
-        input = "--tumor-bam-input ${meta.tumor} --bam-input ${meta.normal}"
-    }
     """
     mkdir -p dragen
 
@@ -75,8 +80,14 @@ process DRAGEN_SCGE {
         --vc-combine-phased-variants-distance 3 \\
         --output-directory ./dragen \\
         --output-file-prefix ${meta.id}
+
+    # Copy and rename DRAGEN usage
+    find dragen/ \\
+        -type f \\
+        -name "*_usage.txt" \\
+        -exec mv "{}" "dragen/${meta.id}_usage.txt" \\;
                 
-      cat <<-END_VERSIONS > versions.yml
+    cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         dragen: \$(/opt/edico/bin/dragen --version | tail -n 1 | cut -d ' ' -f 3)
     END_VERSIONS
@@ -84,6 +95,15 @@ process DRAGEN_SCGE {
 
     stub:
     def exe_path = ['dragenaws', 'awsbatch'].any{ workflow.profile.contains(it) } ? "/opt/edico" : "/opt/dragen/4.3.6"
+
+    def input = [
+        edited_alignment_file.find{ it ==~ /.*\.bam$/  }?.with{ "--tumor-bam-input ${it}"  }                                        ?:
+        control_alignment_file.find{ it ==~ /.*\.bam$/  }?.with{ "--bam-input ${it}"       }                                        ?:
+        edited_alignment_file.find{ it ==~ /.*\.cram$/ }?.with{ "--tumor-cram-input ${it}" }                                        ?:
+        control_alignment_file.find{ it ==~ /.*\.cram$/ }?.with{ "--cram-input ${it}"      }                                        ?:
+        fastq_list.toString().endsWith('csv')    ? "--tumor-fastq-list fastq_list.csv --tumor-fastq-list-sample-id ${meta.edited_id} --fastq-list fastq_list.csv --fastq-list-sample-id ${meta.control_id}" :
+        error("Input file is not a BAM, CRAM, or CSV file.")
+    ].join(' ').trim()
 
     def alignment_params = [
         task.ext.dragen_license_args                  ?: "",
@@ -98,16 +118,6 @@ process DRAGEN_SCGE {
         intermediate_directory_value                  ? "--intermediate-results-dir ${intermediate_directory_value}"         : "",
         cnv_population_vcf                            ? "--cnv-population-b-allele-vcf ${cnv_population_vcf}"                : ""
     ].join(' ').trim()
-
-    def input = ""
-    if (type == 'fastq') {
-        input = "--tumor-fastq-list fastq_list.csv --tumor-fastq-list-sample-id ${meta.tumor} --fastq-list fastq_list.csv --fastq-list-sample-id ${meta.normal}"
-    } else if (type == 'cram') {
-        input = "--tumor-cram-input ${meta.tumor} --cram-input ${meta.normal}"
-    }
-    if (type == 'bam') {
-        input = "--tumor-bam-input ${meta.tumor} --bam-input ${meta.normal}"
-    }
 
     """
     mkdir -p dragen

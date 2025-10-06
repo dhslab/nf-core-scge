@@ -5,35 +5,37 @@ process ANNOTATE_VARIANTS {
     container "ghcr.io/dhslab/docker-vep_release113:250810"
 
     input:
-    tuple val(meta), path(vcf_file)
+    tuple val(meta), path(dragen_files, stageAs: "dragen_files/*")
     path(reference)
     path(vep_cache)
 
     output:
-    tuple val(meta), path("${meta.id}.hard-filtered.annotated.vcf.gz"), optional: true, emit: vcf
-    tuple val(meta), path("${meta.id}.hard-filtered.annotated.vcf.gz.tbi"), optional: true, emit: tbi
-    path "versions.yml", emit: versions
+    tuple val(meta), path("*.annotated.vcf.gz*"), emit: vcf
+    path("versions.yml")                        , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
 
     script:
-    def args = task.ext.args ?: ''
+    def annotate_args = [
+        vep_cache                                 ? "--dir ${vep_cache}"   : "",
+        reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: "",
+        dragen_files.find{ it ==~ /.*\.hard-filtered.vcf.gz$/ }?.with{ "-i $it" } ?: ""
+    ].join(' ').trim()
+    
     """
     /usr/bin/perl -I /opt/lib/perl/VEP/Plugins /opt/vep/src/ensembl-vep/vep \\
-        --format vcf \\
         --vcf \\
-        --fasta ${reference} \\
         --hgvs \\
-        --symbol \\
-        --term SO \\
-        --flag_pick \\
-        --force_overwrite \\
-        -i ${vcf_file} \\
-        --offline \\
         --cache \\
         --max_af \\
-        --dir ${vep_cache} \\
+        --symbol \\
+        --term SO \\
+        --offline \\
+        --flag_pick \\
+        --format vcf \\
+        --force_overwrite \\
+        ${annotate_args} \\
         -o "${meta.id}.hard-filtered.annotated.vcf"
 
     bgzip -c ${meta.id}.hard-filtered.annotated.vcf > ${meta.id}.hard-filtered.annotated.vcf.gz
@@ -46,6 +48,12 @@ process ANNOTATE_VARIANTS {
     """
 
     stub:
+    def annotate_args = [
+        vep_cache                                 ? "--dir ${vep_cache}"   : "",
+        reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: "",
+        dragen_files.find{ it ==~ /.*\.hard-filtered.vcf.gz$/ }?.with{ "-i $it" } ?: ""
+    ].join(' ').trim()
+    
     """
     touch ${meta.id}.hard-filtered.annotated.vcf.gz
     touch ${meta.id}.hard-filtered.annotated.vcf.gz.tbi

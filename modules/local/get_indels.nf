@@ -6,7 +6,8 @@ process GET_INDELS {
     errorStrategy 'ignore'
 
     input:
-    tuple val(meta), path(files), path(hotspot_file, stageAs: 'hotspots.csv')
+    tuple val(meta), path(files)
+    path(hotspot_file, stageAs: 'hotspots.csv')
 
     output:
     tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
