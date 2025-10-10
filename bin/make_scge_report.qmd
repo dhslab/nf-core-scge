@@ -84,7 +84,7 @@ sv_table_html <- "<p>No on-target SV/transgene data available in the report.</p>
 transgene_df <- report_data$tables$on_target_sv_transgene
 
 # The data is already parsed into a data frame from the JSON.
-if (!is.null(transgene_df) && nrow(transgene_df) > 0) {
+if (is.data.frame(transgene_df) && nrow(transgene_df) > 0) {
     # Coerce to data.frame if it's a list (fromJSON behavior)
     if (is.list(transgene_df) && !is.data.frame(transgene_df)) {
         transgene_df <- dplyr::bind_rows(transgene_df)
@@ -124,7 +124,7 @@ if (!is.null(transgene_df) && nrow(transgene_df) > 0) {
 # -- Prepare Circos plot HTML --
 circos_html <- ""
 # The sv_data object is needed for the circos plot logic, so we must recreate it here.
-sv_data <- as.data.frame(report_data$tables$on_target_sv_transgene)
+sv_data <- report_data$tables$on_target_sv_transgene
 if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
   file.copy(from = report_data$plots$circos, to = "circos.png", overwrite = TRUE)
   img_tag <- '<img src="circos.png" alt="circos plot" class="equal-size-img">'
@@ -400,22 +400,56 @@ cat("</table>")
 #| echo: false
 #| results: 'asis'
 off_target_df <- as.data.frame(report_data$tables$off_target_indels)
-off_target_filtered <- off_target_df[
-  as.numeric(off_target_df$indel_fraction) * 100 > as.numeric(params$off_target_threshold) &
-  as.character(ifelse(!is.null(off_target_df$is_target), off_target_df$is_target, off_target_df$is_target_site)) == '0',
-]
-if(nrow(off_target_filtered) > 0){
-    cat('<table class="white-background-table off-target-subtable">')
-    cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
-    for(i in 1:nrow(off_target_filtered)){
-        coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
-        indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
-        annotation <- off_target_filtered[i, "Annotation"]
-        cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
+
+if (is.data.frame(off_target_df) && nrow(off_target_df) > 0) {
+    is_target_col_name <- if("is_target" %in% colnames(off_target_df)) "is_target" else "is_target_site"
+    
+    if(is_target_col_name %in% colnames(off_target_df)) {
+        off_target_df[[is_target_col_name]] <- as.character(off_target_df[[is_target_col_name]])
+    } else {
+        off_target_df[[is_target_col_name]] <- '0' 
     }
-    cat("</table>")
+
+    on_target_sites <- off_target_df[off_target_df[[is_target_col_name]] == '1', ]
+    potential_off_targets <- off_target_df[off_target_df[[is_target_col_name]] == '0', ]
+
+    is_proximal_to_on_target <- function(chrom, start, on_targets) {
+        if(nrow(on_targets) == 0) return(FALSE)
+        same_chrom_on_targets <- on_targets[on_targets$chrom == chrom, ]
+        if(nrow(same_chrom_on_targets) == 0) return(FALSE)
+        min_dist <- min(abs(as.numeric(same_chrom_on_targets$start) - as.numeric(start)))
+        return(min_dist <= 3)
+    }
+
+    if (nrow(potential_off_targets) > 0 && nrow(on_target_sites) > 0) {
+        proximal_mask <- mapply(is_proximal_to_on_target,
+                                   potential_off_targets$chrom,
+                                   potential_off_targets$start,
+                                   MoreArgs = list(on_targets = on_target_sites))
+        true_off_targets <- potential_off_targets[!proximal_mask, ]
+    } else {
+        true_off_targets <- potential_off_targets
+    }
+    
+    off_target_filtered <- true_off_targets[
+      as.numeric(true_off_targets$indel_fraction) * 100 > as.numeric(params$off_target_threshold),
+    ]
+    
+    if(nrow(off_target_filtered) > 0){
+        cat('<table class="white-background-table off-target-subtable">')
+        cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
+        for(i in 1:nrow(off_target_filtered)){
+            coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
+            indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
+            annotation <- off_target_filtered[i, "Annotation"]
+            cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
+        }
+        cat("</table>")
+    } else {
+        cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
+    }
 } else {
-    cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
+  cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
 }
 ```
   </tr>

@@ -2,15 +2,17 @@ process GET_INDELS {
     tag "$meta.id"
     label 'process_high'
     label 'final_output'
-    container "ghcr.io/dhslab/docker-baseimage:latest"
+    container "ghcr.io/dhslab/docker-scge:latest"
     errorStrategy 'ignore'
 
     input:
-    tuple val(meta), path(files)
-    path(hotspot_file, stageAs: 'hotspots.csv')
+    tuple val(meta), path(files), path(hotspot_file, stageAs: 'hotspots.csv')
+    path crispr_model
 
     output:
     tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
+    tuple val(meta), path("${meta.id}.ml_results.txt"), emit: ml_results
+    tuple val(meta), path("${meta.id}.fp_filtered.txt"), emit: fp_log
     path "versions.yml",    emit: versions
 
     script:
@@ -61,7 +63,20 @@ process GET_INDELS {
         echo "Chromosome,Start,End,On_target,Source,DNA_Sequence,PAM,Strand,Mismatch,Bulge_Type,Bulge_Size" > \${BED_FILE}
     fi
 
-    extract_variant_reads.py \${BED_FILE} \${TUMOR_CRAM} \${CONTROL_CRAM} > ${meta.id}.indels.txt
+    extract_variant_reads_ML.py \
+        --target-file \${BED_FILE} \
+        --edited-bam \${TUMOR_CRAM} \
+        --control-bam \${CONTROL_CRAM} \
+        --enable-crispr-prediction \
+        --crispr-model ${crispr_model} \
+        --crispr-threshold 0.7 \
+        --filter-off-target-fp \
+        --fp-log ${meta.id}.fp_filtered.txt \
+        -v \
+        -o ${meta.id}.indels.txt
+
+    # Extract ML results into a separate file, preserving the header
+    cut -f 17-19 ${meta.id}.indels.txt > ${meta.id}.ml_results.txt
 
     cat <<-'END_VERSIONS' > versions.yml
     "${task.process}":
