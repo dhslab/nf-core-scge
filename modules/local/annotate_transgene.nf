@@ -13,25 +13,28 @@ process ANNOTATE_TRANSGENE_VARIANTS {
 
     script:
     """
-    /opt/vep/src/ensembl-vep/vep \\
-        --offline \\
-        --cache \\
-        --dir ${params.vep_cache} \\
-        --fasta ${params.fasta} \\
-        --symbol \\
-        --term SO \\
-        --flag_pick \\
-        --everything \\
-        --tab \\
-        --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
-        --plugin StructuralVariantOverlap \\
-        -i ${transgene_vcf} \\
-        -o ${meta.id}.transgene.annotated.tsv
+    if [ \$(grep -vc '^#' ${transgene_vcf}) -gt 0 ]; then
+        /opt/vep/src/ensembl-vep/vep \\
+            --offline \\
+            --cache \\
+            --dir ${params.vep_cache} \\
+            --fasta ${params.fasta} \\
+            --symbol \\
+            --term SO \\
+            --flag_pick \\
+            --everything \\
+            --tab \\
+            --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
+            --plugin StructuralVariantOverlap,file=${params.cytobands} \\
+            -i ${transgene_vcf} \\
+            -o ${meta.id}.transgene.annotated.tsv
+    else
+        touch ${meta.id}.transgene.annotated.tsv
+    fi
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | cut -d ':' -f 2 | sed 's/\\s*//g')
     END_VERSIONS
     """
-
 }

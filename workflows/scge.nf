@@ -18,9 +18,10 @@ include { GATHER_ALIGNMENT_SAMPLES    } from '../subworkflows/local/gather_align
 include { MAKE_HOTSPOT_VCF            } from '../modules/local/make_hotspot_vcf.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { SCGE_ANALYSIS               } from '../subworkflows/local/scge_analysis.nf'
+include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf'
 
-def generateMetaFromCsv(csv_file) {
-    def lines = csv_file.text.readLines()
+def generateMetaFromCsv(csv_string) {
+    def lines = csv_string.readLines()
     def headers = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
     return lines.drop(1).collect { line ->
         def fields = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)*.replaceAll(/^"|"$/, '')
@@ -85,13 +86,17 @@ ch_cram_reference = params.cram_reference
     : []
 
 ch_fasta_reference = params.fasta
-    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
+    ? Channel.fromPath(params.fasta, checkIfExists: true)
     : Channel.empty()
 
 // Vep cache
 ch_vep_cache = params.vep_cache
-    ? Channel.fromPath(params.vep_cache, checkIfExists: true).collect()
+    ? Channel.fromPath(params.vep_cache, checkIfExists: true)
     : Channel.empty()
+
+ch_crispr_model = Channel.value(file(params.crispr_model ?: "${baseDir}/assets/empty.txt", checkIfExists: false))
+
+ch_hotspot_file = Channel.value(file(params.hotspot_file ?: "${baseDir}/assets/empty.txt", checkIfExists: false))
 
 /*
 ~~~~~~~~~~~~~~~~~~
@@ -148,72 +153,24 @@ workflow SCGE {
     PARSE_INPUT_SAMPLESHEET.out.samples_to_align.dump(tag:'alignmentsamples')
     PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze.dump(tag:'analysissamples')
 
-    ch_dragen_output = ch_dragen_output.mix(
-        PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze
-            .map{ generateMetaFromCsv(it) }
-            .flatten()
-            .filter{ it.dragen_path }
-            .map{ [ it, it.dragen_path ? file("${it.dragen_path}/*") : [] ] }
-    )
+    ch_dragen_output = PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze
+        .map { it.text }
+        .map{ generateMetaFromCsv(it) }
+        .flatten()
+        .filter{ it.dragen_path }
+        .map{ meta -> [ meta, file(meta.dragen_path) ] }
 
-    //
-    // SUBWORKFLOW: Gather alignment samples
-    //
-    GATHER_ALIGNMENT_SAMPLES (
-        PARSE_INPUT_SAMPLESHEET.out.samples_to_align,
-        ch_cram_reference
-    )
-    ch_versions          = ch_versions.mix(GATHER_ALIGNMENT_SAMPLES.out.versions)
-    ch_alignment_samples = ch_alignment_samples.mix(GATHER_ALIGNMENT_SAMPLES.out.samples)
-
-    ch_alignment_samples.dump(tag: 'ch_alignment_samples', pretty: true)
-
-    //
-    // Run dragen
-    //
     if (params.run_alignment) {
-
-        //
-        // Make hotspot vcf file
-        //
-        MAKE_HOTSPOT_VCF (
-            ch_hotspot_bed,
-            ch_fasta_reference
-        )
-
-        DRAGEN_SCGE (
-                ch_alignment_samples,
-                ch_intermediate_dir,
-                ch_reference_dir,
-                ch_adapter1_file,
-                ch_adapter2_file,
-                ch_cram_reference,
-                ch_sv_noisefile,
-                ch_snv_noisefile,
-                ch_cnv_population_vcf,
-                MAKE_HOTSPOT_VCF.out.hotspot_vcf
-        )
-        ch_versions     = ch_versions.mix(DRAGEN_SCGE.out.versions)
-        ch_dragen_usage = ch_dragen_usage.mix(DRAGEN_SCGE.out.usage)
-        ch_dragen_output = ch_dragen_output.mix(DRAGEN_SCGE.out.dragen_output)
-
-        // Output DRAGEN usage information
-        ch_dragen_usage.map{
-                            def meta = it.getSimpleName().split("_usage")[0]
-                            def data = it.text.split("\\: ").join('\t')
-                            return "Accession\tLicense Type\tUsage\n${meta}\t${data}"
-                        }
-                        .collectFile(
-                            name      : "DRAGEN_usage.tsv",
-                            keepHeader: true,
-                            storeDir  : "${params.outdir}/pipeline_info"
-                        )
-
+        // Run alignment if specified
     }
 
     if (params.run_analysis) {
-        SCGE_ANALYSIS (
-            ch_dragen_output
+        SCGE_ANALYSIS(
+            ch_dragen_output,
+            ch_hotspot_file,
+            ch_fasta_reference,
+            ch_vep_cache,
+            ch_crispr_model
         )
         ch_versions = ch_versions.mix(SCGE_ANALYSIS.out.versions)
     }

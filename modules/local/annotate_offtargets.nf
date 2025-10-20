@@ -71,8 +71,8 @@ process ANNOTATE_OFFTARGETS {
     paste "${indels_file}" annotations.txt > "${meta.id}.indels.annotated.tsv"
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | cut -d ':' -f 2 | sed 's/\\s*//g')
+    ${task.process}:
+        bedtools: \$(bedtools --version | sed -e "s/bedtools v//g")
     END_VERSIONS
     """
 }

@@ -24,9 +24,8 @@ process CREATE_FASTQ_LIST {
         ${fastq_list_args}
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        python: \$(python --version 2>&1 | awk '{print \$2}')
-        \$(create_fastq_list.py -v)
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
 
@@ -42,9 +41,8 @@ process CREATE_FASTQ_LIST {
         ${fastq_list_args}
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        python: \$(python --version 2>&1 | awk '{print \$2}')
-        \$(create_fastq_list.py -v)
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
 

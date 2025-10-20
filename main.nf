@@ -18,32 +18,7 @@ nextflow.enable.dsl = 2
 include { SCGE                    } from './workflows/scge'
 include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge_pipeline'
-
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    NAMED WORKFLOW FOR PIPELINE
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-
-
-workflow NF_SCGE {
-
-    take:
-    ch_samplesheet  // channel: [ path(file) ]
-
-    main:
-    //
-    // WORKFLOW: Run pipeline
-    //
-    SCGE (
-        ch_samplesheet
-    )
-
-    emit:
-    multiqc_report = SCGE.out.multiqc_report
-    versions       = SCGE.out.versions
-    
-}
+include { INPUT_CHECK             } from './subworkflows/local/input_check'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -59,27 +34,15 @@ workflow {
     main:
     ch_versions = Channel.empty()
 
-    //
-    // SUBWORKFLOW: Run initialisation tasks
-    //
-    PIPELINE_INITIALISATION (
-        params.version,
-        params.help,
-        params.validate_params,
-        params.monochrome_logs,
-        args,
-        params.outdir,
-        params.input
-    )
-    ch_versions = ch_versions.mix(PIPELINE_INITIALISATION.out.versions)
+    INPUT_CHECK(params.input)
+        .set { ch_input }
 
-    //
-    // WORKFLOW: Run main workflow
-    //
-    NF_SCGE (
-        PIPELINE_INITIALISATION.out.input
+    ch_versions = ch_versions.mix(ch_input.versions)
+
+    SCGE (
+        ch_input.input
     )
-    ch_versions = ch_versions.mix(NF_SCGE.out.versions)
+    ch_versions = ch_versions.mix(SCGE.out.versions)
 
     //
     // SUBWORKFLOW: Run completion tasks
@@ -91,7 +54,7 @@ workflow {
         params.outdir,
         params.monochrome_logs,
         params.hook_url,
-        NF_SCGE.out.multiqc_report
+        SCGE.out.multiqc_report
     )
 }
 

@@ -22,8 +22,8 @@ process RENDER_SCGE_REPORT {
     quarto render ${scge_report_qmd} -P report_json:"${report_json}" -P off_target_threshold:${params.off_target_threshold} --output "${meta.id}.scge_report.html"
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        python: \$(python --version 2>&1 | awk '{print \$2}')
+    ${task.process}:
+        quarto: \$(quarto --version)
     END_VERSIONS
     """
 }

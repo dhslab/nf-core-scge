@@ -22,7 +22,7 @@ process PARSE_INPUT_SAMPLESHEET {
         --output_dir \$PWD
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         python: \$(python3 --version 2>&1 | awk '{print \$2}')
     END_VERSIONS
     """
@@ -34,7 +34,7 @@ process PARSE_INPUT_SAMPLESHEET {
         --output_dir \$PWD
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         python: \$(python3 --version 2>&1 | awk '{print \$2}')
     END_VERSIONS
     """
