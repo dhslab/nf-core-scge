@@ -13,20 +13,23 @@ process ANNOTATE_TRANSGENE_VARIANTS {
 
     script:
     """
-    /opt/vep/src/ensembl-vep/vep \\
-        --offline \\
-        --cache \\
-        --dir ${params.vep_cache} \\
-        --fasta ${params.fasta} \\
-        --symbol \\
-        --term SO \\
-        --flag_pick \\
-        --everything \\
-        --tab \\
-        --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
-        --plugin StructuralVariantOverlap \\
-        -i ${transgene_vcf} \\
-        -o ${meta.id}.transgene.annotated.tsv
+    if [ \$(grep -v '^#' ${transgene_vcf} | wc -l) -gt 0 ]; then
+        /opt/vep/src/ensembl-vep/vep \\
+            --offline \\
+            --cache \\
+            --dir ${params.vep_cache} \\
+            --fasta ${params.fasta} \\
+            --symbol \\
+            --term SO \\
+            --flag_pick \\
+            --everything \\
+            --tab \\
+            --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
+            -i ${transgene_vcf} \\
+            -o ${meta.id}.transgene.annotated.tsv
+    else
+        touch ${meta.id}.transgene.annotated.tsv
+    fi
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

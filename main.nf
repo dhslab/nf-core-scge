@@ -1,11 +1,9 @@
 #!/usr/bin/env nextflow
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    nf-core/scge
+    dhslab/scge
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Github : https://github.com/nf-core/scge
-    Website: https://nf-co.re/scge
-    Slack  : https://nfcore.slack.com/channels/scge
+    Github : https://github.com/dhslab/
 ----------------------------------------------------------------------------------------
 */
 
@@ -13,38 +11,13 @@ nextflow.enable.dsl = 2
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    GENOME PARAMETER VALUES
+    IMPORT FUNCTIONS / MODULES / SUBWORKFLOWS / WORKFLOWS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-// TODO nf-core: Remove this line if you don't need a FASTA file
-//   This is an example of how to use getGenomeAttribute() to fetch parameters
-//   from igenomes.config using `--genome`
-params.fasta = WorkflowMain.getGenomeAttribute(params, 'fasta')
-
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    VALIDATE & PRINT PARAMETER SUMMARY
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-
-include { validateParameters; paramsHelp } from 'plugin/nf-validation'
-
-// Print help message if needed
-if (params.help) {
-    def logo = NfcoreTemplate.logo(workflow, params.monochrome_logs)
-    def citation = '\n' + WorkflowMain.citation(workflow) + '\n'
-    def String command = "nextflow run ${workflow.manifest.name} --input samplesheet.csv --genome GRCh37 -profile docker"
-    log.info logo + paramsHelp(command) + citation + NfcoreTemplate.dashedLine(params.monochrome_logs)
-    System.exit(0)
-}
-
-// Validate input parameters
-if (params.validate_params) {
-    validateParameters()
-}
-
-WorkflowMain.initialise(workflow, params, log, args)
+include { SCGE                    } from './workflows/scge'
+include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_scge_pipeline'
+include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -52,13 +25,24 @@ WorkflowMain.initialise(workflow, params, log, args)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-include { SCGE } from './workflows/scge'
 
-//
-// WORKFLOW: Run main nf-core/scge analysis pipeline
-//
-workflow NFCORE_SCGE {
-    SCGE ()
+workflow NF_SCGE {
+
+    take:
+    ch_samplesheet  // channel: [ path(file) ]
+
+    main:
+    //
+    // WORKFLOW: Run pipeline
+    //
+    SCGE (
+        ch_samplesheet
+    )
+
+    emit:
+    multiqc_report = SCGE.out.multiqc_report
+    versions       = SCGE.out.versions
+    
 }
 
 /*
@@ -72,7 +56,43 @@ workflow NFCORE_SCGE {
 // See: https://github.com/nf-core/rnaseq/issues/619
 //
 workflow {
-    NFCORE_SCGE ()
+    main:
+    ch_versions = Channel.empty()
+
+    //
+    // SUBWORKFLOW: Run initialisation tasks
+    //
+    PIPELINE_INITIALISATION (
+        params.version,
+        params.help,
+        params.validate_params,
+        params.monochrome_logs,
+        args,
+        params.outdir,
+        params.input
+    )
+    ch_versions = ch_versions.mix(PIPELINE_INITIALISATION.out.versions)
+
+    //
+    // WORKFLOW: Run main workflow
+    //
+    NF_SCGE (
+        PIPELINE_INITIALISATION.out.input
+    )
+    ch_versions = ch_versions.mix(NF_SCGE.out.versions)
+
+    //
+    // SUBWORKFLOW: Run completion tasks
+    //
+    PIPELINE_COMPLETION (
+        params.email,
+        params.email_on_fail,
+        params.plaintext_email,
+        params.outdir,
+        params.monochrome_logs,
+        params.hook_url,
+        NF_SCGE.out.multiqc_report
+    )
 }
 
 /*

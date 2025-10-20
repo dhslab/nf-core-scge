@@ -1,2 +1,2 @@
-id,dragen_path
+id,edited_id,control_id,edited_cram,control_cram,edited_bam,control_bam,fastq_list,dragen_path
 Donor_16_CART,/storage1/fs1/dspencer/Active/clinseq/projects/scge/workflow/sample_data/Donor_16_CART

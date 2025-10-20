@@ -1,21 +1,3 @@
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    PRINT PARAMS SUMMARY
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-include { paramsSummaryLog; paramsSummaryMap } from 'plugin/nf-validation'
-
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    IMPORT LOCAL MODULES/SUBWORKFLOWS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
-
-//
-// SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
-//
-include { SOMATIC_INPUT_CHECK } from '../subworkflows/local/somatic_input_check.nf'
-include { MAKE_SCGE_REPORT } from '../subworkflows/local/make_scge_report.nf'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -23,48 +5,19 @@ include { MAKE_SCGE_REPORT } from '../subworkflows/local/make_scge_report.nf'
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-//
-// MODULE: Installed directly from nf-core/modules
-//
-include { FASTQC                      } from '../modules/nf-core/fastqc/main'
+include { softwareVersionsToYAML      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { paramsSummaryMap            } from 'plugin/nf-schema'
+include { paramsSummaryMultiqc        } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { methodsDescriptionText      } from '../subworkflows/local/utils_nfcore_scge_pipeline'
 include { MULTIQC                     } from '../modules/nf-core/multiqc/main'
+include { FASTQC                      } from '../modules/nf-core/fastqc/main'
 include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../modules/nf-core/custom/dumpsoftwareversions/main'
-include { MAKE_HOTSPOT_FILE           } from '../modules/local/make_hotspot_file.nf'
+
+include { PARSE_INPUT_SAMPLESHEET     } from '../modules/local/parse_input_samplesheet.nf'
+include { GATHER_ALIGNMENT_SAMPLES    } from '../subworkflows/local/gather_alignment_samples.nf'
+include { MAKE_HOTSPOT_VCF            } from '../modules/local/make_hotspot_vcf.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
-include { ANNOTATE_VARIANTS           } from '../modules/local/annotate_variants.nf'
-include { ANNOTATE_TRANSGENE_VARIANTS } from '../modules/local/annotate_transgene.nf'
-include { GET_INDELS                  } from '../modules/local/get_indels.nf'
-include { GET_TRANSGENE_JUNCTIONS     } from '../modules/local/get_transgene_junctions.nf'
-include { REFORMAT_CNV_DATA           } from '../modules/local/reformat_cnv_data.nf'
-include { ANNOTATE_VCF                } from '../modules/local/annotate_vcf.nf'
-include { VEP_TO_TSV                  } from '../modules/local/vep_to_tsv.nf'
-include { GENERATE_CNA_BAF_PLOTS      } from '../modules/local/generate_cna_baf_plots.nf'
-include { COMPILE_REPORT_JSON         } from '../modules/local/compile_report_json.nf'
-include { MAKE_CIRCOS_PLOT            } from '../modules/local/make_circos_plot.nf'
-include { TRANSFORM_TRANSGENE         } from '../modules/local/transform_transgene.nf'
-include { ANNOTATE_OFFTARGETS         } from '../modules/local/annotate_offtargets.nf'
-include { BND_FROM_INDELS_TO_VCF      } from '../modules/local/bnd_from_indels_to_vcf.nf'
-include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf.nf'
-
-def stageFileset(Map filePathMap) {
-    def basePathMap = [:]
-    def filePathsList = []
-
-    filePathMap.each { key, value ->
-        if (value != null) {
-            def filepath = file(value)
-            if (filepath.exists()) {
-                // Add basename and key to the map
-                basePathMap[key] = value.split('/')[-1]
-                // Add file path to the list
-                filePathsList << filepath
-            } else {
-                println "Warning: File at '${value}' for key '${key}' does not exist."
-            }
-        }
-    }
-    return [basePathMap, filePathsList]
-}
+include { SCGE_ANALYSIS               } from '../subworkflows/local/scge_analysis.nf'
 
 def generateMetaFromCsv(csv_file) {
     def lines = csv_file.text.readLines()
@@ -77,40 +30,39 @@ def generateMetaFromCsv(csv_file) {
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    RUN MAIN WORKFLOW
+    CREATE CHANNELS FOR INPUT PARAMETERS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-workflow SCGE {
 
-    def logo = NfcoreTemplate.logo(workflow, params.monochrome_logs)
-    def citation = '\n' + WorkflowMain.citation(workflow) + '\n'
-    def summary_params = paramsSummaryMap(workflow)
+// DRAGEN reference directory
+ch_reference_dir = params.refdir
+    ? Channel.fromPath(params.refdir, type: 'dir', checkIfExists: true).collect()
+    : Channel.empty()
 
-    // Print parameter summary log to screen
-    log.info logo + paramsSummaryLog(workflow) + citation
+// DRAGEN adapter sequences for read 1
+ch_adapter1_file = params.adapter1
+    ? Channel.fromPath(params.adapter1, checkIfExists: true).collect()
+    : []
 
-    ch_multiqc_config          = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
-    ch_multiqc_custom_config   = params.multiqc_config ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_logo            = params.multiqc_logo   ? Channel.fromPath( params.multiqc_logo, checkIfExists: true ) : Channel.empty()
-    ch_multiqc_custom_methods_description = params.multiqc_methods_description ? file(params.multiqc_methods_description, checkIfExists: true) : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
+// DRAGEN adapter sequences for read 2
+ch_adapter2_file = params.adapter2
+    ? Channel.fromPath(params.adapter2, checkIfExists: true).collect()
+    : []
 
-    // If MGI samplesheet is used, we need to set the
-    // data path because only files are given. This sets the
-    // data path to the samplesheet directory, or the data_path parameter.
-    def data_path = ""
-    def mastersheet = params.input
-    if (params.mgi == true) {
-        data_path = new File(params.input).parentFile.absolutePath
-    } else if (params.data_path != null){
-        data_path  = params.data_path
-    }
+// DRAGEN intermediate directory
+if (params.intermediate_dir?.toString()?.startsWith('/staging')) {
+    ch_intermediate_dir = Channel.of(params.intermediate_dir).map{ [ it, [] ] }.collect()
+} else if (params.intermediate_dir) {
+    ch_intermediate_dir = Channel.fromPath(params.intermediate_dir).map{ [ [], it ] }.collect()
+} else {
+    ch_intermediate_dir = [ [], [] ]
+}
 
-    def multiqc_report = []
-
-    ch_versions = Channel.empty()
-    ch_dragen_outputs = Channel.empty()
-
+// Gene hotspots
+ch_hotspot_bed = params.hotspot_bed
+    ? Channel.fromPath("${params.hotspot_bed}", checkIfExists: true).collect()
+    : []
     //
     // *** Main inputs can be made into channels here. ***
     //
@@ -135,105 +87,83 @@ workflow SCGE {
     ch_mastersheet = params.input ?
         Channel.fromPath("${params.input}", checkIfExists: true) :
         Channel.empty()
+    ch_crispr_model = params.crispr_model ?
+        Channel.fromPath("${params.crispr_model}", checkIfExists: true) :
+        Channel.empty()
 
-    //
-    // This input check needs to be overhauled. See assets/stub/sample_mastersheet.csv
-    //
+// SNV systematic noise BED file
+ch_snv_noisefile = params.snv_noisefile
+    ? Channel.fromPath(params.snv_noisefile, checkIfExists: true).collect()
+    : []
 
-    // Channel of meta data for alignment samples
-    ch_samples = ch_mastersheet
-                        .map { generateMetaFromCsv(it) }
-                        .flatten()
+// SV systematic noise BED file
+ch_sv_noisefile = params.sv_noisefile
+    ? Channel.fromPath(params.sv_noisefile, checkIfExists: true).collect()
+    : []
 
-    // This pseudo code at this point, but its supposed to get the dragen_path out of the dict
-    // and return a tuple of (dict,path)
-    ch_dragen_output = ch_samples
-    .map { dict ->
-        if (dict.dragen_path && dict.dragen_path != '') {
-            def path = file(dict.dragen_path)
-            if (path.exists()) {
-                return [dict, path]
-            } else {
-                log.warn "DRAGEN path does not exist for sample ${dict.id}: ${dict.dragen_path}"
-                return null
-            }
-        } else {
-            log.warn "No DRAGEN path specified for sample ${dict.id}"
-            return null
-        }
-    }
-    .filter { it != null }
+// High confidence CNV VCF file
+ch_cnv_population_vcf = params.cnv_population_vcf
+    ? Channel.fromPath(params.cnv_population_vcf, checkIfExists: true).collect()
+    : []
 
-    // this stages all dragen output and then returns the images
-    GENERATE_CNA_BAF_PLOTS(ch_dragen_output)
-    ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
+// CRAM reference file
+ch_cram_reference = params.cram_reference
+    ? Channel.fromPath("${params.cram_reference}*", checkIfExists: true).collect()
+    : []
 
-    // get indels
-    // Build input for GET_INDELS by joining dragen outputs with per-sample hotspot file
-    ch_hotspot_file = ch_samples
-    .map { dict ->
-        if (dict.hotspot_file && dict.hotspot_file != '') {
-            def path = file(dict.hotspot_file)
-            if (path.exists()) {
-                return [dict.id, path]
-            } else {
-                log.warn "Hotspot file does not exist for sample ${dict.id}: ${dict.hotspot_file}"
-                return [dict.id, null]
-            }
-        } else {
-            log.warn "No hotspot file specified for sample ${dict.id}"
-            return [dict.id, null]
-        }
-    }
-    .filter { it[1] != null }
+ch_fasta_reference = params.fasta
+    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
+    : Channel.empty()
 
-
-    ch_dragen_output_for_join = ch_dragen_output.map { meta, files -> [meta.id, meta, files] }
-
-    ch_get_indels_input = ch_dragen_output_for_join
-        .join(ch_hotspot_file)
-        .map { id, meta, files, hotspot_file -> [meta, files, hotspot_file] }
-
-    GET_INDELS(ch_get_indels_input)
+// Vep cache
+ch_vep_cache = params.vep_cache
+    ? Channel.fromPath(params.vep_cache, checkIfExists: true).collect()
+    : Channel.empty()
+    GET_INDELS(ch_get_indels_input, ch_crispr_model)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
-    ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
-    ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
+/*
+~~~~~~~~~~~~~~~~~~
+MultiQC parameters
+~~~~~~~~~~~~~~~~~~
+*/
 
-    ch_vcf_for_annotation = ch_dragen_output.map { meta, dragen_path ->
-        def vcf_file = file("${dragen_path}/${meta.id}.hard-filtered.vcf.gz")
-        if (vcf_file.exists()) {
-            return [meta, vcf_file]
-        } else {
-            log.warn "VCF file not found for sample ${meta.id}: ${vcf_file}"
-            return null
-        }
-    }.filter { it != null }
+ch_multiqc_config = Channel.fromPath("$projectDir/assets/multiqc_config.yml", checkIfExists: true)
 
-    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference.first(), ch_vep_cache.first())
+ch_multiqc_custom_config = params.multiqc_config 
+    ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) 
+    : Channel.empty()
+    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference, ch_vep_cache)
     ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
-    ANNOTATE_VARIANTS.out.vcf.view()
-    VEP_TO_TSV(ANNOTATE_VARIANTS.out.vcf.map { meta, vcf -> [meta, "vcf", vcf] })
-        ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
+ch_multiqc_logo = params.ch_multiqc_logo
+    ? Channel.fromPath( params.multiqc_logo, checkIfExists: true )
+    : Channel.empty()
 
-    GET_TRANSGENE_JUNCTIONS(ch_dragen_output)
-    ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
+ch_multiqc_custom_methods_description = params.multiqc_methods_description 
+    ? file(params.multiqc_methods_description, checkIfExists: true) 
+    : file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
 
-    TRANSFORM_TRANSGENE(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
-    ch_versions = ch_versions.mix(TRANSFORM_TRANSGENE.out.versions)
 
-    MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    RUN MAIN WORKFLOW
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
 
-    ch_transgene_fasta = Channel.fromPath(params.transgene_fasta)
+workflow SCGE {
 
+    take:
+    ch_input_samplesheet  // channel: [ path(file) ]
     TRANSGENE_TO_VCF(
-        GET_TRANSGENE_JUNCTIONS.out.transgene_file,
-        ch_transgene_fasta
+        GET_TRANSGENE_JUNCTIONS.out.transgene_file
     )
     ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
 
-    ch_annotate_transgene_variants_input = ch_dragen_output.join(TRANSGENE_TO_VCF.out.vcf)
+    ch_annotate_transgene_variants_input = ch_dragen_output
+        .map { meta, files -> [meta.id, meta, files] }
+        .join(TRANSGENE_TO_VCF.out.transgene_vcf.map { meta, vcf -> [meta.id, vcf] })
+        .map { id, meta, files, vcf -> [meta, files, vcf] }
 
     ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
     ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
@@ -256,97 +186,137 @@ workflow SCGE {
     }
     .filter { it[1] != null && it[2] != null }
 
-    def ch_plots = GENERATE_CNA_BAF_PLOTS.out.cna_plot
-        .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
-        .map { meta, cna, baf -> [meta.id, meta, cna, baf] }
-    ch_plots.view { "Plots: $it" }
+    main:
+    ch_versions = Channel.empty()
+    ch_alignment_samples = Channel.empty()
+    ch_dragen_output = Channel.empty()
+    ch_dragen_usage = Channel.empty()
 
-    def ch_circos = MAKE_CIRCOS_PLOT.out.circos_plot
-        .map { meta, circos -> [meta.id, circos] }
-    ch_circos.view { "Circos: $it" }
+    //
+    // dump samplesheet channel
+    ch_input_samplesheet.dump(tag:'mastersheet')
 
-    def ch_annotated_transgene = ANNOTATE_TRANSGENE_VARIANTS.out.annotated_transgene_variants
-        .map { meta, transgene -> [meta.id, transgene] }
-    ch_annotated_transgene.view { "Annotated Transgene: $it" }
+    //
+    // MODULE: Parse input samplesheet to format samples for processing.
+    //         Output of this process are csv files for samples that need to be aligned
+    //         and samples that need to be analyzed
+    //
+    PARSE_INPUT_SAMPLESHEET (
+        ch_input_samplesheet
+    )
+    ch_versions = ch_versions.mix(PARSE_INPUT_SAMPLESHEET.out.versions)
 
-    def ch_vep_tsv = VEP_TO_TSV.out.vep_tsv
-        .map { meta, tsv -> [meta.id, tsv] }
-    ch_vep_tsv.view { "VEP TSV: $it" }
+    PARSE_INPUT_SAMPLESHEET.out.samples_to_align.dump(tag:'alignmentsamples')
+    PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze.dump(tag:'analysissamples')
 
-    def ch_indels = ANNOTATE_OFFTARGETS.out.annotated_indels
-        .map { meta, indels -> [meta.id, indels] }
-    ch_indels.view { "Indels: $it" }
+    ch_dragen_output = ch_dragen_output.mix(
+        PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze
+            .map{ generateMetaFromCsv(it) }
+            .flatten()
+            .filter{ it.dragen_path }
+            .map{ [ it, it.dragen_path ? file("${it.dragen_path}/*") : [] ] }
+    )
 
-    ch_plots
-        .join(ch_circos, by: 0)
-        .join(ch_annotated_transgene, by: 0)
-        .join(ch_vep_tsv, by: 0)
-        .join(ch_indels, by: 0)
-        .join(ch_coverage_files, by: 0)
-        .map { id, meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov ->
-            def timestamp = new Date().getTime()
-            [meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov, timestamp]
-        }
-        .set { ch_compile_report_input }
+    //
+    // SUBWORKFLOW: Gather alignment samples
+    //
+    GATHER_ALIGNMENT_SAMPLES (
+        PARSE_INPUT_SAMPLESHEET.out.samples_to_align,
+        ch_cram_reference
+    )
+    ch_versions          = ch_versions.mix(GATHER_ALIGNMENT_SAMPLES.out.versions)
+    ch_alignment_samples = ch_alignment_samples.mix(GATHER_ALIGNMENT_SAMPLES.out.samples)
 
+    ch_alignment_samples.dump(tag: 'ch_alignment_samples', pretty: true)
 
-    COMPILE_REPORT_JSON(ch_compile_report_input)
-    ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
+    //
+    // Run dragen
+    //
+    if (params.run_alignment) {
 
-    def ch_plots_for_report = GENERATE_CNA_BAF_PLOTS.out.cna_plot
-        .join(GENERATE_CNA_BAF_PLOTS.out.baf_plot)
-        .map { meta, cna, baf -> [meta.id, cna, baf] }
+        //
+        // Make hotspot vcf file
+        //
+        MAKE_HOTSPOT_VCF (
+            ch_hotspot_bed,
+            ch_fasta_reference
+        )
 
-    def ch_report_input = COMPILE_REPORT_JSON.out.json
-        .map { meta, json -> [meta.id, meta, json] }
-        .join(ch_plots_for_report)
-        .map { id, meta, json, cna, baf -> [meta, json, cna, baf] }
+        DRAGEN_SCGE (
+                ch_alignment_samples,
+                ch_intermediate_dir,
+                ch_reference_dir,
+                ch_adapter1_file,
+                ch_adapter2_file,
+                ch_cram_reference,
+                ch_sv_noisefile,
+                ch_snv_noisefile,
+                ch_cnv_population_vcf,
+                MAKE_HOTSPOT_VCF.out.hotspot_vcf
+        )
+        ch_versions     = ch_versions.mix(DRAGEN_SCGE.out.versions)
+        ch_dragen_usage = ch_dragen_usage.mix(DRAGEN_SCGE.out.usage)
+        ch_dragen_output = ch_dragen_output.mix(DRAGEN_SCGE.out.dragen_output)
 
-    MAKE_SCGE_REPORT(ch_report_input)
+        // Output DRAGEN usage information
+        ch_dragen_usage.map{
+                            def meta = it.getSimpleName().split("_usage")[0]
+                            def data = it.text.split("\\: ").join('\t')
+                            return "Accession\tLicense Type\tUsage\n${meta}\t${data}"
+                        }
+                        .collectFile(
+                            name      : "DRAGEN_usage.tsv",
+                            keepHeader: true,
+                            storeDir  : "${params.outdir}/pipeline_info"
+                        )
 
+    }
+
+    if (params.run_analysis) {
+        SCGE_ANALYSIS (
+            ch_dragen_output
+        )
+        ch_versions = ch_versions.mix(SCGE_ANALYSIS.out.versions)
+    }
+
+    //
+    //
+    // Collate and save software versions
+    //
+    softwareVersionsToYAML(ch_versions)
+        .collectFile(
+            storeDir: "${params.outdir}/pipeline_info",
+            name    : 'software_versions.yml',
+            sort    : true,
+            newLine : true
+        )
+        .set{ ch_collated_versions }
+
+    //
     // MODULE: MultiQC
-    workflow_summary    = WorkflowScge.paramsSummaryMultiqc(workflow, summary_params)
-    ch_workflow_summary = Channel.value(workflow_summary)
+    //
+    summary_params      = paramsSummaryMap(workflow, parameters_schema: "nextflow_schema.json")
+    ch_workflow_summary = Channel.value(paramsSummaryMultiqc(summary_params))
 
-    methods_description    = WorkflowScge.methodsDescriptionText(workflow, ch_multiqc_custom_methods_description, params)
-    ch_methods_description = Channel.value(methods_description)
+    ch_methods_description = Channel.value(methodsDescriptionText(ch_multiqc_custom_methods_description))
 
-    ch_multiqc_files = Channel.empty()
-    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml'))
-    // ch_multiqc_files = ch_multiqc_files.mix(CUSTOM_DUMPSOFTWAREVERSIONS.out.mqc_yml.collect())
+    ch_multiqc_files = ch_collated_versions
+                        .mix(
+                            ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'),
+                            ch_methods_description.collectFile(name: 'methods_description_mqc.yaml', sort: true)
+                        )
 
-    MULTIQC (
+    MULTIQC(
         ch_multiqc_files.collect(),
         ch_multiqc_config.toList(),
         ch_multiqc_custom_config.toList(),
         ch_multiqc_logo.toList()
     )
-    multiqc_report = MULTIQC.out.report.toList()
-}
 
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    COMPLETION EMAIL AND SUMMARY
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
+    emit:
+    multiqc_report = MULTIQC.out.report.toList()  // channel: [ path(file) ]
+    versions       = ch_versions                  // channel: [ path(file) ]
 
-workflow.onComplete {
-    if (params.email || params.email_on_fail) {
-        NfcoreTemplate.email(workflow, params, summary_params, projectDir, log, multiqc_report)
-    }
-    NfcoreTemplate.dump_parameters(workflow, params)
-    NfcoreTemplate.summary(workflow, params, log)
-    if (params.hook_url) {
-        NfcoreTemplate.IM_notification(workflow, params, summary_params, projectDir, log)
-    }
-}
-
-workflow.onError {
-    if (workflow.errorReport.contains("Process requirement exceeds available memory")) {
-        println("🛑 Default resources exceed availability 🛑 ")
-        println("💡 See here on how to configure pipeline: https://nf-co.re/docs/usage/configuration#tuning-workflow-resources 💡")
-    }
 }
 
 /*
