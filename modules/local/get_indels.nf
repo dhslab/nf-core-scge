@@ -6,7 +6,7 @@ process GET_INDELS {
     errorStrategy 'ignore'
 
     input:
-    tuple val(meta), path(dragen_dir, stageAs: 'dragen/*'), path(hotspot_file, stageAs: 'hotspots.csv'), path(crispr_model)
+    tuple val(meta), path(dragen_dir, stageAs: 'dragen'), path(hotspot_file, stageAs: 'hotspots.csv'), path(crispr_model)
 
     output:
     tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
