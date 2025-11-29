@@ -64,6 +64,33 @@ if (params.intermediate_dir?.toString()?.startsWith('/staging')) {
 ch_hotspot_bed = params.hotspot_bed
     ? Channel.fromPath("${params.hotspot_bed}", checkIfExists: true).collect()
     : []
+    //
+    // *** Main inputs can be made into channels here. ***
+    //
+    // - reference fasta file (and fai)
+    // - hotspot file (now a parameter and not in the input sheet)
+    // - VEP cache
+    // FastA reference
+    ch_fasta_reference = Channel.fromPath(params.fasta, checkIfExists: true)
+    // Vep cache
+    ch_vep_cache = params.vep_cache ?
+        Channel.fromPath(params.vep_cache, checkIfExists: true).collect() :
+        Channel.empty()
+    // Gene regions
+    ch_editing_targets = params.editing_targets ?
+        Channel.fromPath("${params.editing_targets}", checkIfExists: true) :
+        Channel.empty()
+    // Gene regions
+    ch_transgene_name = params.transgene_name ?
+        Channel.from("${params.transgene_name}") :
+        Channel.empty()
+    // input mastersheet
+    ch_mastersheet = params.input ?
+        Channel.fromPath("${params.input}", checkIfExists: true) :
+        Channel.empty()
+    ch_crispr_model = params.crispr_model ?
+        Channel.fromPath("${params.crispr_model}", checkIfExists: true) :
+        Channel.empty()
 
 // SNV systematic noise BED file
 ch_snv_noisefile = params.snv_noisefile
@@ -93,6 +120,8 @@ ch_fasta_reference = params.fasta
 ch_vep_cache = params.vep_cache
     ? Channel.fromPath(params.vep_cache, checkIfExists: true)
     : Channel.empty()
+    GET_INDELS(ch_get_indels_input, ch_crispr_model)
+    ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
 ch_crispr_model = Channel.value(file(params.crispr_model ?: "${baseDir}/assets/empty.txt", checkIfExists: false))
 
@@ -109,6 +138,8 @@ ch_multiqc_config = Channel.fromPath("$projectDir/assets/multiqc_config.yml", ch
 ch_multiqc_custom_config = params.multiqc_config 
     ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) 
     : Channel.empty()
+    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference, ch_vep_cache)
+    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
 ch_multiqc_logo = params.ch_multiqc_logo
     ? Channel.fromPath( params.multiqc_logo, checkIfExists: true )
@@ -129,6 +160,36 @@ workflow SCGE {
 
     take:
     ch_input_samplesheet  // channel: [ path(file) ]
+    TRANSGENE_TO_VCF(
+        GET_TRANSGENE_JUNCTIONS.out.transgene_file
+    )
+    ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
+
+    ch_annotate_transgene_variants_input = ch_dragen_output
+        .map { meta, files -> [meta.id, meta, files] }
+        .join(TRANSGENE_TO_VCF.out.transgene_vcf.map { meta, vcf -> [meta.id, vcf] })
+        .map { id, meta, files, vcf -> [meta, files, vcf] }
+
+    ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
+    ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
+
+    // Temporarily disabled to avoid early failure when no versions are present
+    // CUSTOM_DUMPSOFTWAREVERSIONS (
+    //     ch_versions.unique().collectFile(name: 'collated_versions.yml')
+    // )
+
+    ch_coverage_files = ch_dragen_output.map { meta, dragen_path ->
+        def tumor_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_tumor.csv")
+        def normal_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_normal.csv")
+        if (tumor_cov_file.exists() && normal_cov_file.exists()) {
+            return [meta.id, tumor_cov_file, normal_cov_file]
+        } else {
+            if (!tumor_cov_file.exists()) log.warn "Tumor coverage metrics file not found for sample ${meta.id}: ${tumor_cov_file}"
+            if (!normal_cov_file.exists()) log.warn "Normal coverage metrics file not found for sample ${meta.id}: ${normal_cov_file}"
+            return [meta.id, null, null]
+        }
+    }
+    .filter { it[1] != null && it[2] != null }
 
     main:
     ch_versions = Channel.empty()
