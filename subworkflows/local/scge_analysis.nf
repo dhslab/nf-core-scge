@@ -18,6 +18,7 @@ include { ANNOTATE_OFFTARGETS         } from '../../modules/local/annotate_offta
 include { BND_FROM_INDELS_TO_VCF      } from '../../modules/local/bnd_from_indels_to_vcf.nf'
 include { MAKE_SCGE_REPORT            } from './make_scge_report.nf'
 include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../../modules/nf-core/custom/dumpsoftwareversions/main'
+include { TRANSGENE_TO_VCF            } from '../../modules/local/transgene_to_vcf'
 
 
 /*
@@ -26,14 +27,9 @@ include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../../modules/nf-core/custom/dumps
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-// FastA reference
-ch_fasta_reference = params.fasta
-    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
-    : Channel.empty()
-
 // Vep cache
 ch_vep_cache = params.vep_cache
-    ? Channel.fromPath(params.vep_cache, checkIfExists: true).collect()
+    ? Channel.fromPath(params.vep_cache, checkIfExists: true)
     : Channel.empty()
 
 // Gene regions
@@ -42,12 +38,16 @@ ch_editing_targets = params.editing_targets ?
         Channel.empty()
 
 // Transgene name
-ch_transgene_name = params.transgene_name ?
-        Channel.from("${params.transgene_name}") 
+ch_transgene_name = params.transgene ?
+        Channel.from("${params.transgene}") 
         : Channel.empty()
 
 ch_transgene_fasta = params.transgene_fasta ?
         Channel.fromPath("${params.transgene_fasta}", checkIfExists: true)
+        : Channel.empty()
+
+ch_hotspot_file = params.hotspot_file ?
+        Channel.fromPath("${params.hotspot_file}", checkIfExists: true)
         : Channel.empty()
 
 /*
@@ -59,29 +59,43 @@ ch_transgene_fasta = params.transgene_fasta ?
 workflow SCGE_ANALYSIS {
 
     take:
-    ch_dragen_files // channel: [ meta, path(dragen/*) ]
+    ch_dragen_files // channel: meta
+    ch_hotspot_file // channel: path(hotspot_file)
+    ch_fasta_reference // channel: path(fasta_reference)
+    ch_vep_cache // channel: path(vep_cache)
+    ch_crispr_model // channel: path(crispr_model)
 
     main:
     ch_versions = Channel.empty()
 
-    ch_dragen_files.dump(tag: 'ch_dragen_files', pretty: true)
+    //
+    // Main analysis
+    //
+    ch_annotate_variants_input = ch_dragen_files
+        .combine(ch_fasta_reference)
+        .combine(ch_vep_cache)
 
-    ANNOTATE_VARIANTS (ch_dragen_files, ch_fasta_reference, ch_vep_cache)
+    ANNOTATE_VARIANTS(ch_annotate_variants_input)
     ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
-//    ANNOTATE_CNV_VARIANTS (ch_dragen_files, ch_fasta_reference, ch_vep_cache)
-//    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
+    VEP_TO_TSV(ANNOTATE_VARIANTS.out.vcf.map { meta, vcf -> [meta, "vcf", vcf] })
+    ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
 
-    VEP_TO_TSV(ANNOTATE_VARIANTS.out.vcf)
-        ch_versions = ch_versions.mix(VEP_TO_TSV.out.versions)
+    ch_get_indels_input = ch_dragen_files
+        .combine(ch_hotspot_file)
+        .combine(ch_crispr_model)
 
-    GET_INDELS(ch_dragen_files, ch_editing_targets)
+    GET_INDELS(ch_get_indels_input)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
     ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
     ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
 
-    GET_TRANSGENE_JUNCTIONS(ch_dragen_files, ch_transgene_name)
+    ch_get_transgene_junctions_input = ch_dragen_files
+        .combine(ch_transgene_name)
+        .combine(ch_transgene_fasta)
+
+    GET_TRANSGENE_JUNCTIONS(ch_get_transgene_junctions_input)
     ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
 
     TRANSFORM_TRANSGENE(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
@@ -89,23 +103,36 @@ workflow SCGE_ANALYSIS {
 
     MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
 
-    TRANSGENE_TO_VCF(
-        GET_TRANSGENE_JUNCTIONS.out.transgene_file,
-        ch_transgene_fasta
-    )
+    ch_transgene_fasta = Channel.fromPath(params.transgene_fasta)
+
+    TRANSGENE_TO_VCF( GET_TRANSGENE_JUNCTIONS.out.transgene_file )
     ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
-    ch_annotate_transgene_variants_input = ch_dragen_files.join(TRANSGENE_TO_VCF.out.vcf)
+
+    ch_annotate_transgene_variants_input = ANNOTATE_VARIANTS.out.vcf
+        .join(TRANSGENE_TO_VCF.out.transgene_vcf)
 
     ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
     ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
 
+    BND_FROM_INDELS_TO_VCF (
+        GET_INDELS.out.indels_file
+            .join(VEP_TO_TSV.out.vep_tsv)
+            .map { meta, indels_file, vep_tsv -> [meta, indels_file] }
+    )
 
+    //
+    // Generate plots
+    //
     GENERATE_CNA_BAF_PLOTS(ch_dragen_files)
-    ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)    
+    ch_versions = ch_versions.mix(GENERATE_CNA_BAF_PLOTS.out.versions)
 
+
+    //
+    // Collate outputs
+    //
     ch_coverage_files = ch_dragen_files.map { meta, dragen_path ->
-        def tumor_cov_file = file("${dragen_path}/*.wgs_overall_mean_cov_tumor.csv").with { it.exists() ? it : [] }
-        def normal_cov_file = file("${dragen_path}/*.wgs_overall_mean_cov_normal.csv").with { it.exists() ? it : [] }
+        def tumor_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_tumor.csv') } ?: file("${baseDir}/assets/empty_tumor_coverage.txt")
+        def normal_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_normal.csv') } ?: file("${baseDir}/assets/empty_normal_coverage.txt")
         return [meta.id, tumor_cov_file, normal_cov_file]
     }
 

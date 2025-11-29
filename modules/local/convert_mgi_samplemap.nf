@@ -19,8 +19,8 @@ process CONVERT_MGI_SAMPLEMAP {
     convert_mgi_samplemap.py ${samplemap} ${meta.id}.fastq_list.csv
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        convert_mgi_samplemap: \$(convert_mgi_samplemap.py --version | awk '{print \$2}')
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
 
@@ -29,8 +29,8 @@ process CONVERT_MGI_SAMPLEMAP {
     convert_mgi_samplemap.py ${samplemap} ${meta.id}.fastq_list.csv
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        convert_mgi_samplemap: \$(convert_mgi_samplemap.py --version | awk '{print \$2}')
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
 }

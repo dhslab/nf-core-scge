@@ -5,17 +5,26 @@ process GET_TRANSGENE_JUNCTIONS {
     container "ghcr.io/dhslab/docker-cleutils"
 
     input:
-    tuple val(meta), path(files)
-    val(transgene_name)
+    tuple val(meta), path(dragen_dir), val(transgene_name), path(fasta)
 
     output:
     tuple val(meta), path("${meta.id}.transgene_out.tsv"), emit: transgene_file
-    path "versions.yml"                                  , emit: versions
+    path "versions.yml", emit: versions
 
     script:
     """
-    TUMOR_CRAM=\$(ls dragen/*_tumor.cram | head -n1)
-    getTransgeneJunctions.py -x 3130,5930 ${params.transgene_name} \$TUMOR_CRAM ${params.transgene_fasta} > ${meta.id}.transgene_out.tsv
+    set -euo pipefail
+    TUMOR_CRAM=\$(ls ${dragen_dir}/*_tumor.cram 2>/dev/null | head -n1 || echo "")
+    if [ -z "\$TUMOR_CRAM" ]; then
+        TUMOR_CRAM=\$(ls ${dragen_dir}/*.cram 2>/dev/null | head -n1 || echo "")
+    fi
+    
+    if [ -z "\$TUMOR_CRAM" ]; then
+        echo "Error: No tumor CRAM file found." >&2
+        exit 1
+    fi
+
+    getTransgeneJunctions.py -x 3130,5930 ${transgene_name} \$TUMOR_CRAM --reference ${fasta} > ${meta.id}.transgene_out.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

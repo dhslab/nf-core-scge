@@ -18,7 +18,7 @@ process SAMPLESHEET_CHECK {
     samplesheet_check.py ${mgi}${dir}$samplesheet
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
@@ -30,7 +30,7 @@ process SAMPLESHEET_CHECK {
     samplesheet_check.py ${mgi}${dir}$samplesheet
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """

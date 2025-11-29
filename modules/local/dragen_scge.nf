@@ -86,10 +86,10 @@ process DRAGEN_SCGE {
         -type f \\
         -name "*_usage.txt" \\
         -exec mv "{}" "dragen/${meta.id}_usage.txt" \\;
-                
+
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        dragen: \$(/opt/edico/bin/dragen --version | tail -n 1 | cut -d ' ' -f 3)
+    ${task.process}:
+        dragen: \${DRAGEN_VERSION}
     END_VERSIONS
     """
 
@@ -149,10 +149,10 @@ process DRAGEN_SCGE {
             --output-file-prefix ${meta.id}
                 
      > ./dragen/${meta.id}.command.txt
-    
+
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        dragen: \$(cat ${projectDir}/assets/stub/versions/dragen_version.txt)
+    ${task.process}:
+        dragen: \${DRAGEN_VERSION}
     END_VERSIONS
     """
 

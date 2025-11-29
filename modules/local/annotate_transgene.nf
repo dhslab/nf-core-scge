@@ -13,7 +13,7 @@ process ANNOTATE_TRANSGENE_VARIANTS {
 
     script:
     """
-    if [ \$(grep -v '^#' ${transgene_vcf} | wc -l) -gt 0 ]; then
+    if [ \$(grep -vc '^#' ${transgene_vcf}) -gt 0 ]; then
         /opt/vep/src/ensembl-vep/vep \\
             --offline \\
             --cache \\
@@ -25,6 +25,7 @@ process ANNOTATE_TRANSGENE_VARIANTS {
             --everything \\
             --tab \\
             --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
+            --plugin StructuralVariantOverlap,file=${params.cytobands} \\
             -i ${transgene_vcf} \\
             -o ${meta.id}.transgene.annotated.tsv
     else
@@ -32,9 +33,8 @@ process ANNOTATE_TRANSGENE_VARIANTS {
     fi
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | cut -d ':' -f 2 | sed 's/\\s*//g')
     END_VERSIONS
     """
-
 }

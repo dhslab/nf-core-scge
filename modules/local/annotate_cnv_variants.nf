@@ -53,8 +53,8 @@ process ANNOTATE_CNV_VARIANTS {
     tabix -p vcf "${meta.id}.cnv_annotated.vcf.gz"
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | awk -F ': ' '{print \$NF}')
+    ${task.process}:
+        vep: \$(/opt/vep/src/ensembl-vep/vep --help 2>&1 | grep "ensembl-vep" | cut -d ':' -f 2 | sed 's/^[[:space:]]*//')
         bcftools: \$(bcftools --version | head -n 1 | cut -d ' ' -f 2)
     END_VERSIONS
     """
@@ -73,7 +73,7 @@ process ANNOTATE_CNV_VARIANTS {
         "${meta.id}.cnv_annotated.vcf.gz" \\
         "${meta.id}.cnv_annotated.vcf.gz.tbi"
 
-    cat <<-END_CMDS > "${meta.id}_cmds.txt"
+    new File("${meta.id}_cmds.txt").text = """
     gunzip -c ${vcf} \\
         | awk -v FS="\t" -v OFS="\t" '{ if(\$5=="<DEL>,<DUP>"){ \$5="<CNV>"; } print; }' \\
         | bgzip -c > vep_input.vcf.gz
@@ -98,12 +98,11 @@ process ANNOTATE_CNV_VARIANTS {
         | bgzip -c > "${meta.id}.cnv_annotated.vcf.gz"
 
     tabix -p vcf "${meta.id}.cnv_annotated.vcf.gz"
-    END_CMDS
+    """
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | awk -F ': ' '{print \$NF}')
+    ${task.process}:
+        vep: \$(/opt/vep/src/ensembl-vep/vep --help 2>&1 | grep "ensembl-vep" | cut -d ':' -f 2 | sed 's/^[[:space:]]*//')
         bcftools: \$(bcftools --version | head -n 1 | cut -d ' ' -f 2)
     END_VERSIONS
-    """
 }

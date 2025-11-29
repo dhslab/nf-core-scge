@@ -106,8 +106,8 @@ process ANNOTATE_SV_VARIANTS {
     tabix -p vcf "${meta.id}.sv_vep.vcf.gz"
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | awk -F ': ' '{print \$NF}')
+    ${task.process}:
+        vep: \$(/opt/vep/src/ensembl-vep/vep --help 2>&1 | grep "ensembl-vep" | cut -d ':' -f 2 | sed 's/^[[:space:]]*//')
         bcftools: \$(bcftools --version | head -n 1 | cut -d ' ' -f 2)
     END_VERSIONS
     """
@@ -206,8 +206,8 @@ process ANNOTATE_SV_VARIANTS {
     END_CMDS
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        vep: \$(/opt/vep/src/ensembl-vep/vep 2>&1 | grep ensembl-vep | awk -F ': ' '{print \$NF}')
+    ${task.process}:
+        vep: \$(/opt/vep/src/ensembl-vep/vep --help 2>&1 | grep "ensembl-vep" | cut -d ':' -f 2 | sed 's/^[[:space:]]*//')
         bcftools: \$(bcftools --version | head -n 1 | cut -d ' ' -f 2)
     END_VERSIONS
     """

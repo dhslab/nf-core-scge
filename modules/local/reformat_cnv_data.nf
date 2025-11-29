@@ -21,9 +21,8 @@ process REFORMAT_CNV_DATA {
     fi
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        \$(cnv_visualization.py --version || echo "n/a")
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
-
 }

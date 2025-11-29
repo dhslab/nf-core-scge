@@ -84,7 +84,7 @@ sv_table_html <- "<p>No on-target SV/transgene data available in the report.</p>
 transgene_df <- report_data$tables$on_target_sv_transgene
 
 # The data is already parsed into a data frame from the JSON.
-if (is.data.frame(transgene_df) && nrow(transgene_df) > 0) {
+if ((is.data.frame(transgene_df) && nrow(transgene_df) > 0) || (is.list(transgene_df) && length(transgene_df) > 0)) {
     # Coerce to data.frame if it's a list (fromJSON behavior)
     if (is.list(transgene_df) && !is.data.frame(transgene_df)) {
         transgene_df <- dplyr::bind_rows(transgene_df)

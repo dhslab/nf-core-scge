@@ -14,7 +14,7 @@ process TRANSFORM_TRANSGENE {
     transform_transgene.py --input $transgene_file --output ${meta.id}.circos_input.tsv
 
     cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
+    ${task.process}:
         python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
