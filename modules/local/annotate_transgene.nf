@@ -5,7 +5,11 @@ process ANNOTATE_TRANSGENE_VARIANTS {
     container "ghcr.io/dhslab/docker-vep_release113:250810"
 
     input:
-    tuple val(meta), path(files), path(transgene_vcf)
+    tuple val(meta), path(transgene_vcf)
+    path(fasta)
+    path(vepcache)
+    path(cytobands)
+
 
     output:
     tuple val(meta), path("${meta.id}.transgene.annotated.tsv"), emit: annotated_transgene_variants
@@ -17,15 +21,15 @@ process ANNOTATE_TRANSGENE_VARIANTS {
         /opt/vep/src/ensembl-vep/vep \\
             --offline \\
             --cache \\
-            --dir ${params.vep_cache} \\
-            --fasta ${params.fasta} \\
+            --dir ${vepcache} \\
+            --fasta ${fasta} \\
             --symbol \\
             --term SO \\
             --flag_pick \\
             --everything \\
             --tab \\
             --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
-            --plugin StructuralVariantOverlap,file=${params.cytobands} \\
+            --plugin StructuralVariantOverlap,file=${cytobands} \\
             -i ${transgene_vcf} \\
             -o ${meta.id}.transgene.annotated.tsv
     else

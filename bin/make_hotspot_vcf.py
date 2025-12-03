@@ -74,6 +74,8 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("--bed", type=check_file, required=True, help="BED file containing hotspot regions.")
+    parser.add_argument("--targets", type=check_file, required=True, help="Editing target file.")
+    parser.add_argument("--window",type=int,default=100,help="Window around editing targets to include in VCF file")
     parser.add_argument("--fasta", type=check_file, required=True, help="Path to the indexed reference genome FASTA file.")
     parser.add_argument("--outfile", required=True, help="Output VCF file.")
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
@@ -87,6 +89,15 @@ def main():
         # --- 2. Read and Merge Genomic Regions ---
         print(f"Reading and processing BED file: {args.bed}", file=sys.stderr)
         bed_df = pd.read_csv(args.bed, sep='\t', usecols=[0, 1, 2], names=['Chromosome', 'Start', 'End'])
+
+        # Read in editing targets, in the format: Source,DNA_Sequence,PAM,Chromosome,Strand,Start,Bulge_Type,Mismatch,Bulge_Size,On_target
+        print(f"Reading editing targets: {args.targets}", file=sys.stderr)
+        targets_df = pd.read_csv(args.targets, sep=',')[['Chromosome','Start']]
+        targets_df['Start'] = targets_df['Start'].astype(int) - args.window
+        targets_df['End'] = targets_df['Start'] + (args.window * 2)
+                
+        bed_df = pd.concat([bed_df,targets_df],ignore_index=True)
+
         merged_df = pr.PyRanges(bed_df).merge().sort().df
 
         # --- 3. Fetch Sequences for Merged Regions ---

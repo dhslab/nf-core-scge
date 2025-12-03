@@ -24,4 +24,15 @@ process  MAKE_CIRCOS_PLOT {
         python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
+
+    stub:
+    """
+    touch "${meta.id}_circos.png"
+
+    cat <<-END_VERSIONS > versions.yml
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
+    END_VERSIONS
+    """
+
 }

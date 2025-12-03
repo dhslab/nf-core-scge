@@ -7,7 +7,7 @@ process TRANSFORM_TRANSGENE {
 
     output:
     tuple val(meta), path("${meta.id}.circos_input.tsv"), emit: circos_input
-    path "versions.yml"                               , emit: versions
+    path "versions.yml"                                 , emit: versions
 
     script:
     """

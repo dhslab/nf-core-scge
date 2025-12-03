@@ -5,7 +5,10 @@ process GET_TRANSGENE_JUNCTIONS {
     container "ghcr.io/dhslab/docker-cleutils"
 
     input:
-    tuple val(meta), path(dragen_dir), val(transgene_name), path(fasta)
+    tuple val(meta), path(dragen_dir)
+    val(transgene_name)
+    val(transgene_match_coordinates)
+    path(fasta)
 
     output:
     tuple val(meta), path("${meta.id}.transgene_out.tsv"), emit: transgene_file
@@ -24,7 +27,17 @@ process GET_TRANSGENE_JUNCTIONS {
         exit 1
     fi
 
-    getTransgeneJunctions.py -x 3130,5930 ${transgene_name} \$TUMOR_CRAM --reference ${fasta} > ${meta.id}.transgene_out.tsv
+    getTransgeneJunctions.py --reference ${fasta} -x ${transgene_match_coordinates} ${transgene_name} \$TUMOR_CRAM > ${meta.id}.transgene_out.tsv
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        python: \$(python --version | sed 's/Python //g')
+    END_VERSIONS
+    """
+    
+    stub:
+    """
+    touch ${meta.id}.transgene_out.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
