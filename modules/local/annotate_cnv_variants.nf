@@ -17,11 +17,11 @@ process ANNOTATE_CNV_VARIANTS {
     script:
     def vcf = dragen_files.find{ it ==~ /.*\.(cnv.vcf.gz)$/ } ?: ""
     def vep_args = [
-        vep_cache                                 ? "--dir ${vep_cache}"   : "",
+        vep_cache                                           ? "--dir ${vep_cache}"   : "",
+        cytobands                                           ? "--custom ${cytobands.min{ it.toString().length() }},cytobands,bed" : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: ""
     ].join(' ').trim()
 
-    def bcftools_args = cytobands ? "${cytobands.min{ it.toString().length() }}" : ""
     """
     set -eo pipefail
 
@@ -40,13 +40,8 @@ process ANNOTATE_CNV_VARIANTS {
         --format vcf \\
         -o STDOUT \\
         --max_sv_size 300000000 \\
-    | bcftools annotate \\
-        -a "${bcftools_args}" \\
-        -c CHROM,BEG,END,INFO/Cytobands,- \\
-        -H '##INFO=<ID=Cytobands,Number=.,Type=String,Description="Cytobands">' \\
-        -l Cytobands:append \\
-        | awk -v FS="\t" -v OFS="\t" '{ if(\$5=="<CNV>"){ \$5="<DEL>,<DUP>"; } print; }' \\
-        | bgzip -c > "${meta.id}.cnv.annotated.vcf.gz"
+        --compress_output bgzip \\
+        -o "${meta.id}.cnv.annotated.vcf.gz"
 
     tabix -p vcf "${meta.id}.cnv.annotated.vcf.gz"
 

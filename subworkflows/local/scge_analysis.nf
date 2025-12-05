@@ -37,12 +37,12 @@ ch_vepcache = params.vepcache
     : Channel.empty()
 
 ch_cytobands = params.cytobands
-    ? Channel.fromPath(params.cytobands, checkIfExists: true)
-    : Channel.empty()
+    ? Channel.fromPath("${params.cytobands}*", checkIfExists: true).collect()
+    : []
 
 ch_crispr_model = params.crispr_model ?
     Channel.fromPath("${params.crispr_model}", checkIfExists: true) 
-    : Channel.empty()
+    : []
 
 /*
 ========================================================================================
@@ -99,8 +99,15 @@ workflow SCGE_ANALYSIS {
     CNV_TO_TSV (ANNOTATE_CNV_VARIANTS.out.vcf,Channel.value('cnv'))
     ch_versions = ch_versions.mix(CNV_TO_TSV.out.versions)
 
-    GET_INDELS(ch_analysis_samples,
-               ch_crispr_model)
+    ANNOTATE_OFFTARGETS(
+        ch_analysis_samples.map{ meta, dragenfiles, targetfile -> [meta, targetfile] },
+        ch_vepcache,
+        ch_fasta_reference
+    )
+    ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
+
+    GET_INDELS(ch_dragen_files.join(ANNOTATE_OFFTARGETS.out.targetfile),
+            ch_crispr_model)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
     GET_TRANSGENE_JUNCTIONS(ch_dragen_files,
@@ -122,9 +129,6 @@ workflow SCGE_ANALYSIS {
     ch_versions = ch_versions.mix(TRANSFORM_TRANSGENE.out.versions)
 
     MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
-
-    ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
-    ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
 
 /*
     BND_FROM_INDELS_TO_VCF (

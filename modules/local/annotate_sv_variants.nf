@@ -22,6 +22,7 @@ process ANNOTATE_SV_VARIANTS {
         vep_cache                                 ? "--dir ${vep_cache}"                            : "",
         params.sv_annotation_distance             ? "--distance ${params.sv_annotation_distance}"   : "",
         params.max_filter_sv_length               ? "--max_sv_size ${params.max_filter_sv_length}"  : "",
+        cytobands                                 ? "--custom ${cytobands.min{ it.toString().length() }},cytobands,bed" : "",
         task.cpus > 1                             ? "--fork ${task.cpus}"                           : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" }                          ?: ""
     ].join(' ').trim()

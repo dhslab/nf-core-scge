@@ -168,7 +168,7 @@ def vepGeneEffect(row):
 def df_to_dict_nan_to_none(df, index=False):
   return df.replace({np.nan: None}).to_dict('split', index=index)
 
-def parse_small_variants(vcffile,individual=0):
+def parse_small_variants(vcffile,individual=[0]):
     
     #########################################
     #
@@ -177,9 +177,17 @@ def parse_small_variants(vcffile,individual=0):
     #########################################
 
     variants_data = []
-    variants_columns = ['type','filters','chrom','pos','ref','alt','gene','gene_id','transcript','consequence','csyntax','psyntax','exon','intron','pop_af','annotations','coverage','altreads','vaf']
+    variants_columns = ['type','filters','chrom','pos','ref','alt','gene','gene_id','transcript','consequence','csyntax','psyntax','exon','intron','pop_af','annotations']
 
     vcf = VCF(vcffile)
+
+    all_sample_names = vcf.samples
+    sample_names = [all_sample_names[i] for i in individual]
+    variants_columns += [
+        f"{sample}_{suffix}" 
+        for sample in sample_names
+        for suffix in ["coverage", "altreads", "vaf"]
+    ]
 
     # get VEP fields
     vepFields = getVepFields(vcf)
@@ -208,13 +216,14 @@ def parse_small_variants(vcffile,individual=0):
             if mnv_alt != variant.ALT[0]:
                 continue
 
-        abundance = 'NA'
-        totalReads = 'NA'
-        variantReads = 'NA'
+        sample_data = ['NA','NA','NA']
+        # multiply sample_data by the number of samples
+        sample_data = sample_data * len(sample_names)
 
-        abundance = round(variant.format('AF')[individual][0] * 100,2)
-        totalReads = variant.format("DP")[individual][0]
-        variantReads = variant.format("AD")[individual][1]
+        for i, sample in enumerate(sample_names):
+            sample_data[i*3] = variant.format("DP")[i][0]
+            sample_data[i*3+1] = variant.format("AD")[i][1]
+            sample_data[i*3+2] = round(variant.format("AF")[i][0] * 100,2)
             
         # get VEP annotation
         csq = variant.INFO['CSQ']
@@ -270,7 +279,7 @@ def parse_small_variants(vcffile,individual=0):
             popmaf = round(float(popmaf)*100,3)
 
         # only include all variants <=0.1% and ns or specific noncoding variants 
-        variants_data.append(dict(zip(variants_columns,[vartype,varfilter,str(variant.CHROM),variant.POS,variant.REF,variant.ALT[0],gene,gene_id,transcript,consequence,csyntax,psyntax,exon,intron,popmaf,customannotation,totalReads,variantReads,abundance])))
+        variants_data.append(dict(zip(variants_columns,[vartype,varfilter,str(variant.CHROM),variant.POS,variant.REF,variant.ALT[0],gene,gene_id,transcript,consequence,csyntax,psyntax,exon,intron,popmaf,customannotation]+sample_data)))
     
     variants = pd.DataFrame(variants_data, columns=variants_columns)
     return variants
@@ -578,17 +587,19 @@ def parse_svs(svvcffile,individual=0):
 parser = argparse.ArgumentParser(description='Vep to table')
 parser.add_argument('-v','--vcf',required=False,type=str,help='Small variant vcf')
 parser.add_argument('-s','--svvcf',required=False,type=str,help='SV vcf')
-parser.add_argument('-i','--individual',required=False,default=0,type=int,help='Individual in the VCF to return format fields')
+parser.add_argument('-i','--individual',required=False,default=[0],type=int,nargs='+',help='Individual in the VCF to return format fields')
 parser.add_argument('-o','--outfile',required=True,type=str,help='Output file')
 
 args = parser.parse_args()
 
+sample = list(args.individual)[0] if len(args.individual) == 1 else args.individual
+
 if args.vcf is not None:
-    variants = parse_small_variants(args.vcf,individual=args.individual)
+    variants = parse_small_variants(args.vcf,individual=sample)
     variants.to_csv(args.outfile,sep='\t',index=False)
 
 if args.svvcf is not None:
-    svs = parse_svs(args.svvcf,individual=args.individual)
+    svs = parse_svs(args.svvcf,individual=sample)
     svs.to_csv(args.outfile,sep='\t',index=False)
 
     
