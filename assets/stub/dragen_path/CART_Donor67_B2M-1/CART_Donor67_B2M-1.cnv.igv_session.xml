@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Session genome="hg38" hasGeneTrack="false" hasSequenceTrack="true" version="8">
+    <Resources>
+        <Resource path="CART_Donor67_B2M-1.cnv.gff3"/>
+        <Resource path="CART_Donor67_B2M-1.cnv.excluded_intervals.bed.gz"/>
+        <Resource path="CART_Donor67_B2M-1.tumor.target.counts.bw"/>
+        <Resource path="CART_Donor67_B2M-1.tumor.improper.pairs.bw"/>
+        <Resource path="CART_Donor67_B2M-1.tumor.baf.bedgraph.gz"/>
+        <Resource path="CART_Donor67_B2M-1.baf.seg.bw"/>
+        <Resource path="CART_Donor67_B2M-1.tn.bw"/>
+        <Resource path="CART_Donor67_B2M-1.seg.bw"/>
+    </Resources>
+    <Panel height="500" width="1200" name="DataPanel">
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.cnv.gff3" name="CART_Donor67_B2M-1.cnv.gff3" renderer="BASIC_FEATURE"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.cnv.excluded_intervals.bed.gz" name="CART_Donor67_B2M-1.cnv.excluded_intervals.bed.gz" renderer="BASIC_FEATURE"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.tumor.target.counts.bw" name="CART_Donor67_B2M-1.tumor.target.counts.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.tumor.improper.pairs.bw" name="CART_Donor67_B2M-1.tumor.improper.pairs.bw" renderer="BAR_CHART"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.tumor.baf.bedgraph.gz" name="CART_Donor67_B2M-1.tumor.baf.bedgraph.gz" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.baf.seg.bw" name="CART_Donor67_B2M-1.baf.seg.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.tn.bw" name="CART_Donor67_B2M-1.tn.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="CART_Donor67_B2M-1.seg.bw" name="CART_Donor67_B2M-1.seg.bw" renderer="SCATTER_PLOT"/>
+    </Panel>
+</Session>

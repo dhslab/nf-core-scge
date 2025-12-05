@@ -1,9 +1,7 @@
 process GET_INDELS {
     tag "$meta.id"
-    label 'process_high'
-    label 'final_output'
+    label 'process_highmem'
     container "ghcr.io/dhslab/docker-scge:latest"
-    errorStrategy 'ignore'
 
     input:
     tuple val(meta), path(dragen_files, stageAs: "dragen_files/*"), path(hotspot_file)

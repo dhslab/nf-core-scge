@@ -16,7 +16,7 @@ process ANNOTATE_CNV_VARIANTS {
 
     script:
     def vcf = dragen_files.find{ it ==~ /.*\.(cnv.vcf.gz)$/ } ?: ""
-    def vep_gene_args = [
+    def vep_args = [
         vep_cache                                 ? "--dir ${vep_cache}"   : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: ""
     ].join(' ').trim()
@@ -32,14 +32,14 @@ process ANNOTATE_CNV_VARIANTS {
     /opt/vep/src/ensembl-vep/vep \\
         --vcf \\
         --cache \\
+        --symbol \\
+        --term SO \\
         --offline \\
-        -i vep_input.vcf.gz \\
+        ${vep_args} \\
+        --flag_pick \\
         --format vcf \\
-        --fields SYMBOL \\
-        ${vep_gene_args} \\
         -o STDOUT \\
         --max_sv_size 300000000 \\
-        --vcf_info_field VEPGENES \\
     | bcftools annotate \\
         -a "${bcftools_args}" \\
         -c CHROM,BEG,END,INFO/Cytobands,- \\

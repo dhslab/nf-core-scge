@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 
 import sys
-import csv
 import argparse
 import os
+import pandas as pd
 
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Convert a transgene TSV file into a VCF file."
     )
-    # Positional arguments do not use -- dashes
     parser.add_argument(
         "transgene_path", 
         help="Path to the input transgene TSV file."
@@ -29,6 +28,32 @@ def parse_args():
     )
     return parser.parse_args()
 
+def write_vcf(path, records=None):
+    """
+    Writes VCF header and records to path. 
+    If records is None or empty, only the header is written.
+    """
+    if records is None:
+        records = []
+        
+    try:
+        with open(path, 'w') as out:
+            # Write VCF Header
+            out.write("##fileformat=VCFv4.2\n")
+            out.write('##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n')
+            out.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+            # Write Records
+            for idx, (chrom, pos, ref, alt) in enumerate(records, start=1):
+                variant_id = f"TRANSGENE{idx}"
+                qual = "."
+                filter_val = "PASS"
+                info = "SVTYPE=TRANSGENE"
+                out.write(f"{chrom}\t{pos}\t{variant_id}\t{ref}\t{alt}\t{qual}\t{filter_val}\t{info}\n")
+                
+    except IOError as e:
+        sys.exit(f"Error writing to output file '{path}': {e}")
+
 def main():
     args = parse_args()
 
@@ -39,58 +64,55 @@ def main():
     if not os.path.exists(transgene_path):
         sys.exit(f"Error: Input file '{transgene_path}' not found.")
 
-    records = []
-
     try:
-        with open(transgene_path, 'r') as fh:
-            reader = csv.reader(fh, delimiter='\t')
-            
-            # Read header safely
-            try:
-                header = next(reader)
-            except StopIteration:
-                sys.exit(f"Error: Input file '{transgene_path}' is empty.")
-
-            # Create a map of column name to index
-            hdr = {k: i for i, k in enumerate(header)}
-
-            # Validate required columns exist
-            required_cols = ['Chromosome', 'Start']
-            for col in required_cols:
-                if col not in hdr:
-                    sys.exit(f"Error: Required column '{col}' missing from input file header.")
-
-            for line_num, line in enumerate(reader, start=2):
-                if not line: continue # Skip empty lines
-                
-                try:
-                    chrom = line[hdr['Chromosome']]
-                    pos = line[hdr['Start']]
-                    ref = 'N'
-                    alt = '<INS>'
-                    records.append((chrom, pos, ref, alt))
-                except IndexError:
-                    print(f"Warning: Skipping malformed line {line_num} in {transgene_path}", file=sys.stderr)
-
+        # Attempt to read the file using pandas
+        # This automatically handles empty files by raising EmptyDataError
+        df = pd.read_csv(transgene_path, sep='\t')
+    
+    except pd.errors.EmptyDataError:
+        # File is empty (or only contains whitespace)
+        write_vcf(vcf_path)
+        return
     except Exception as e:
         sys.exit(f"Error reading input file: {e}")
 
-    # Write VCF
-    try:
-        with open(vcf_path, 'w') as out:
-            out.write("##fileformat=VCFv4.2\n")
-            out.write('##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n')
-            out.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    # Check if DataFrame is logically empty (has header but no rows)
+    if df.empty:
+        write_vcf(vcf_path)
+        return
 
-            for idx, (chrom, pos, ref, alt) in enumerate(records, start=1):
-                variant_id = f"TRANSGENE{idx}"
-                qual = "."
-                filter_val = "PASS"
-                info = "SVTYPE=TRANSGENE"
-                out.write(f"{chrom}\t{pos}\t{variant_id}\t{ref}\t{alt}\t{qual}\t{filter_val}\t{info}\n")
-        
-    except IOError as e:
-        sys.exit(f"Error writing to output file '{vcf_path}': {e}")
+    # Clean up column names (strip whitespace)
+    df.columns = df.columns.str.strip()
+
+    # Handle common header variations (e.g. #Chromosome -> Chromosome)
+    if '#Chromosome' in df.columns and 'Chromosome' not in df.columns:
+        df.rename(columns={'#Chromosome': 'Chromosome'}, inplace=True)
+
+    # Validate required columns exist
+    required_cols = ['Chromosome', 'Start']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+
+    if missing_cols:
+        found_headers = ", ".join(f"'{h}'" for h in df.columns)
+        msg = f"Error: Required column(s) {missing_cols} missing from input file header.\nFound headers: {found_headers}"
+        if len(df.columns) <= 1:
+            msg += "\nHint: The header contains very few columns. Ensure the file is Tab-Separated (TSV), not Comma-Separated (CSV)."
+        sys.exit(msg)
+
+    # Extract records
+    records = []
+    try:
+        for _, row in df.iterrows():
+            chrom = row['Chromosome']
+            pos = row['Start']
+            ref = 'N'
+            alt = '<INS>'
+            records.append((chrom, pos, ref, alt))
+    except Exception as e:
+        print(f"Warning: Error processing a row: {e}", file=sys.stderr)
+
+    # Write populated VCF
+    write_vcf(vcf_path, records)
 
 if __name__ == '__main__':
     main()
