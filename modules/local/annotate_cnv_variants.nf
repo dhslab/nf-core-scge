@@ -5,7 +5,7 @@ process ANNOTATE_CNV_VARIANTS {
     publishDir "$params.outdir/${meta.id}/", saveAs: { filename -> filename.equals("versions.yml") ? null : filename }, mode:'copy'
 
     input:
-    tuple val(meta), path(dragen_files)
+    tuple val(meta), path(dragen_files, stageAs: "dragen_files/*")
     path(reference)
     path(vep_cache)
     path(cytobands)
@@ -14,11 +14,8 @@ process ANNOTATE_CNV_VARIANTS {
     tuple val(meta), path("*.cnv.annotated.vcf.gz*"), emit: vcf
     path("versions.yml")                            , emit: versions
 
-    when:
-    task.ext.when == null || task.ext.when
-
     script:
-    def vcf = dragen_files.find{ it ==~ /.*\.(vcf.gz)$/ } ?: ""
+    def vcf = dragen_files.find{ it ==~ /.*\.(cnv.vcf.gz)$/ } ?: ""
     def vep_gene_args = [
         vep_cache                                 ? "--dir ${vep_cache}"   : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: ""

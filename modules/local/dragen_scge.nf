@@ -1,4 +1,5 @@
 process DRAGEN_SCGE {
+    tag "${meta.id}"
     label 'dragen'
     container "${task.ext.dragen_container}"
     publishDir "$params.outdir/${meta.id}/", saveAs: { filename -> filename == "versions.yml" ? null : filename }, mode:'copy'

@@ -13,9 +13,6 @@ process ANNOTATE_VARIANTS {
     tuple val(meta), path("*.annotated.vcf.gz*"), emit: vcf
     path("versions.yml")                        , emit: versions
 
-    when:
-    task.ext.when == null || task.ext.when
-
     script:
     def annotate_args = [
         vep_cache                                 ? "--dir ${vep_cache}"   : "",

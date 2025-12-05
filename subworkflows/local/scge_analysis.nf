@@ -40,22 +40,9 @@ ch_cytobands = params.cytobands
     ? Channel.fromPath(params.cytobands, checkIfExists: true)
     : Channel.empty()
 
-// Gene regions
-ch_transgene_name = params.transgene_name ?
-    Channel.from("${params.transgene_name}") 
-    : Channel.empty()
-
-ch_transgene_fasta = params.transgene_fasta ?
-        Channel.fromPath("${params.transgene_fasta}", checkIfExists: true)
-        : Channel.empty()
-
-ch_transgene_match_coordinates = params.transgene_match_coordinates ?
-        Channel.from("${params.transgene_match_coordinates}")
-        : Channel.empty()
-
 ch_crispr_model = params.crispr_model ?
-    Channel.fromPath("${params.crispr_model}", checkIfExists: true) :
-    Channel.empty()
+    Channel.fromPath("${params.crispr_model}", checkIfExists: true) 
+    : Channel.empty()
 
 /*
 ========================================================================================
@@ -117,9 +104,7 @@ workflow SCGE_ANALYSIS {
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
     GET_TRANSGENE_JUNCTIONS(ch_dragen_files,
-                            ch_transgene_name,
-                            ch_transgene_match_coordinates,
-                            ch_transgene_fasta)
+                            ch_fasta_reference)
     ch_versions = ch_versions.mix(GET_TRANSGENE_JUNCTIONS.out.versions)
 
     TRANSGENE_TO_VCF(GET_TRANSGENE_JUNCTIONS.out.transgene_file)
@@ -127,7 +112,7 @@ workflow SCGE_ANALYSIS {
 
     ANNOTATE_TRANSGENE_VARIANTS(
         TRANSGENE_TO_VCF.out.transgene_vcf,
-        ch_transgene_fasta,
+        ch_fasta_reference,
         ch_vepcache,
         ch_cytobands
     )
@@ -138,25 +123,16 @@ workflow SCGE_ANALYSIS {
 
     MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
 
-    /*
     ANNOTATE_OFFTARGETS(GET_INDELS.out.indels_file)
     ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
 
-
-    ch_transgene_fasta = Channel.fromPath(params.transgene_fasta)
-
-    /*
-
-    ch_annotate_transgene_variants_input = ANNOTATE_VARIANTS.out.vcf
-        .join(TRANSGENE_TO_VCF.out.transgene_vcf)
-
-
+/*
     BND_FROM_INDELS_TO_VCF (
         GET_INDELS.out.indels_file
             .join(VEP_TO_TSV.out.vep_tsv)
             .map { meta, indels_file, vep_tsv -> [meta, indels_file] }
     )
-
+*/
     //
     // Generate plots
     //
@@ -166,6 +142,7 @@ workflow SCGE_ANALYSIS {
     //
     // Collate outputs
     //
+    /*
     ch_coverage_files = ch_dragen_files.map { meta, dragen_path ->
         def tumor_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_tumor.csv') } ?: file("${baseDir}/assets/empty_tumor_coverage.txt")
         def normal_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_normal.csv') } ?: file("${baseDir}/assets/empty_normal_coverage.txt")
@@ -179,7 +156,6 @@ workflow SCGE_ANALYSIS {
     def ch_circos = MAKE_CIRCOS_PLOT.out.circos_plot
         .map { meta, circos -> [meta.id, circos] }
     ch_circos.view { "Circos: $it" }
-
 
     def ch_annotated_transgene = ANNOTATE_TRANSGENE_VARIANTS.out.annotated_transgene_variants
         .map { meta, transgene -> [meta.id, transgene] }
@@ -204,6 +180,7 @@ workflow SCGE_ANALYSIS {
             [meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov, timestamp]
         }
         .set { ch_compile_report_input }
+ 
 
     COMPILE_REPORT_JSON(ch_compile_report_input)
     ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
@@ -218,8 +195,9 @@ workflow SCGE_ANALYSIS {
         .map { id, meta, json, cna, baf -> [meta, json, cna, baf] }
 
     MAKE_SCGE_REPORT(ch_report_input)
+    
     */
-
+     
     CUSTOM_DUMPSOFTWAREVERSIONS (
          ch_versions.unique().collectFile(name: 'collated_versions.yml')
     )

@@ -1,4 +1,5 @@
 process TRANSFORM_TRANSGENE {
+    tag "${meta.id}"
     label 'process_single'
     container "quay.io/biocontainers/python:3.8.3"
 
