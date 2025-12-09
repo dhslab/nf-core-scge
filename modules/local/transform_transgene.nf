@@ -1,4 +1,5 @@
 process TRANSFORM_TRANSGENE {
+    tag "${meta.id}"
     label 'process_single'
     container "quay.io/biocontainers/python:3.8.3"
 
@@ -7,7 +8,7 @@ process TRANSFORM_TRANSGENE {
 
     output:
     tuple val(meta), path("${meta.id}.circos_input.tsv"), emit: circos_input
-    path "versions.yml"                               , emit: versions
+    path "versions.yml"                                 , emit: versions
 
     script:
     """

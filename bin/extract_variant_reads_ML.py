@@ -474,7 +474,14 @@ def get_indels(bam,controlbam,chr,start,end,fasta,window=100,distance=25,pam_pos
         # Add pam positions to the df
         if pam_positions is not pd.NA:
             indelcounts['Positions'] = [pam_positions] * len(indelcounts)
-            indelcounts['Distance'] = indelcounts.apply(lambda r: min([abs(r['pos'] - x) for x in r['Positions']] + [abs(r['pos'] + len(r['ref']) - 1 - x) for x in r['Positions']] ) if r['pos'] is not pd.NA else pd.NA,axis=1)
+            indelcounts['Distance'] = indelcounts.apply(
+                lambda r: min(
+                    [abs(r['pos'] - int(x)) for x in r['Positions']] + 
+                    [abs(r['pos'] + len(r['ref']) - 1 - int(x)) for x in r['Positions']]
+                ) if pd.notna(r['pos']) and r['Positions'] else pd.NA,
+                axis=1
+            )
+
         else:
             indelcounts['Positions'] = pd.NA
             indelcounts['Distance'] = pd.NA
@@ -714,7 +721,7 @@ def calculate_distance_to_closest_pam(position, targets_df, chrom):
     distances = np.abs(targets_df['Start'] - position)
     return distances.min() if len(distances) > 0 else -1
 
-def predict_reads_at_position(bam_file, chrom, start, end, model, fasta, control_bam=None, threshold=0.80, targets_df=None):
+def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta, is_on_target=0, control_bam=None, threshold=0.80):
     
     reads = []
     for read in bam_file.fetch(chrom, start, end):
@@ -733,17 +740,12 @@ def predict_reads_at_position(bam_file, chrom, start, end, model, fasta, control
         read_end = read.reference_end
         
         # Check if read overlaps with target sites
-        is_on_target = 0
         is_at_any_target = 0
-        if targets_df is not None:
-            chrom_targets = targets_df[targets_df['Chromosome'] == chrom]
-            for _, target in chrom_targets.iterrows():
-                target_pos = target['Start']
-                if read_start <= target_pos + 25 and read_end >= target_pos - 25:
+        if pampos is not None:
+            for p in pampos:
+                if read_start <= p + 25 and read_end >= p - 25:
                     is_at_any_target = 1
-                    if target['On_target'] == 1:
-                        is_on_target = 1
-                        break
+
         
         # Get control fractions
         control_fractions = calculate_control_fractions(control_bam, chrom, start, window=50) if control_bam else {
@@ -805,7 +807,7 @@ def predict_reads_at_position(bam_file, chrom, start, end, model, fasta, control
             'read_mismatch_vs_control': read_has_mismatch - control_fractions['fraction_control_reads_mismatch'],
             'deletion_exclusive_to_edited': exclusivity['deletion_exclusive_to_edited'],
             'control_has_same_variant': exclusivity['control_has_same_variant'],
-            'distance_to_closest_pam': calculate_distance_to_closest_pam(start, targets_df, chrom),
+            'distance_to_closest_pam': min(abs(x-start) for x in pampos) if pampos is not None else -1,
             'is_on_target_site': is_on_target,
             'is_at_any_target_site': is_at_any_target,
             'total_indel_size': total_indel_size,
@@ -875,29 +877,22 @@ def main():
     # STEP 1: Process input BED file and create genomic intervals
     # ========================================================================
     
-    bedDf = pd.read_csv(args.target_file)
-    # For backwards compatibility, rename old column names to new column names
-    rename_dict = {
-        'DNA Sequence': 'DNA_Sequence',
-        'Strand Direction': 'Strand',
-        'Bulge Type': 'Bulge_Type',
-        'Bulge Size': 'Bulge_Size'
-    }
-    bedDf.rename(columns=rename_dict, inplace=True)
-
-    bedDf['Pos'] = bedDf['Start']
-    bedDf['End'] = bedDf['Start']
-    bedDf['Start'] = bedDf['Start'] - 1
-    bedDf['Info'] = bedDf.apply(lambda row: f"{row['Source']},{row['DNA_Sequence']},{row['PAM']},{row['Chromosome']},{row['Pos']},{row['Strand']},{row['Mismatch']},{row['Bulge_Type']},{row['Bulge_Size']}", axis=1)
-    bedDf['Ontarget'] = bedDf['On_target']
-
+    bedDf = pd.read_csv(args.target_file, sep='\t')
+    # remove # from first column header
+    bedDf.columns = bedDf.columns.str.replace('#', '', regex=False)
+    info_header = bedDf.columns[-1].split(',')
+    bedDf.rename(columns={'chromosome':'Chromosome', 'start':'Start', 'end':'End', bedDf.columns[-1]: 'Info'}, inplace=True)
+    bedDf['Info'] = bedDf['Info'].apply(lambda x, h=info_header: dict(zip(h, str(x).split(','))))
+    bedDf['Pos'] = bedDf['Info'].apply(lambda x: int(x['pos']))
+    bedDf['Ontarget'] = bedDf['Info'].apply(lambda x: int(x['is_target']))
+   
     # Create PyRanges object and cluster intervals
     bedPr = pr.PyRanges(bedDf[['Chromosome','Start','End','Pos','Info','Ontarget']])
     bedPr = bedPr.cluster(slack=args.window)
     mergedBedPr = bedPr.merge(by='Cluster',strand=False,slack=args.window)
     mergedBedDf = mergedBedPr.df.join(bedPr.df.groupby('Cluster')['Pos'].agg(list).reset_index().set_index('Cluster'),on='Cluster',how='left')
     mergedBedDf = mergedBedDf.join(bedPr.df.groupby('Cluster')['Info'].agg(list).reset_index().set_index('Cluster'),on='Cluster',how='left')
-    mergedBedDf = mergedBedDf.join(bedPr.df.groupby('Cluster')['Ontarget'].agg('first').reset_index().set_index('Cluster'),on='Cluster',how='left')
+    mergedBedDf = mergedBedDf.join(bedPr.df.groupby('Cluster')['Ontarget'].agg('max').reset_index().set_index('Cluster'),on='Cluster',how='left')
 
     # Filter by chromosome if specified
     if args.chromosome is not None:
@@ -933,26 +928,7 @@ def main():
 
     # ========================================================================
     # STEP 3: Load CRISPR prediction model and targets (if enabled)
-    # ========================================================================
-    
-    targets_df = None
-    if args.targets_csv:
-        try:
-            print(f"Loading target sites from: {args.targets_csv}", file=sys.stderr)
-            targets_df = pd.read_csv(args.targets_csv)
-            print(f"Loaded {len(targets_df)} target sites", file=sys.stderr)
-        except Exception as e:
-            print(f"Warning: Could not load targets CSV: {e}", file=sys.stderr)
-            targets_df = None
-    else:
-        # Use the target file as the targets CSV by default
-        try:
-            print(f"Using target file as targets CSV: {args.target_file}", file=sys.stderr)
-            targets_df = pd.read_csv(args.target_file)
-            print(f"Loaded {len(targets_df)} target sites from target file", file=sys.stderr)
-        except Exception as e:
-            print(f"Warning: Could not load targets from target file: {e}", file=sys.stderr)
-            targets_df = None
+    # ========================================================================    
 
     crispr_model = None
     if args.enable_crispr_prediction:
@@ -1022,7 +998,8 @@ def main():
         indel_keys = ';'.join(indels['Key'].tolist()) if len(indels) > 0 else '.'
         bnd_keys = ';'.join(bnds['Key'].tolist()) if len(bnds) > 0 else '.'
         ontarget = row['Ontarget']
-        offtargetsites = ';'.join(row['Info']) if len(row['Info']) > 0 else '.'
+        positions = row['Pos']
+        offtargetsites = ';'.join([','.join(d.values()) for d in row['Info']]) if row['Info'] else '.'
 
         # CRISPR PREDICTION (if enabled)
         crispr_predicted_reads = 0
@@ -1033,8 +1010,8 @@ def main():
                 print(f"  Predicting CRISPR reads for {row['Chromosome']}:{row['Start']}-{row['End']} (total_reads: {total_reads})", file=sys.stderr)
             
             crispr_predicted_reads, crispr_prediction_probability = predict_reads_at_position(
-                expsamfile, row['Chromosome'], row['Start'], row['End'], 
-                crispr_model, refFasta, consamfile, args.crispr_threshold, targets_df
+                expsamfile, row['Chromosome'], row['Start'], row['End'], positions, 
+                crispr_model, refFasta, is_on_target=ontarget, control_bam=consamfile, threshold=args.crispr_threshold
             )
             crispr_prediction_fraction = round(crispr_predicted_reads/total_reads, 4) if total_reads > 0 else 0.0
             

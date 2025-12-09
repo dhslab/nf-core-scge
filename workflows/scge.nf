@@ -13,12 +13,14 @@ include { MULTIQC                     } from '../modules/nf-core/multiqc/main'
 include { FASTQC                      } from '../modules/nf-core/fastqc/main'
 include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../modules/nf-core/custom/dumpsoftwareversions/main'
 
-include { PARSE_INPUT_SAMPLESHEET     } from '../modules/local/parse_input_samplesheet.nf'
+include { PARSE_INPUT_SAMPLESHEET     } from '../modules/local/parse_input_samplesheet'
 include { GATHER_ALIGNMENT_SAMPLES    } from '../subworkflows/local/gather_alignment_samples.nf'
+include { PREPARE_SOMATIC_FASTQS      } from '../subworkflows/local/gather_alignment_samples.nf'
+
 include { MAKE_HOTSPOT_VCF            } from '../modules/local/make_hotspot_vcf.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { SCGE_ANALYSIS               } from '../subworkflows/local/scge_analysis.nf'
-include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf'
+//include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf'
 
 def generateMetaFromCsv(csv_string) {
     def lines = csv_string.readLines()
@@ -35,6 +37,10 @@ def generateMetaFromCsv(csv_string) {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
+// input mastersheet
+ch_mastersheet = params.input ?
+    Channel.fromPath("${params.input}", checkIfExists: true) :
+    Channel.empty()
 
 // DRAGEN reference directory
 ch_reference_dir = params.refdir
@@ -64,33 +70,11 @@ if (params.intermediate_dir?.toString()?.startsWith('/staging')) {
 ch_hotspot_bed = params.hotspot_bed
     ? Channel.fromPath("${params.hotspot_bed}", checkIfExists: true).collect()
     : []
-    //
-    // *** Main inputs can be made into channels here. ***
-    //
-    // - reference fasta file (and fai)
-    // - hotspot file (now a parameter and not in the input sheet)
-    // - VEP cache
-    // FastA reference
-    ch_fasta_reference = Channel.fromPath(params.fasta, checkIfExists: true)
-    // Vep cache
-    ch_vep_cache = params.vep_cache ?
-        Channel.fromPath(params.vep_cache, checkIfExists: true).collect() :
-        Channel.empty()
-    // Gene regions
-    ch_editing_targets = params.editing_targets ?
-        Channel.fromPath("${params.editing_targets}", checkIfExists: true) :
-        Channel.empty()
-    // Gene regions
-    ch_transgene_name = params.transgene_name ?
-        Channel.from("${params.transgene_name}") :
-        Channel.empty()
-    // input mastersheet
-    ch_mastersheet = params.input ?
-        Channel.fromPath("${params.input}", checkIfExists: true) :
-        Channel.empty()
-    ch_crispr_model = params.crispr_model ?
-        Channel.fromPath("${params.crispr_model}", checkIfExists: true) :
-        Channel.empty()
+
+// FastA reference
+ch_fasta_reference = params.fasta
+    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
+    : Channel.empty()
 
 // SNV systematic noise BED file
 ch_snv_noisefile = params.snv_noisefile
@@ -102,30 +86,20 @@ ch_sv_noisefile = params.sv_noisefile
     ? Channel.fromPath(params.sv_noisefile, checkIfExists: true).collect()
     : []
 
-// High confidence CNV VCF file
-ch_cnv_population_vcf = params.cnv_population_vcf
-    ? Channel.fromPath(params.cnv_population_vcf, checkIfExists: true).collect()
-    : []
-
 // CRAM reference file
 ch_cram_reference = params.cram_reference
     ? Channel.fromPath("${params.cram_reference}*", checkIfExists: true).collect()
     : []
 
-ch_fasta_reference = params.fasta
-    ? Channel.fromPath(params.fasta, checkIfExists: true)
+// Gene regions
+ch_param_target_file = params.target_file ?
+    Channel.fromPath("${params.target_file}", checkIfExists: true) 
+    : []
+
+// Nirvana path
+ch_nirvana_path = params.nirvana_path
+    ? Channel.fromPath("${params.nirvana_path}", checkIfExists: true)
     : Channel.empty()
-
-// Vep cache
-ch_vep_cache = params.vep_cache
-    ? Channel.fromPath(params.vep_cache, checkIfExists: true)
-    : Channel.empty()
-    GET_INDELS(ch_get_indels_input, ch_crispr_model)
-    ch_versions = ch_versions.mix(GET_INDELS.out.versions)
-
-ch_crispr_model = Channel.value(file(params.crispr_model ?: "${baseDir}/assets/empty.txt", checkIfExists: false))
-
-ch_hotspot_file = Channel.value(file(params.hotspot_file ?: "${baseDir}/assets/empty.txt", checkIfExists: false))
 
 /*
 ~~~~~~~~~~~~~~~~~~
@@ -138,8 +112,6 @@ ch_multiqc_config = Channel.fromPath("$projectDir/assets/multiqc_config.yml", ch
 ch_multiqc_custom_config = params.multiqc_config 
     ? Channel.fromPath( params.multiqc_config, checkIfExists: true ) 
     : Channel.empty()
-    ANNOTATE_VARIANTS (ch_vcf_for_annotation, ch_fasta_reference, ch_vep_cache)
-    ch_versions = ch_versions.mix(ANNOTATE_VARIANTS.out.versions)
 
 ch_multiqc_logo = params.ch_multiqc_logo
     ? Channel.fromPath( params.multiqc_logo, checkIfExists: true )
@@ -160,40 +132,12 @@ workflow SCGE {
 
     take:
     ch_input_samplesheet  // channel: [ path(file) ]
-    TRANSGENE_TO_VCF(
-        GET_TRANSGENE_JUNCTIONS.out.transgene_file
-    )
-    ch_versions = ch_versions.mix(TRANSGENE_TO_VCF.out.versions)
-
-    ch_annotate_transgene_variants_input = ch_dragen_output
-        .map { meta, files -> [meta.id, meta, files] }
-        .join(TRANSGENE_TO_VCF.out.transgene_vcf.map { meta, vcf -> [meta.id, vcf] })
-        .map { id, meta, files, vcf -> [meta, files, vcf] }
-
-    ANNOTATE_TRANSGENE_VARIANTS(ch_annotate_transgene_variants_input)
-    ch_versions = ch_versions.mix(ANNOTATE_TRANSGENE_VARIANTS.out.versions)
-
-    // Temporarily disabled to avoid early failure when no versions are present
-    // CUSTOM_DUMPSOFTWAREVERSIONS (
-    //     ch_versions.unique().collectFile(name: 'collated_versions.yml')
-    // )
-
-    ch_coverage_files = ch_dragen_output.map { meta, dragen_path ->
-        def tumor_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_tumor.csv")
-        def normal_cov_file = file("${dragen_path}/${meta.id}.wgs_overall_mean_cov_normal.csv")
-        if (tumor_cov_file.exists() && normal_cov_file.exists()) {
-            return [meta.id, tumor_cov_file, normal_cov_file]
-        } else {
-            if (!tumor_cov_file.exists()) log.warn "Tumor coverage metrics file not found for sample ${meta.id}: ${tumor_cov_file}"
-            if (!normal_cov_file.exists()) log.warn "Normal coverage metrics file not found for sample ${meta.id}: ${normal_cov_file}"
-            return [meta.id, null, null]
-        }
-    }
-    .filter { it[1] != null && it[2] != null }
 
     main:
     ch_versions = Channel.empty()
+    ch_demux_output = Channel.empty()
     ch_alignment_samples = Channel.empty()
+    ch_target_files = Channel.empty()   
     ch_dragen_output = Channel.empty()
     ch_dragen_usage = Channel.empty()
 
@@ -214,28 +158,104 @@ workflow SCGE {
     PARSE_INPUT_SAMPLESHEET.out.samples_to_align.dump(tag:'alignmentsamples')
     PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze.dump(tag:'analysissamples')
 
-    ch_dragen_output = PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze
-        .map { it.text }
+    // Get dragen outputs and add target files to analyze
+    ch_dragen_output = ch_dragen_output.mix(
+        PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze
+                .map{ generateMetaFromCsv(it) }
+                .flatten()
+                .filter{ it.dragen_path }
+                .map{ [ it, file("${it.dragen_path}/*") ] }
+                .combine(ch_param_target_file)
+                .map { meta, dragenfiles, targetfile -> 
+                    if (targetfile){ 
+                        [ meta, dragenfiles, targetfile ] 
+                    } else {
+                        [ meta, dragenfiles, meta.target_file ? file(meta.target_file, checkIfExists: true) : [] ]
+                    }
+                }
+    )
+
+    // Now get samples to align
+    ch_sample_meta = PARSE_INPUT_SAMPLESHEET.out.samples_to_align
         .map{ generateMetaFromCsv(it) }
         .flatten()
-        .filter{ it.dragen_path }
-        .map{ meta -> [ meta, file(meta.dragen_path) ] }
+        
+    // get editing target file as separate channel
+    ch_target_files = ch_target_files.mix(
+        ch_sample_meta
+            .combine(ch_param_target_file)
+            .map { meta, targetfile -> 
+                if (targetfile){ 
+                    [ meta.id, targetfile ]
+                } else {
+                    [ meta.id, meta.target_file ? file(meta.target_file, checkIfExists: true) : [] ]
+                } 
+            }
+    )
+
+    // Get reads/fastqlists to align
+    GATHER_ALIGNMENT_SAMPLES (
+        ch_sample_meta,
+        ch_demux_output.ifEmpty([]),
+        ch_cram_reference
+    )
+    ch_versions = ch_versions.mix(GATHER_ALIGNMENT_SAMPLES.out.versions)
+
+    PREPARE_SOMATIC_FASTQS(GATHER_ALIGNMENT_SAMPLES.out.samples)
+
+    // Make hotspot VCF file, which includes gene bed file and 
+    // Nominated off-target sites in the target_file. These are keyed by id
+    MAKE_HOTSPOT_VCF(
+        ch_target_files,
+        ch_hotspot_bed,
+        ch_fasta_reference
+    )
+    ch_versions = ch_versions.mix(MAKE_HOTSPOT_VCF.out.versions)
+    ch_hotspot_vcf = MAKE_HOTSPOT_VCF.out.hotspot_vcf
+
+    // Join alignment samples with hotspot VCF
+    ch_alignment_samples = PREPARE_SOMATIC_FASTQS.out.samples
+        .map{ meta, reads, fastqlist -> [ meta.id, meta, reads, fastqlist ] }
+        .join(
+            MAKE_HOTSPOT_VCF.out.hotspot_vcf
+        )
+        .map{ id, meta, reads, fastqlist, hotspot_vcf -> [ meta, reads, fastqlist, hotspot_vcf ] }
+    
+    ch_alignment_samples.dump(tag:'alignment_samples',pretty:true)
 
     if (params.run_alignment) {
-        // Run alignment if specified
+        DRAGEN_SCGE (
+            ch_alignment_samples,
+            ch_intermediate_dir,
+            ch_reference_dir,
+            ch_adapter1_file,
+            ch_adapter2_file,
+            ch_sv_noisefile,
+            ch_snv_noisefile,
+            ch_nirvana_path
+        )
+        ch_versions     = ch_versions.mix(DRAGEN_SCGE.out.versions)
+        ch_dragen_usage = ch_dragen_usage.mix(DRAGEN_SCGE.out.usage)
+        ch_dragen_output = ch_dragen_output.mix(
+                DRAGEN_SCGE.out.dragen_output
+                .map { meta, dragenfiles -> [ meta.id, meta, dragenfiles ] }
+                .join(ch_param_target_file)
+                .map { id, meta, dragenfiles, targetfile -> [ meta, dragenfiles, targetfile ] }
+        )
     }
+
+    ch_dragen_output.dump(tag:'dragen_output',pretty:true)
 
     if (params.run_analysis) {
+
         SCGE_ANALYSIS(
             ch_dragen_output,
-            ch_hotspot_file,
-            ch_fasta_reference,
-            ch_vep_cache,
-            ch_crispr_model
+            ch_fasta_reference
         )
         ch_versions = ch_versions.mix(SCGE_ANALYSIS.out.versions)
-    }
 
+    }
+    
     //
     //
     // Collate and save software versions

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Session genome="hg38" hasGeneTrack="false" hasSequenceTrack="true" version="8">
+    <Resources>
+        <Resource path="AAVS1site14_WTcas9-DNA.cnv.gff3"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.cnv.excluded_intervals.bed.gz"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.tumor.target.counts.bw"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.tumor.improper.pairs.bw"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.tumor.baf.bedgraph.gz"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.baf.seg.bw"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.tn.bw"/>
+        <Resource path="AAVS1site14_WTcas9-DNA.seg.bw"/>
+    </Resources>
+    <Panel height="500" width="1200" name="DataPanel">
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.cnv.gff3" name="AAVS1site14_WTcas9-DNA.cnv.gff3" renderer="BASIC_FEATURE"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.cnv.excluded_intervals.bed.gz" name="AAVS1site14_WTcas9-DNA.cnv.excluded_intervals.bed.gz" renderer="BASIC_FEATURE"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.tumor.target.counts.bw" name="AAVS1site14_WTcas9-DNA.tumor.target.counts.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.tumor.improper.pairs.bw" name="AAVS1site14_WTcas9-DNA.tumor.improper.pairs.bw" renderer="BAR_CHART"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.tumor.baf.bedgraph.gz" name="AAVS1site14_WTcas9-DNA.tumor.baf.bedgraph.gz" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.baf.seg.bw" name="AAVS1site14_WTcas9-DNA.baf.seg.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.tn.bw" name="AAVS1site14_WTcas9-DNA.tn.bw" renderer="SCATTER_PLOT"/>
+        <Track autoScale="true" clazz="org.broad.igv.track.DataSourceTrack" color="0,0,178" displayMode="COLLAPSED" fontSize="10" visible="true" windowFunction="none" id="AAVS1site14_WTcas9-DNA.seg.bw" name="AAVS1site14_WTcas9-DNA.seg.bw" renderer="SCATTER_PLOT"/>
+    </Panel>
+</Session>

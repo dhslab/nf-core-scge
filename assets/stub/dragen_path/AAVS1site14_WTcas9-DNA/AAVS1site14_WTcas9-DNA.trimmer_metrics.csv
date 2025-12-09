@@ -1,0 +1,30 @@
+TRIMMER STATISTICS,,Total input reads,5834236948
+TRIMMER STATISTICS,,Total input bases,878098909140
+TRIMMER STATISTICS,,Total input bases R1,439049481386
+TRIMMER STATISTICS,,Total input bases R2,439049427754
+TRIMMER STATISTICS,,Average input read length,150
+TRIMMER STATISTICS,,Total trimmed reads,317412578,5.44
+TRIMMER STATISTICS,,Total trimmed bases,10913489944,1.24
+TRIMMER STATISTICS,,Average bases trimmed per read,1
+TRIMMER STATISTICS,,Average bases trimmed per trimmed read,34
+TRIMMER STATISTICS,,Remaining poly-G K-mers R1 3prime,591613,0.02
+TRIMMER STATISTICS,,Remaining poly-G K-mers R2 3prime,6912272,0.24
+TRIMMER STATISTICS,,Poly-G soft trimmed reads unfiltered R1 3prime,3653612,0.13
+TRIMMER STATISTICS,,Poly-G soft trimmed reads unfiltered R2 3prime,12646902,0.43
+TRIMMER STATISTICS,,Poly-G soft trimmed reads filtered R1 3prime,63,0.46
+TRIMMER STATISTICS,,Poly-G soft trimmed reads filtered R2 3prime,81,0.18
+TRIMMER STATISTICS,,Poly-G soft trimmed bases unfiltered R1 3prime,122322964,0.03
+TRIMMER STATISTICS,,Poly-G soft trimmed bases unfiltered R2 3prime,1433793526,0.33
+TRIMMER STATISTICS,,Poly-G soft trimmed bases filtered R1 3prime,675,0.03
+TRIMMER STATISTICS,,Poly-G soft trimmed bases filtered R2 3prime,831,0.01
+TRIMMER STATISTICS,,Adapter trimmed reads unfiltered R1 3prime,145222556,4.98
+TRIMMER STATISTICS,,Adapter trimmed reads unfiltered R2 3prime,172132220,5.90
+TRIMMER STATISTICS,,Adapter trimmed reads filtered R1 3prime,13785,100.00
+TRIMMER STATISTICS,,Adapter trimmed reads filtered R2 3prime,44017,100.00
+TRIMMER STATISTICS,,Adapter trimmed bases unfiltered R1 3prime,5382076674,1.23
+TRIMMER STATISTICS,,Adapter trimmed bases unfiltered R2 3prime,5523347933,1.26
+TRIMMER STATISTICS,,Adapter trimmed bases filtered R1 3prime,1868498,89.79
+TRIMMER STATISTICS,,Adapter trimmed bases filtered R2 3prime,6196839,93.44
+TRIMMER STATISTICS,,Total filtered reads,57802,0.00
+TRIMMER STATISTICS,,Reads filtered for minimum read length R1,13785,0.00
+TRIMMER STATISTICS,,Reads filtered for minimum read length R2,44017,0.00
