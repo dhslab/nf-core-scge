@@ -202,6 +202,8 @@ workflow SCGE_ANALYSIS {
     
     */
      
+    ch_versions.unique().view()
+
     CUSTOM_DUMPSOFTWAREVERSIONS (
          ch_versions.unique().collectFile(name: 'collated_versions.yml')
     )

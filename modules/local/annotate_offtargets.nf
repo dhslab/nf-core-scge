@@ -8,7 +8,6 @@ process ANNOTATE_OFFTARGETS {
     path(vep_cache)
     path(fasta)
 
-
     output:
     tuple val(meta), path("${meta.id}.indels.annotated.tsv"), emit: targetfile
     path "versions.yml", emit: versions
@@ -21,19 +20,18 @@ process ANNOTATE_OFFTARGETS {
     ].join(' ').trim()
 
     """
+    head -n 1 ${targetfile} | tr -d '\\r' | sed 's/\$/,vep/' > "${meta.id}.indels.annotated.tsv"
+
     /opt/vep/src/ensembl-vep/vep \\
             --offline \\
             --cache \\
             ${vep_args} \\
             --force --symbol --term SO --per_gene --fields "Location,SYMBOL,DISTANCE,INTRON,EXON" --numbers -o stdout \\
-            | perl -F'\t' -ane 'next if /^#/; @id=split(/,/,\$F[0]); \$xtra=\$F[13]; \$sym = (\$xtra =~ /SYMBOL=([^;]+)/)[0] // "."; \$dist = (\$xtra =~ /DISTANCE=([^;]+)/)[0] // "."; \\ 
-                                \$int = (\$xtra =~ /INTRON=([^;]+)/)[0] // "."; \$ex = (\$xtra =~ /EXON=([^;]+)/)[0] // "."; \\
-                                print join("\t", \$id[3], \$id[4]-1, \$id[4], "INS", \$id[5], \$F[0]) . ",SYMBOL=\$sym;GeneID=\$F[3];TranscriptID=\$F[4],Distance=\$dist;Intron=\$int;Exon=\$ex;Consequence=\$F[6];\n"' \\
-            > "${meta.id}.indels.annotated.tsv"
+            | add_vep2targetfile.pl >> "${meta.id}.indels.annotated.tsv"
 
     cat <<-END_VERSIONS > versions.yml
-    ${task.process}:
-        vep: echo "foo"
+    "${task.process}":
+        vep: \$(/opt/vep/src/ensembl-vep/vep --help 2>&1 | grep "ensembl-vep" | cut -d ':' -f 2 | sed 's/^[[:space:]]*//')
     END_VERSIONS
     """
 }
