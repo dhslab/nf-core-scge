@@ -33,6 +33,7 @@ process COMPILE_REPORT_JSON {
     def tumor_coverage_arg = tumor_cov ? "--tumor_coverage ${tumor_cov}" : ""
     def normal_coverage_arg = normal_cov ? "--normal_coverage ${normal_cov}" : ""
     """
+    export PATH=/usr/local/bin:\$PATH
     python3 ${projectDir}/bin/compile_report_data.py \\
         --sample_id ${meta.id} \\
         --transgene "${transgene_str}" \\

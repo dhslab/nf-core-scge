@@ -1,7 +1,7 @@
 process TRANSFORM_TRANSGENE {
     tag "${meta.id}"
     label 'process_single'
-    container "quay.io/biocontainers/python:3.8.3"
+    container "ghcr.io/dhslab/docker-cleutils"
 
     input:
     tuple val(meta), path(transgene_file)
@@ -12,6 +12,7 @@ process TRANSFORM_TRANSGENE {
 
     script:
     """
+    export PATH=\$PATH:/usr/local/bin
     transform_transgene.py --input $transgene_file --output ${meta.id}.circos_input.tsv
 
     cat <<-END_VERSIONS > versions.yml

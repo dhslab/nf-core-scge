@@ -18,8 +18,13 @@ process ANNOTATE_SV_VARIANTS {
     task.ext.when == null || task.ext.when
 
     script:
+    // Use params directly for vep_cache to ensure absolute path is used
+    def vep_cache_dir = params.vepcache 
+        ? params.vepcache.toString().replaceAll(/\/$/, '') 
+        : (vep_cache ? vep_cache.toString() : "")
+
     def vep_args = [
-        vep_cache                                 ? "--dir ${vep_cache}"                            : "",
+        vep_cache_dir                             ? "--dir ${vep_cache_dir}"                        : "",
         params.sv_annotation_distance             ? "--distance ${params.sv_annotation_distance}"   : "",
         params.max_filter_sv_length               ? "--max_sv_size ${params.max_filter_sv_length}"  : "",
         cytobands                                 ? "--custom ${cytobands.min{ it.toString().length() }},cytobands,bed" : "",
@@ -29,6 +34,8 @@ process ANNOTATE_SV_VARIANTS {
 
     def bcftools_cytobands     = cytobands           ? "${cytobands.min{ it.toString().length() }}"           : ""
     """
+    export PATH=\$PATH:/opt/htslib/bin:/usr/local/bin
+
     dragen_sv_file=\$(find -L dragen_files/ -type f -name "*.sv*.vcf.gz" | head -n 1)
 
     if [ -e dragen_files/*.dux4.vcf.gz ]; then

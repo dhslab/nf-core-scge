@@ -12,6 +12,7 @@ process TRANSGENE_TO_VCF {
 
     script:
     """
+    export PATH=/usr/local/bin:\$PATH
     transgene2vcf.py $transgene_file ${meta.id}.transgene.vcf
 
     cat <<-END_VERSIONS > versions.yml

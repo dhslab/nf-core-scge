@@ -14,13 +14,20 @@ process ANNOTATE_VARIANTS {
     path("versions.yml")                        , emit: versions
 
     script:
+    // Use params directly for vep_cache to ensure absolute path is used
+    def vep_cache_dir = params.vepcache 
+        ? params.vepcache.toString().replaceAll(/\/$/, '') 
+        : (vep_cache ? vep_cache.toString() : "")
+
     def annotate_args = [
-        vep_cache                                 ? "--dir ${vep_cache}"   : "",
+        vep_cache_dir                             ? "--dir ${vep_cache_dir}"   : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: "",
         dragen_files.find{ it ==~ /.*\.hard-filtered.vcf.gz$/ }?.with{ "-i $it" } ?: ""
     ].join(' ').trim()
     
     """
+    export PATH=\$PATH:/opt/htslib/bin:/usr/local/bin
+
     /usr/bin/perl -I /opt/lib/perl/VEP/Plugins /opt/vep/src/ensembl-vep/vep \\
         --vcf \\
         --hgvs \\

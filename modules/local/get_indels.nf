@@ -22,6 +22,7 @@ process GET_INDELS {
     ].join(' ').trim()
 
     """
+    export PATH=/usr/local/bin:\$PATH
     extract_variant_reads_ML.py ${inputs} --filter-off-target-fp \\
         --fp-log ${meta.id}.fp_filtered.txt -v -o ${meta.id}.indels.txt
 

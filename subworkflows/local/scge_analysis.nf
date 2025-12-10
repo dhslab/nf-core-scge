@@ -33,7 +33,7 @@ include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../../modules/nf-core/custom/dumps
 
 // Vep cache
 ch_vepcache = params.vepcache
-    ? Channel.fromPath(params.vepcache, checkIfExists: true)
+    ? Channel.fromPath(params.vepcache, type: 'dir', checkIfExists: true)
     : Channel.empty()
 
 ch_cytobands = params.cytobands
@@ -130,13 +130,12 @@ workflow SCGE_ANALYSIS {
 
     MAKE_CIRCOS_PLOT(TRANSFORM_TRANSGENE.out.circos_input)
 
-/*
     BND_FROM_INDELS_TO_VCF (
         GET_INDELS.out.indels_file
-            .join(VEP_TO_TSV.out.vep_tsv)
+            .join(VARIANTS_TO_TSV.out.vep_tsv)
             .map { meta, indels_file, vep_tsv -> [meta, indels_file] }
     )
-*/
+
     //
     // Generate plots
     //
@@ -146,10 +145,11 @@ workflow SCGE_ANALYSIS {
     //
     // Collate outputs
     //
-    /*
+    
     ch_coverage_files = ch_dragen_files.map { meta, dragen_path ->
-        def tumor_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_tumor.csv') } ?: file("${baseDir}/assets/empty_tumor_coverage.txt")
-        def normal_cov_file = file(dragen_path).listFiles().find { it.name.endsWith('.wgs_overall_mean_cov_normal.csv') } ?: file("${baseDir}/assets/empty_normal_coverage.txt")
+        // dragen_path is a List of files, not a directory path object
+        def tumor_cov_file = dragen_path.find { it.name.endsWith('.wgs_overall_mean_cov_tumor.csv') } ?: file("${baseDir}/assets/empty_tumor_coverage.txt")
+        def normal_cov_file = dragen_path.find { it.name.endsWith('.wgs_overall_mean_cov_normal.csv') } ?: file("${baseDir}/assets/empty_normal_coverage.txt")
         return [meta.id, tumor_cov_file, normal_cov_file]
     }
 
@@ -165,11 +165,11 @@ workflow SCGE_ANALYSIS {
         .map { meta, transgene -> [meta.id, transgene] }
     ch_annotated_transgene.view { "Annotated Transgene: $it" }
 
-    def ch_vep_tsv = VEP_TO_TSV.out.vep_tsv
+    def ch_vep_tsv = VARIANTS_TO_TSV.out.vep_tsv
         .map { meta, tsv -> [meta.id, tsv] }
     ch_vep_tsv.view { "VEP TSV: $it" }
 
-    def ch_indels = ANNOTATE_OFFTARGETS.out.annotated_indels
+    def ch_indels = ANNOTATE_OFFTARGETS.out.targetfile
         .map { meta, indels -> [meta.id, indels] }
     ch_indels.view { "Indels: $it" }
 
@@ -199,8 +199,6 @@ workflow SCGE_ANALYSIS {
         .map { id, meta, json, cna, baf -> [meta, json, cna, baf] }
 
     MAKE_SCGE_REPORT(ch_report_input)
-    
-    */
      
     CUSTOM_DUMPSOFTWAREVERSIONS (
          ch_versions.unique().collectFile(name: 'collated_versions.yml')

@@ -16,12 +16,18 @@ process ANNOTATE_TRANSGENE_VARIANTS {
     path "versions.yml",    emit: versions
 
     script:
+    // Use params directly for vep_cache to ensure absolute path is used
+    def vep_cache_dir = params.vepcache 
+        ? params.vepcache.toString().replaceAll(/\/$/, '') 
+        : (vep_cache ? vep_cache.toString() : "")
+
     """
+    export PATH=\$PATH:/opt/htslib/bin
     if [ \$(grep -vc '^#' ${transgene_vcf}) -gt 0 ]; then
         /opt/vep/src/ensembl-vep/vep \\
             --offline \\
             --cache \\
-            --dir ${vepcache} \\
+            --dir ${vep_cache_dir} \\
             --fasta ${fasta} \\
             --symbol \\
             --term SO \\

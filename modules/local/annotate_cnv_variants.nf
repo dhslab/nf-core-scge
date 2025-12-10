@@ -16,13 +16,20 @@ process ANNOTATE_CNV_VARIANTS {
 
     script:
     def vcf = dragen_files.find{ it ==~ /.*\.(cnv.vcf.gz)$/ } ?: ""
+    
+    // Use params directly for vep_cache to ensure absolute path is used
+    def vep_cache_dir = params.vepcache 
+        ? params.vepcache.toString().replaceAll(/\/$/, '') 
+        : (vep_cache ? vep_cache.toString() : "")
+
     def vep_args = [
-        vep_cache                                           ? "--dir ${vep_cache}"   : "",
+        vep_cache_dir                                       ? "--dir ${vep_cache_dir}"   : "",
         cytobands                                           ? "--custom ${cytobands.min{ it.toString().length() }},cytobands,bed" : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: ""
     ].join(' ').trim()
 
     """
+    export PATH=\$PATH:/opt/htslib/bin:/usr/local/bin
     set -eo pipefail
 
     gunzip -c ${vcf} \\

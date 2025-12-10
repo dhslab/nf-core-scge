@@ -22,6 +22,10 @@ process GENERATE_CNA_BAF_PLOTS {
     ].join(' ').trim()
 
     """
+    export PATH=\$PATH:/usr/local/bin
+    echo "DEBUG: PATH is \$PATH"
+    echo "DEBUG: Rscript location: \$(which Rscript || echo 'not found')"
+    
     generate_cna_baf_plots.R ${inputs}
 
     cat <<-'END_VERSIONS' > versions.yml

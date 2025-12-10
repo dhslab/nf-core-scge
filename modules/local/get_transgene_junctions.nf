@@ -20,6 +20,7 @@ process GET_TRANSGENE_JUNCTIONS {
     ].join(' ').trim()
 
     """
+    export PATH=\$PATH:/usr/local/bin
 
     getTransgeneJunctions.py ${input} > ${meta.id}.transgene_out.tsv
 

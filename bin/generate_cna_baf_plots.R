@@ -1,4 +1,4 @@
-#!/bin/env Rscript
+#!/usr/bin/env Rscript
 
 # generate_cna_baf_plots.R
 # This script generates copy number and B-allele frequency plots from a BAF bedgraph file and a CN ratio TSV file.
