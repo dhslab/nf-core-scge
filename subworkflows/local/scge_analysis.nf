@@ -173,15 +173,19 @@ workflow SCGE_ANALYSIS {
         .map { meta, indels -> [meta.id, indels] }
     ch_indels.view { "Indels: $it" }
 
+    def ch_bnd_vcf = BND_FROM_INDELS_TO_VCF.out.bnd_vcf
+        .map { meta, vcf -> [meta.id, vcf] }
+
     ch_plots
         .join(ch_circos, by: 0)
         .join(ch_annotated_transgene, by: 0)
         .join(ch_vep_tsv, by: 0)
         .join(ch_indels, by: 0)
+        .join(ch_bnd_vcf, by: 0)
         .join(ch_coverage_files, by: 0)
-        .map { id, meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov ->
+        .map { id, meta, cna, baf, circos, transgene, tsv, indels, bnd_vcf, tumor_cov, normal_cov ->
             def timestamp = new Date().getTime()
-            [meta, cna, baf, circos, transgene, tsv, indels, tumor_cov, normal_cov, timestamp]
+            [meta, cna, baf, circos, transgene, tsv, indels, bnd_vcf, tumor_cov, normal_cov, timestamp]
         }
         .set { ch_compile_report_input }
  

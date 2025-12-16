@@ -36,6 +36,34 @@ def parse_coverage_file(file_path):
         return None
 
 
+def parse_vcf_file(file_path):
+    """Parse a VCF file and return a list of dictionaries."""
+    records = []
+    if not file_path or not os.path.exists(file_path):
+        return records
+
+    with open(file_path, 'r') as f:
+        header = []
+        for line in f:
+            if line.startswith('##'):
+                continue
+            if line.startswith('#'):
+                header = line.strip().lstrip('#').split('\t')
+                continue
+
+            if not header:
+                continue
+
+            stripped_line = line.strip().split('\t')
+            if len(stripped_line) < len(header):
+                continue
+
+            row_dict = dict(zip(header, stripped_line))
+            records.append(row_dict)
+    return records
+
+
+
 def main():
     """
     Main function to parse arguments and compile data.
@@ -50,6 +78,7 @@ def main():
     parser.add_argument("--on_target_sv_transgene", required=True, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
     parser.add_argument("--vcf_tsv", required=True, help="Path to VEP-annotated small variant TSV for targeted gene mutations.")
     parser.add_argument("--off_target_indels", required=True, help="Path to off-target indel analysis file.")
+    parser.add_argument("--bnd_vcf", required=False, help="Path to BND VCF file from indels.")
     parser.add_argument("--control_sample", required=False, default="N/A", help="Control/normal sample identifier.")
     parser.add_argument("--grnas", required=False, default="", help="Comma-separated list of gRNAs.")
     parser.add_argument("--tumor_coverage", required=False, help="Path to tumor coverage metrics file.")
@@ -60,6 +89,9 @@ def main():
 
     # Parse the off-target indel file
     off_target_data = parse_offtarget_file(args.off_target_indels)
+
+    # Parse the BND VCF file
+    bnd_vcf_data = parse_vcf_file(args.bnd_vcf)
 
     # Parse the on-target SV and transgene data
     on_target_sv_transgene_data = []
@@ -137,7 +169,8 @@ def main():
         "tables": {
             "on_target_sv_transgene": on_target_sv_transgene_data,
             "off_target_indels": off_target_data,
-            "targeted_gene_mutations": targeted_gene_mutations
+            "targeted_gene_mutations": targeted_gene_mutations,
+            "bnd_vcf": bnd_vcf_data
         },
         "metadata": {
             "drug_product": args.sample_id,

@@ -12,6 +12,7 @@ process COMPILE_REPORT_JSON {
           path(on_target_sv_transgene),
           path(vcf_tsv),
           path(off_target_indels),
+          path(bnd_vcf),
           path(tumor_cov),
           path(normal_cov),
           val(timestamp)
@@ -46,6 +47,7 @@ process COMPILE_REPORT_JSON {
         --on_target_sv_transgene ${on_target_sv_transgene} \\
         --vcf_tsv ${vcf_tsv} \\
         --off_target_indels ${off_target_indels} \\
+        --bnd_vcf ${bnd_vcf} \\
         ${tumor_coverage_arg} \\
         ${normal_coverage_arg} \\
         --output report_input.json
