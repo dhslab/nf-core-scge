@@ -86,14 +86,15 @@ def process_input(input_file: str, output_dir: str) -> None:
             "id",
             "individual_id",
             "sample_type",
-            "sample_id"
+            "sample_id",
             "sex",
             "read1",
             "read2",
             "fastq_list",
             "cram",
             "bam",
-            "dragen_path"
+            "dragen_path",
+            "target_file"
     ]
 
     df = df.loc[:, [col for col in df.columns if col in valid_headers]]

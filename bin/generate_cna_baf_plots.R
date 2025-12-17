@@ -90,5 +90,5 @@ p_baf <- ggplot(dat,aes(x=index,y=baf)) +
         theme_classic() + theme(legend.position = "none",axis.ticks.x = element_blank(),axis.text.y = element_text(color = "black",size=10),plot.margin = margin(l=10),
                                 axis.text.x = element_blank(),axis.title.x = element_blank()) + coord_cartesian(clip = "off")
 
-ggsave("cna_plot.png", plot = p_cn, width = 11, height = 4, units = "in", dpi = 300)
-ggsave("baf_plot.png", plot = p_baf, width = 11, height = 4, units = "in", dpi = 300) 
+ggsave(paste0(caseid, ".cna_plot.png"), plot = p_cn, width = 11, height = 4, units = "in", dpi = 300)
+ggsave(paste0(caseid, ".baf_plot.png"), plot = p_baf, width = 11, height = 4, units = "in", dpi = 300) 

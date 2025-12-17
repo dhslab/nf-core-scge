@@ -21,6 +21,9 @@ process ANNOTATE_TRANSGENE_VARIANTS {
         ? params.vepcache.toString().replaceAll(/\/$/, '') 
         : (vep_cache ? vep_cache.toString() : "")
 
+    def fasta_file = fasta instanceof List ? fasta.find{ it.name.endsWith('.fa') || it.name.endsWith('.fasta') } : fasta
+    def cytobands_file = cytobands instanceof List ? cytobands.find{ it.name.endsWith('.bed.gz') } : cytobands
+
     """
     export PATH=\$PATH:/opt/htslib/bin
     if [ \$(grep -vc '^#' ${transgene_vcf}) -gt 0 ]; then
@@ -28,14 +31,14 @@ process ANNOTATE_TRANSGENE_VARIANTS {
             --offline \\
             --cache \\
             --dir ${vep_cache_dir} \\
-            --fasta ${fasta} \\
+            --fasta ${fasta_file} \\
             --symbol \\
             --term SO \\
             --flag_pick \\
             --everything \\
             --tab \\
             --fields Location,Consequence,SYMBOL,BIOTYPE,EXON,INTRON,STRAND,Canonical,Pick,Feature \\
-            --plugin StructuralVariantOverlap,file=${cytobands} \\
+            --plugin StructuralVariantOverlap,file=${cytobands_file} \\
             -i ${transgene_vcf} \\
             -o ${meta.id}.transgene.annotated.tsv
     else

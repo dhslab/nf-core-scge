@@ -107,7 +107,8 @@ workflow SCGE_ANALYSIS {
     ch_versions = ch_versions.mix(ANNOTATE_OFFTARGETS.out.versions)
 
     GET_INDELS(ch_dragen_files.join(ANNOTATE_OFFTARGETS.out.targetfile),
-            ch_crispr_model)
+            ch_crispr_model,
+            ch_fasta_reference)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
 
     GET_TRANSGENE_JUNCTIONS(ch_dragen_files,
@@ -169,7 +170,8 @@ workflow SCGE_ANALYSIS {
         .map { meta, tsv -> [meta.id, tsv] }
     ch_vep_tsv.view { "VEP TSV: $it" }
 
-    def ch_indels = ANNOTATE_OFFTARGETS.out.targetfile
+    // Use actual indels output from GET_INDELS (not the VEP-annotated target file)
+    def ch_indels = GET_INDELS.out.indels_file
         .map { meta, indels -> [meta.id, indels] }
     ch_indels.view { "Indels: $it" }
 

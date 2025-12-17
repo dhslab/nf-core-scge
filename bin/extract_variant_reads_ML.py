@@ -880,11 +880,28 @@ def main():
     bedDf = pd.read_csv(args.target_file, sep='\t')
     # remove # from first column header
     bedDf.columns = bedDf.columns.str.replace('#', '', regex=False)
+    
+    # Check for empty input data
+    if len(bedDf) == 0:
+        print("Warning: Input target file has no data rows. Writing empty output.", file=sys.stderr)
+        # Write empty output file with header only
+        output_columns = ['Cluster', 'Chromosome', 'Start', 'End', 'Ontarget', 'Gene', 'indel_type', 
+                         'indel_fraction', 'indel_allele_fraction', 'indel_size', 'indel_bases', 
+                         'num_edited', 'num_control', 'total_edited', 'total_control', 'significance',
+                         'prediction', 'probability', 'model_info']
+        empty_df = pd.DataFrame(columns=output_columns)
+        if args.outfile:
+            empty_df.to_csv(args.outfile, sep='\t', index=False)
+        else:
+            empty_df.to_csv(sys.stdout, sep='\t', index=False)
+        sys.exit(0)
+    
     info_header = bedDf.columns[-1].split(',')
     bedDf.rename(columns={'chromosome':'Chromosome', 'start':'Start', 'end':'End', bedDf.columns[-1]: 'Info'}, inplace=True)
     bedDf['Info'] = bedDf['Info'].apply(lambda x, h=info_header: dict(zip(h, str(x).split(','))))
-    bedDf['Pos'] = bedDf['Info'].apply(lambda x: int(x['pos']))
-    bedDf['Ontarget'] = bedDf['Info'].apply(lambda x: int(x['is_target']))
+    # Support both old and new column naming conventions
+    bedDf['Pos'] = bedDf['Info'].apply(lambda x: int(x.get('pos', x.get('Start', 0))))
+    bedDf['Ontarget'] = bedDf['Info'].apply(lambda x: int(x.get('is_target', x.get('On_target', 0))))
    
     # Create PyRanges object and cluster intervals
     bedPr = pr.PyRanges(bedDf[['Chromosome','Start','End','Pos','Info','Ontarget']])

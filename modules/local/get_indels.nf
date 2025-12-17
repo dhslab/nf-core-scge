@@ -6,6 +6,7 @@ process GET_INDELS {
     input:
     tuple val(meta), path(dragen_files, stageAs: "dragen_files/*"), path(hotspot_file)
     path(crispr_model)
+    path(fasta_files)
 
     output:
     tuple val(meta), path("${meta.id}.indels.txt"), emit: indels_file
@@ -21,9 +22,20 @@ process GET_INDELS {
         hotspot_file ? "--target-file ${hotspot_file}" : ""
     ].join(' ').trim()
 
+    // Find the main fasta file (not .fai) - handle empty channel case
+    def fasta_file = null
+    if (fasta_files) {
+        if (fasta_files instanceof List) {
+            fasta_file = fasta_files.find { it.name.endsWith('.fa') || it.name.endsWith('.fasta') }
+        } else if (fasta_files.name?.endsWith('.fa') || fasta_files.name?.endsWith('.fasta')) {
+            fasta_file = fasta_files
+        }
+    }
+    def ref_arg = fasta_file ? "--fasta ${fasta_file}" : ""
     """
     export PATH=/usr/local/bin:\$PATH
-    extract_variant_reads_ML.py ${inputs} --filter-off-target-fp \\
+    
+    extract_variant_reads_ML.py ${inputs} ${ref_arg} --filter-off-target-fp \\
         --fp-log ${meta.id}.fp_filtered.txt -v -o ${meta.id}.indels.txt
 
     # Extract ML results into a separate file, preserving the header

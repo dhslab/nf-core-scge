@@ -338,7 +338,14 @@ def parse_svs(svvcffile,individual=0):
             total_genes = 'None'
 
             # get genes for this variant
-            vepCsq = vepToTable(variant.INFO['CSQ'],svvcf.get_header_type('CSQ'))
+            # Skip if CSQ annotation is missing
+            try:
+                csq_data = variant.INFO['CSQ']
+            except KeyError:
+                # No CSQ annotation, skip this variant
+                continue
+
+            vepCsq = vepToTable(csq_data,svvcf.get_header_type('CSQ'))
 
             total_genes = f"{len(vepCsq['SYMBOL'].unique())} genes"
 
@@ -469,7 +476,15 @@ def parse_svs(svvcffile,individual=0):
         total_genes = '2 genes'
 
         # get gene info for VARIANT
-        vepCsq = vepToTable(variant.INFO['CSQ'],svvcf.get_header_type('CSQ'))
+        # Skip if CSQ annotation is missing (e.g., stub data without VEP annotations)
+        try:
+            csq_data = variant.INFO['CSQ']
+        except KeyError:
+            # No CSQ annotation, skip this BND pair
+            alreadydone.add(variant.ID)
+            continue
+
+        vepCsq = vepToTable(csq_data,svvcf.get_header_type('CSQ'))
 
         bands1 = vepCsq['cytobands'][0].split("&")[0]
 
@@ -481,7 +496,15 @@ def parse_svs(svvcffile,individual=0):
         gene1Df = gene1Df.sort_values(by=['DISTANCE','GeneEffect'], ascending=[True,False],na_position='last').fillna('')
 
         # get gene info for MATE
-        vepCsq = vepToTable(mate.INFO['CSQ'],svvcf.get_header_type('CSQ'))    
+        # Skip if mate has no CSQ annotation
+        try:
+            mate_csq_data = mate.INFO['CSQ']
+        except KeyError:
+            # No CSQ annotation on mate, skip this BND pair
+            alreadydone.add(variant.ID)
+            continue
+
+        vepCsq = vepToTable(mate_csq_data,svvcf.get_header_type('CSQ'))    
 
         bands2 = vepCsq['cytobands'][0].split("&")[0]
 

@@ -91,10 +91,10 @@ ch_cram_reference = params.cram_reference
     ? Channel.fromPath("${params.cram_reference}*", checkIfExists: true).collect()
     : []
 
-// Gene regions
+// Gene regions / target file for analysis
 ch_param_target_file = params.target_file ?
-    Channel.fromPath("${params.target_file}", checkIfExists: true) 
-    : []
+    Channel.fromPath("${params.target_file}", checkIfExists: true).first() 
+    : Channel.value([])
 
 // Nirvana path
 ch_nirvana_path = params.nirvana_path
@@ -164,14 +164,13 @@ workflow SCGE {
                 .map{ generateMetaFromCsv(it) }
                 .flatten()
                 .filter{ it.dragen_path }
-                .map{ [ it, file("${it.dragen_path}/*") ] }
-                .combine(ch_param_target_file)
-                .map { meta, dragenfiles, targetfile -> 
-                    if (targetfile){ 
+                .map{ meta -> 
+                    def dragenfiles = file("${meta.dragen_path}/*")
+                    // Use global target_file param if provided, otherwise use meta.target_file from CSV
+                    def targetfile = params.target_file ? 
+                        file(params.target_file, checkIfExists: true) : 
+                        (meta.target_file ? file(meta.target_file, checkIfExists: true) : [])
                         [ meta, dragenfiles, targetfile ] 
-                    } else {
-                        [ meta, dragenfiles, meta.target_file ? file(meta.target_file, checkIfExists: true) : [] ]
-                    }
                 }
     )
 
