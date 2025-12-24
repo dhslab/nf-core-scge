@@ -1,4 +1,3 @@
----
 params:
   report_json: ""
   off_target_threshold: 1.0

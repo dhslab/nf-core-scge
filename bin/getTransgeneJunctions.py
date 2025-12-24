@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import re
@@ -130,15 +130,15 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
     return(pr.PyRanges(df).sort().df)
 
 parser = argparse.ArgumentParser(description='Find split and discordant reads that partially map to a transgene sequence')
-parser.add_argument('contig',type=str,help='Contig name of transgene')
-parser.add_argument('expbamfile',type=str,help='BAM file')
+parser.add_argument('-n', '--name',type=str,help='Name of transgene contig in reference FASTA')
 parser.add_argument('-r','--reference',type=str,default=None,help='Reference FASTA file')
 parser.add_argument('-x','--exclude',type=str,default=None,help='Coordinates to exclude from transgene contig')
 parser.add_argument('-o','--outfile',type=str,default=None,help='Output to file [stdout]')
+parser.add_argument('expbamfile',type=str,help='BAM file')
 
 args = parser.parse_args()
 
-contig = args.contig
+contig = args.name
 
 # open bam file(s)
 expsamfile = pysam.AlignmentFile(args.expbamfile,"rc",reference_filename=args.reference)

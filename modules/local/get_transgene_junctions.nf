@@ -6,6 +6,7 @@ process GET_TRANSGENE_JUNCTIONS {
     input:
     tuple val(meta), path(dragen_files)
     path(fasta)
+    val(transgene_name)
 
     output:
     tuple val(meta), path("${meta.id}.transgene_out.tsv"), emit: transgene_file
@@ -14,15 +15,13 @@ process GET_TRANSGENE_JUNCTIONS {
     script:
     def input = [
         fasta.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--reference $it" } ?: "",
+        transgene_name ? "--name ${transgene_name}" : "",
         params.transgene_match_coordinates ? "-x ${params.transgene_match_coordinates}" : "",
-        params.transgene_name ? "${params.transgene_name}" : "",
         dragen_files.findAll{ it ==~ /.*\.(cram)$/ }.max{ it.toString().length() }?.with{ "$it" } ?: "",
     ].join(' ').trim()
 
     """
-    export PATH=\$PATH:/usr/local/bin
-
-    getTransgeneJunctions.py ${input} > ${meta.id}.transgene_out.tsv
+    getTransgeneJunctions.py ${input} -o ${meta.id}.transgene_out.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -32,9 +31,9 @@ process GET_TRANSGENE_JUNCTIONS {
     
     stub:
     def input = [
-        fasta ? "--reference ${fasta}" : "",
+        fasta.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--reference $it" } ?: "",
+        transgene_name ? "--name ${transgene_name}" : "",
         params.transgene_match_coordinates ? "-x ${params.transgene_match_coordinates}" : "",
-        transgene_name ? "${transgene_name}" : "",
         dragen_files.findAll{ it ==~ /.*\.(cram)$/ }.max{ it.toString().length() }?.with{ "$it" } ?: "",
     ].join(' ').trim()
 

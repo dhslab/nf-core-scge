@@ -9,7 +9,7 @@ process VEP_TO_TSV {
     val(type)
 
     output:
-    tuple val(meta), path("*.tsv"), emit: vep_tsv
+    tuple val(meta), path("*.tsv"), emit: tsv
     path "versions.yml", emit: versions
 
     script:
@@ -22,7 +22,6 @@ process VEP_TO_TSV {
     def output = vcf.getName().replaceFirst('\\.vcf\\.gz\$', '.tsv')
 
     """
-    export PATH=/usr/local/bin:\$PATH
     vep2table.py $args $vcf -o $output
     
     cat <<-END_VERSIONS > versions.yml
