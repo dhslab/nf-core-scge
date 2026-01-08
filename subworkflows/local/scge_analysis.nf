@@ -44,7 +44,8 @@ ch_crispr_model = params.crispr_model ?
     Channel.fromPath("${params.crispr_model}", checkIfExists: true) 
     : []
 
-ch_transgene_name = params.transgene_name ? Channel.value(params.transgene_name) : Channel.empty()
+ch_transgene_name = params.transgene_name && params.transgene_name != false && params.transgene_name != null
+    ? Channel.value(params.transgene_name) : Channel.empty()
 
 
 /*

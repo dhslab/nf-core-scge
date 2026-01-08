@@ -9,7 +9,7 @@ process GET_INDELS {
     path(reference)
 
     output:
-    tuple val(meta), path("${meta.id}.offtarget_indels.tsv"), emit: indels_file
+    tuple val(meta), path("${meta.id}.offtarget_analysis.tsv"), emit: indels_file
     tuple val(meta), path("${meta.id}.ml_results.txt"), emit: ml_results
     tuple val(meta), path("${meta.id}.fp_filtered.txt"), emit: fp_log
     path "versions.yml",    emit: versions
@@ -24,11 +24,11 @@ process GET_INDELS {
     ].join(' ').trim()
 
     """    
-    extract_variant_reads_ML.py ${inputs} --filter-off-target-fp \\
-        --fp-log ${meta.id}.fp_filtered.txt -v -o ${meta.id}.offtarget_indels.tsv
+    find_edited_reads.py ${inputs} -u ${meta.id}.unevaluable_reads.txt --filter-off-target-fp \\
+        --fp-log ${meta.id}.fp_filtered.txt -v -o ${meta.id}.offtarget_analysis.tsv
 
     # Extract ML results into a separate file, preserving the header
-    cut -f 17-19 ${meta.id}.offtarget_indels.tsv > ${meta.id}.ml_results.txt
+    cut -f 17-19 ${meta.id}.offtarget_analysis.tsv > ${meta.id}.ml_results.txt
 
     cat <<-END_VERSIONS > versions.yml
     ${task.process}:

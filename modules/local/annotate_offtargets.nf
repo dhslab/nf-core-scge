@@ -9,7 +9,7 @@ process ANNOTATE_OFFTARGETS {
     path(reference)
 
     output:
-    tuple val(meta), path("${meta.id}.indels.annotated.tsv"), emit: targetfile
+    tuple val(meta), path("${meta.id}.targets.annotated.vcf"), emit: targetfile
     path "versions.yml", emit: versions
 
     script:
@@ -20,14 +20,11 @@ process ANNOTATE_OFFTARGETS {
     ].join(' ').trim()
     
     """
-    head -n 1 ${targetfile} | tr -d '\\r' | sed 's/\$/;CSQ=SYMBOL|Gene|Consequence|DISTANCE|INTRON|EXON/' > "${meta.id}.indels.annotated.tsv"
-
     /opt/vep/src/ensembl-vep/vep \\
             --offline \\
             --cache \\
             ${vep_args} \\
-            --force --symbol --numbers --term SO --fields "SYMBOL,Gene,Consequence,DISTANCE,INTRON,EXON" -o stdout \\
-            | add_vep2targetfile.pl >> "${meta.id}.indels.annotated.tsv"
+            --force --symbol --numbers --per_gene --format vcf --vcf --term SO --fields "SYMBOL,Gene,Consequence,DISTANCE,INTRON,EXON" -o "${meta.id}.targets.annotated.vcf"
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
