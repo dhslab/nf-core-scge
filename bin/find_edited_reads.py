@@ -1675,10 +1675,10 @@ def main():
             indels = indels[indels['type']=='INDEL'].copy()
 
             if len(indels) > 0:
-                indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['strands']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
+                indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
             if len(bnds) > 0:
-                bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['strands']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
+                bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
         # Calculate fractions and prepare output
         indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0

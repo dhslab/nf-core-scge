@@ -24,7 +24,7 @@ process COMPILE_REPORT_JSON {
         files.find{ it ==~ /.*\.annotated_transgene_insertions\.tsv$/ }?.with{ "--transgene_insertions $it" } ?: "",
         files.find{ it ==~ /.*\.transgene_insertions_circos\.png$/ }?.with{ "--circos_plot $it" } ?: "",
         files.find{ it ==~ /.*\.hard-filtered\.annotated\.tsv$/ }?.with{ "--somatic_variants $it" } ?: "",
-        files.find{ it ==~ /.*\.offtarget_indels\.tsv$/ }?.with{ "--offtarget_indels $it" } ?: "",
+        files.find{ it ==~ /.*\.offtarget_analysis\.tsv$/ }?.with{ "--offtarget_indels $it" } ?: "",
         files.find{ it ==~ /.*\.offtarget_svs\.tsv$/ }?.with{ "--offtarget_svs $it" } ?: "",
     ].join(' ').trim()
 

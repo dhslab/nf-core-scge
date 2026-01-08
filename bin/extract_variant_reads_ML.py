@@ -38,47 +38,55 @@ def cigar_summary(cigar):
 
     return cigar_sum
 
-def make_aligned_pairs(sup_align,refseq):
+def make_info_string(data):
     """
-    Converts a supplementary alignment string into a list of aligned pairs.
-
-    Args:
-    supplementary_alignment (str): Supplementary alignment string (e.g., 'chr12,107092390,-,110M41S,60,0').
-
-    Returns:
-    List of tuples: Aligned pairs (e.g., [(0, 168391768, 'C'), (1, 168391769, 'C'), ...]).
+    Converts a single dict or a list of dicts into a VCF INFO string.
+    Aggregates values for shared keys across a list.
+    Handles pysam types (tuples for lists, booleans for flags).
     """
-    # Split the supplementary alignment string into components
-    ref_name, ref_start, strand, cigar, _, _ = supplementary_alignment.split(',')
-    
-    # Convert positions and CIGAR to appropriate types
-    ref_start = int(ref_start)
-    cigar_ops = parse_cigar(cigar)
-    
-    # Initialize variables
-    aligned_pairs = []
-    read_pos = 0
-    ref_pos = ref_start
-        
-    for op, length in cigar_ops:
-        if op == 'M':  # Match/mismatch
-            for i in range(length):
-                aligned_pairs.append((read_pos, ref_pos, refseq[ref_pos - ref_start]))
-                read_pos += 1
-                ref_pos += 1
-        elif op == 'I':  # Insertion
-            for i in range(length):
-                aligned_pairs.append((read_pos, None, refseq[ref_pos - ref_start]))
-                read_pos += 1
-        elif op == 'D':  # Deletion
-            for i in range(length):
-                aligned_pairs.append((None, ref_pos, refseq[ref_pos - ref_start]))
-                ref_pos += 1
-        elif op == 'S':  # Soft clipping
-            read_pos += length
-        # Skipping 'H' (hard clipping) and 'N' (skipped region) as they do not appear in the read
+    if not data:
+        return "."
 
-    return aligned_pairs
+    # Normalize input: ensure we always iterate over a list of dicts
+    if isinstance(data, dict):
+        data_list = [data]
+    elif isinstance(data, list):
+        data_list = data
+    else:
+        return "."
+
+    info_parts = []
+    
+    # 1. Identify all unique keys present across the input
+    all_keys = sorted(set().union(*(d.keys() for d in data_list)))
+
+    for k in all_keys:
+        vals = []
+        is_flag = False
+
+        for d in data_list:
+            if k in d:
+                v = d[k]
+                # Handle pysam Flags (boolean True implies presence)
+                if isinstance(v, bool):
+                    if v: 
+                        is_flag = True
+                # Handle pysam Tuples/Lists (e.g., AF=0.1,0.2)
+                elif isinstance(v, (tuple, list)):
+                    vals.extend([str(x) for x in v])
+                # Handle scalars (int, str, float)
+                else:
+                    vals.append(str(v))
+
+        # 2. Format string based on content
+        # If it was a flag and we collected no value data (pure flag)
+        if is_flag and not vals:
+            info_parts.append(k)
+        # If we have values, join them (e.g. KEY=val1,val2)
+        elif vals:
+            info_parts.append(f"{k}={','.join(vals)}")
+
+    return ';'.join(info_parts)    
 
 def indels_from_aligned_pairs(pairs,readseq):
 
@@ -240,7 +248,6 @@ def get_indels(bam,controlbam,chr,start,end,fasta,window=100,distance=25,pam_pos
         if cigar[-1][0] == 4:
             rightSoftClip = cigar[-1][1]
 
-    
         if leftSoftClip > rightSoftClip:
             sChr, sPos, sStrand, sCigar, sMq, sNm = read.get_tag('SA').split(';')[0].split(',') if read.has_tag('SA') else [None,None,None,None,None,None]
 
@@ -281,11 +288,15 @@ def get_indels(bam,controlbam,chr,start,end,fasta,window=100,distance=25,pam_pos
 
                 if (int(sMq)>=minSecMapQual and sCigarTuples[0][0] >= 4 and sCigarTuples[-1][0] == 0 and
                     int(sNm)<maxNM and sChr == read.reference_name and 
-                    sStrand == read_strand and int(sPos) > read_reference_end and 
-                    int(sPos) - read_reference_end < svDistanceThreshold):
+                    sStrand == read_strand and #int(sPos) > read_reference_end and 
+                    abs(int(sPos) - read_reference_end) < svDistanceThreshold):
                 
                     if sCigarTuples[0][0] >= 4 and sCigarTuples[-1][0] == 0 and sCigarTuples[-1][1] == cigar[-1][1]:
-                        cigar = cigar[:-1] + [(2,read_reference_end-sPos)] + sCigarTuples[1:]
+                        if int(sPos) < read_reference_end:
+                            cigar = cigar[:-1] + [(1,read_reference_end-sPos)] + sCigarTuples[1:]
+                        else:
+                            cigar = cigar[:-1] + [(2,read_reference_end-sPos)] + sCigarTuples[1:]
+
                     else:
                         cigar = make_cigar_tuples(align.write_alignment_to_cigar(align.align_optimal(seq.NucleotideSequence(regionSeq[read_reference_start-regionStart:sPos-regionStart+sum([x[1] for x in sCigarTuples if x[0] == 0 or x[0] == 2 or x[0] == 3])]),
                                         seq.NucleotideSequence(read.query_sequence),
@@ -846,7 +857,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='Extract variant reads and predict CRISPR reads')
     parser.add_argument('-f','--fasta',type=str,default="/storage2/fs1/dspencer/Active/clinseq/projects/scge/data/refdata/singh_v4.3.6/hg38_PLVM_CD19_CARv4_cd34.fa",help='Reference fasta file')
-    parser.add_argument('-w','--window',type=int,default=100,help='Window size')
+    parser.add_argument('-w','--target-window',type=int,default=100,help='Window size')
     parser.add_argument('-d','--distance',type=int,default=25,help='Distance')
     parser.add_argument('-m','--minreads',type=int,default=1,help='Minimum reads')
     parser.add_argument('-c','--chromosome',type=str,default=None,help='Chromosome to process')
@@ -877,39 +888,67 @@ def main():
     # STEP 1: Process input BED file and create genomic intervals
     # ========================================================================
     
-    bedDf = pd.read_csv(args.target_file, sep='\t')
-    # remove # from first column header
-    bedDf.columns = bedDf.columns.str.replace('#', '', regex=False)
-    
+    # target regions, in VCF format.
+    vcf_data = []
+
+    try:
+        # Open VCF file with pysam
+        vcf_in = pysam.VariantFile(args.target_file)
+        
+        for rec in vcf_in:
+            start = rec.pos - 1
+            end = rec.pos
+            info_dict = dict(rec.info)
+            is_target = 1 if info_dict.get('TARGET', False) else 0
+            
+            vcf_data.append({
+                'Chromosome': rec.chrom,
+                'Start': start,
+                'End': end,
+                'Pos': rec.pos,  # Keep 1-based POS for reference/output
+                'Info': info_dict,
+                'Ontarget': is_target
+            })
+
+    except Exception as e:
+        print(f"Error reading VCF input: {e}", file=sys.stderr)
+
+    # Create DataFrame from list of dicts
+    bedDf = pd.DataFrame(vcf_data)
+
     # Check for empty input data
     if len(bedDf) == 0:
         print("Warning: Input target file has no data rows. Writing empty output.", file=sys.stderr)
         # Write empty output file with header only
         output_columns = ['Cluster', 'Chromosome', 'Start', 'End', 'Ontarget', 'Gene', 'indel_type', 
-                         'indel_fraction', 'indel_allele_fraction', 'indel_size', 'indel_bases', 
-                         'num_edited', 'num_control', 'total_edited', 'total_control', 'significance',
-                         'prediction', 'probability', 'model_info']
+                        'indel_fraction', 'indel_allele_fraction', 'indel_size', 'indel_bases', 
+                        'num_edited', 'num_control', 'total_edited', 'total_control', 'significance',
+                        'prediction', 'probability', 'model_info']
         empty_df = pd.DataFrame(columns=output_columns)
         if args.outfile:
             empty_df.to_csv(args.outfile, sep='\t', index=False)
         else:
             empty_df.to_csv(sys.stdout, sep='\t', index=False)
         sys.exit(0)
-    
-    info_header = bedDf.columns[-1].split(',')
-    bedDf.rename(columns={'chromosome':'Chromosome', 'start':'Start', 'end':'End', bedDf.columns[-1]: 'Info'}, inplace=True)
-    bedDf['Info'] = bedDf['Info'].apply(lambda x, h=info_header: dict(zip(h, str(x).split(','))))
-    # Support both old and new column naming conventions
-    bedDf['Pos'] = bedDf['Info'].apply(lambda x: int(x.get('pos', x.get('Start', 0))))
-    bedDf['Ontarget'] = bedDf['Info'].apply(lambda x: int(x.get('is_target', x.get('On_target', 0))))
-   
+
     # Create PyRanges object and cluster intervals
-    bedPr = pr.PyRanges(bedDf[['Chromosome','Start','End','Pos','Info','Ontarget']])
-    bedPr = bedPr.cluster(slack=args.window)
-    mergedBedPr = bedPr.merge(by='Cluster',strand=False,slack=args.window)
-    mergedBedDf = mergedBedPr.df.join(bedPr.df.groupby('Cluster')['Pos'].agg(list).reset_index().set_index('Cluster'),on='Cluster',how='left')
-    mergedBedDf = mergedBedDf.join(bedPr.df.groupby('Cluster')['Info'].agg(list).reset_index().set_index('Cluster'),on='Cluster',how='left')
-    mergedBedDf = mergedBedDf.join(bedPr.df.groupby('Cluster')['Ontarget'].agg('max').reset_index().set_index('Cluster'),on='Cluster',how='left')
+    bedPr = pr.PyRanges(bedDf[['Chromosome', 'Start', 'End', 'Pos', 'Info', 'Ontarget']])
+    bedPr = bedPr.cluster(slack=args.target_window)
+    mergedBedPr = bedPr.merge(by='Cluster', strand=False, slack=args.target_window)
+
+    # Join aggregated data back to the merged intervals
+    mergedBedDf = mergedBedPr.df.join(
+        bedPr.df.groupby('Cluster')['Pos'].agg(list).reset_index().set_index('Cluster'),
+        on='Cluster', how='left'
+    )
+    mergedBedDf = mergedBedDf.join(
+        bedPr.df.groupby('Cluster')['Info'].agg(list).reset_index().set_index('Cluster'),
+        on='Cluster', how='left'
+    )
+    mergedBedDf = mergedBedDf.join(
+        bedPr.df.groupby('Cluster')['Ontarget'].agg('max').reset_index().set_index('Cluster'),
+        on='Cluster', how='left'
+    )
 
     # Filter by chromosome if specified
     if args.chromosome is not None:
@@ -985,7 +1024,7 @@ def main():
 
         # ORIGINAL INDEL CALCULATION
         indels = get_indels(bam=expsamfile,controlbam=consamfile,chr=row['Chromosome'],start=row['Start'],end=row['End'],
-                            fasta=refFasta,window=args.window,distance=args.distance,pam_positions=row['Pos'],minreads=args.minreads,maxcontrol=args.maxcontrol,verbose=args.verbose)
+                            fasta=refFasta,window=args.target_window,distance=args.distance,pam_positions=row['Pos'],minreads=args.minreads,maxcontrol=args.maxcontrol,verbose=args.verbose)
         
         # Process indel results
         total_reads, indel_reads, control_total_reads, control_indel_reads = 0, 0, 0, 0
@@ -1016,7 +1055,7 @@ def main():
         bnd_keys = ';'.join(bnds['Key'].tolist()) if len(bnds) > 0 else '.'
         ontarget = row['Ontarget']
         positions = row['Pos']
-        offtargetsites = ';'.join([','.join(d.values()) for d in row['Info']]) if row['Info'] else '.'
+        offtargetsites = make_info_string(row['Info']) if row['Info'] else '.'
 
         # CRISPR PREDICTION (if enabled)
         crispr_predicted_reads = 0

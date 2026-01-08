@@ -38,7 +38,7 @@ def main(args):
                 continue
             for key in bnd_info.split(';'):
                 # chrom:pos:chrom2:pos2:strands:counts:control_alt_counts:Distance
-                parts = key.split(':')
+                parts = key.split('|')
                 if len(parts) < 5:
                     continue
                 chrom, pos, chrom2, pos2, strands = parts[:5]
