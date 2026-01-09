@@ -191,10 +191,6 @@ workflow SCGE_ANALYSIS {
         .join(GENERATE_CNA_BAF_PLOTS.out.plots)
     )
 */
-    ch_versions.unique().collectFile(name: 'collated_versions.yml').view()
-//    CUSTOM_DUMPSOFTWAREVERSIONS (
-//         ch_versions.unique().collectFile(name: 'collated_versions.yml').view()
-//    )
 
     emit:
     versions = ch_versions  // channel: [ path(file) ]

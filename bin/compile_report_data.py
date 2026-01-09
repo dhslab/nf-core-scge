@@ -23,7 +23,6 @@ def parse_offtarget_file(file_path):
             records.append(row_dict)
     return records
 
-
 def parse_coverage_file(file_path):
     """Parse a coverage file and return the coverage value."""
     if not file_path:
@@ -34,7 +33,6 @@ def parse_coverage_file(file_path):
             return float(line.split(',')[-1])
     except (IOError, ValueError, IndexError):
         return None
-
 
 def parse_vcf_file(file_path):
     """Parse a VCF file and return a list of dictionaries."""
@@ -72,13 +70,13 @@ def main():
     parser.add_argument("--sample_id", required=True, help="Sample ID.")
     parser.add_argument("--control_id", required=False, default="N/A", help="Control/normal sample identifier.")
     parser.add_argument("--grnas", required=False, default="", help="Comma-separated list of gRNAs.")
-    parser.add_argument("--transgene_name", required=True, help="Transgene description string.")
     parser.add_argument("--tumor_coverage", required=False, help="Path to tumor coverage metrics file.")
     parser.add_argument("--normal_coverage", required=False, help="Path to normal coverage metrics file.")
     parser.add_argument("--cna_plot", required=False, default=None, help="Path to CNA plot PNG.")
     parser.add_argument("--baf_plot", required=False, default=None, help="Path to BAF plot PNG.")
     parser.add_argument("--circos_plot", required=False, default=None, help="Path to Circos plot PNG.")
-    parser.add_argument("--transgene_insertions", required=True, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
+    parser.add_argument("--transgene_insertions", required=False, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
+    parser.add_argument("--transgene_name", required=False, help="Transgene description string.")
     parser.add_argument("--somatic_variants", required=True, help="Path to VEP-annotated small variant TSV for targeted gene mutations.")
     parser.add_argument("--offtarget_indels", required=True, help="Path to off-target indel analysis file.")
     parser.add_argument("--offtarget_svs", required=False, help="Path to BND VCF file from indels.")
@@ -159,7 +157,7 @@ def main():
     # Create a dictionary to hold all the report data.
     report_data = {
         "sample_id": args.sample_id,
-        "transgene_description": args.transgene,
+        "transgene_description": args.transgene_name,
         "plots": {
             "cna": args.cna_plot,
             "baf": args.baf_plot,
@@ -173,7 +171,7 @@ def main():
         },
         "metadata": {
             "drug_product": args.sample_id,
-            "hotspot_file": args.hotspot_file,
+#            "hotspot_file": args.hotspot_file,
             "control_sample": args.control_id,
             "assay": "WGS",
             "grnas": [s.strip() for s in args.grnas.split(",") if s.strip()],
@@ -200,8 +198,9 @@ def main():
         require(["plots","cna"], report_data)
     if args.baf_plot is not None:
         require(["plots","baf"], report_data)
-    require(["tables","transgene_insertions"], report_data)
-    require(["tables","offtarget_indels"], report_data)
+
+    require(["tables","on_target_sv_transgene"], report_data)
+    require(["tables","off_target_indels"], report_data)
     require(["metadata","drug_product"], report_data)
     require(["metadata","control_sample"], report_data)
 

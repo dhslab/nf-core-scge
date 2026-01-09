@@ -77,10 +77,6 @@ CIGAR_REGEX = re.compile(r'(\d+)([MIDNSHP=X])')
 
 BND_REGEX = re.compile(r"([ACGTNacgtn]*)(\[|\])([^:]+:\d+)(\[|\])([ACGTNacgtn]*)")
 
-def revcomp(seq):
-    tab = str.maketrans('ACGTacgtRYMKrymkVBHDvbhd', 'TGCAtgcaYRKMyrkmBVDHbvdh') # maketrans <- maps the reverse complement
-    return seq.translate(tab)[::-1] # translate(x)[::-1] <- works backward through the string, effectively reversing the string
-
 def reverse_complement(seq):
     """Returns the reverse complement of a DNA string."""
     complement = str.maketrans('ACGTNacgtn', 'TGCANtgcan')
@@ -95,34 +91,12 @@ def get_sequence(fasta_handle, chrom, start, end):
     except (ValueError, KeyError, IndexError):
         return None
     
-def parse_sa_tag(sa_string):
-    """
-    Parses a single SA tag entry.
-    Format: rname,pos,strand,CIGAR,mapQ,NM;
-    Example: chr2,10500,+,50S100M,60,0;
-    """
-    parts = sa_string.split(',')
-    if len(parts) < 6: return None
-    
-    return {
-        'chrom': parts[0],
-        'pos': int(parts[1]), # SA tag positions are 1-based
-        'strand': parts[2],   # + or -
-        'cigar': parts[3],
-        'mapq': int(parts[4]),
-        'nm': int(parts[5])
-    }
-
 def parse_cigar_string(cigar_str):
     """Parses CIGAR string into list of tuples."""
     if not cigar_str or cigar_str == '*': 
         return []
     # Use findall (which runs in C) and a list comprehension
     return [(CIGAR_OPS[op], int(length)) for length, op in CIGAR_REGEX.findall(cigar_str)]
-
-def cigar_to_string(cigar_tuples):
-    codes = "MIDNSHP=X"
-    return "".join(f"{l}{codes[op]}" for op, l in cigar_tuples)
 
 def cigar_summary(cigar):
     cigar_dict = {'M': 0, 'I': 1, 'D': 2, 'N': 3, 'S': 4, 'H': 5, 'P': 6, '=': 7, 'X': 8}
@@ -208,6 +182,17 @@ def make_info_string(data):
 
     return ';'.join(info_parts)
 
+def get_bnd_parts(alt_str):
+    """
+    Parses VCF BND strings (e.g., ]chr1:123]T) into components.
+    Returns: (pre_bases, bracket_char, remote_chrom, remote_pos, post_bases)
+    """
+    # Regex captures: 1=Pre, 2=Bracket, 3=RemoteLoc, 4=Bracket, 5=Post
+    match = BND_REGEX.fullmatch(alt_str)
+    if not match:
+        return None
+    return match.groups()
+
 def format_bnd(ref, alt, chrom_mate, pos_mate, fragment, strand_self, strand_mate):
     """
     Formats VCF breakend string.
@@ -243,17 +228,6 @@ def format_bnd(ref, alt, chrom_mate, pos_mate, fragment, strand_self, strand_mat
             return f"{ref}{alt}]{chrom_mate}:{pos_mate + 1}]"
     
     return f"<{chrom_mate}:{pos_mate + 1}>"
-
-def get_bnd_parts(alt_str):
-    """
-    Parses VCF BND strings (e.g., ]chr1:123]T) into components.
-    Returns: (pre_bases, bracket_char, remote_chrom, remote_pos, post_bases)
-    """
-    # Regex captures: 1=Pre, 2=Bracket, 3=RemoteLoc, 4=Bracket, 5=Post
-    match = BND_REGEX.fullmatch(alt_str)
-    if not match:
-        return None
-    return match.groups()
 
 def generate_contig(chrom,pos,ref_base,alt_base,svtype,ref_file,flank_length):
     """
@@ -405,7 +379,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
         'info': {}
     }
     read_seq = query_seq[read_start : read_end + 1]
-    sv['info']['SEQ'] = read_seq if read_strand == '+' else reverse_complement(read_seq)
+    #sv['info']['SEQ'] = read_seq if read_strand == '+' else reverse_complement(read_seq)
 
     # CASE 1: BND (Translocation OR Opposite Orientation Junction)
     # If chromosomes differ OR strands differ (opposite orientations), treat as BND.
@@ -422,9 +396,9 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
 
             # Anchor at bp1 (End of L)
             sv['alt'] = format_bnd(ref_base, alt_seq, bp2_chrom, bp2_pos, "left", L['strand'], R['strand'])
-            sv['info']['SVTYPE'] = 'BND'
-            sv['info']['CHR2'] = bp2_chrom
-            sv['info']['POS2'] = bp2_pos
+            #sv['info']['SVTYPE'] = 'BND'
+            #sv['info']['CHR2'] = bp2_chrom
+            #sv['info']['POS2'] = bp2_pos
 
         else:
             # Anchor at bp2 (Start of R)
@@ -443,9 +417,9 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
             sv['pos2'] = bp1_pos
             sv['ref'] = anchor_R
             sv['alt'] = format_bnd(anchor_R, alt_seq, bp1_chrom, bp1_pos, "right", R['strand'], L['strand'])
-            sv['info']['SVTYPE'] = 'BND'
-            sv['info']['CHR2'] = bp1_chrom
-            sv['info']['POS2'] = bp1_pos
+            #sv['info']['SVTYPE'] = 'BND'
+            #sv['info']['CHR2'] = bp1_chrom
+            #sv['info']['POS2'] = bp1_pos
             
         return sv
 
@@ -466,11 +440,11 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
             sv['ref'] = ref_base
 
         sv['type'] = 'DUP' if read_gap == 0 else 'INS'
-        sv['info']['SVTYPE'] = 'DUP' if read_gap == 0 else 'INS'
-        sv['info']['SVLEN'] = abs(ref_span)
-        sv['info']['CHR2'] = sv['chrom2']        
-        sv['info']['POS2'] = sv['pos2']        
-        sv['info']['END'] = sv['pos2']        
+        #sv['info']['SVTYPE'] = 'DUP' if read_gap == 0 else 'INS'
+        # sv['info']['SVLEN'] = abs(ref_span)
+        # sv['info']['CHR2'] = sv['chrom2']        
+        # sv['info']['POS2'] = sv['pos2']        
+        # sv['info']['END'] = sv['pos2']        
 
         if fasta_handle:
             alt_seq = ref_base + query_seq[L['q_end'] : R['q_start']] if read_gap > 0 else ref_base
@@ -490,11 +464,11 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
 
         # DELETION
         sv['type'] = 'DEL'
-        sv['info']['SVTYPE'] = 'DEL'
-        sv['info']['SVLEN'] = -ref_span
-        sv['info']['CHR2'] = sv['chrom2']        
-        sv['info']['POS2'] = sv['pos2']        
-        sv['info']['END'] = sv['pos2']        
+        #sv['info']['SVTYPE'] = 'DEL'
+        # sv['info']['SVLEN'] = -ref_span
+        # sv['info']['CHR2'] = sv['chrom2']        
+        # sv['info']['POS2'] = sv['pos2']        
+        # sv['info']['END'] = sv['pos2']        
 
         # REF: Anchor + Deleted Sequence
         # ALT: Anchor
@@ -504,7 +478,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
 
                 # Sanity check to see if del_seq is right length
                 if len(del_seq) != abs(ref_span):
-                    print("error",file=sys.stderr)
+                    print("error creating deleted sequence.",file=sys.stderr)
 
                 sv['ref'] = ref_base + del_seq
 
@@ -528,7 +502,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
     return None
 
 # =============================================================================
-# 1. CIGAR Operations Logic
+# 1. Indels from CIGAR
 # =============================================================================
 
 def get_cigar_indel_vcf(read, fasta_file, target_positions, target_index=None):
@@ -589,16 +563,21 @@ def get_cigar_indel_vcf(read, fasta_file, target_positions, target_index=None):
         out_dict['pos2'] = out_dict['pos'] + len(out_dict['ref'])
         out_dict['distance2'] = min(abs(out_dict['pos2'] - x) for x in target_positions)
         out_dict['strands'] = '++'
-        out_dict['type'] = 'INDEL'
-        out_dict['info'] = {'Source':'CIGAR','Type':"COMPLEX" if len(indel_indices) > 1 else ("INS" if cigar[indel_indices[0]][0] == BAM_CINS else "DEL"),'Read':read.query_name,'OrigCigar':read.cigarstring,'ReadSeq':read.query_sequence}
+        out_dict['type'] = 'DEL' if len(out_dict['ref']) > len(out_dict['alt']) else 'INS'
+        out_dict['info'] = {'Source':'CIGAR',
+                            'Read':read.query_name,
+                            'Cigar':read.cigarstring,
+                            'ReadStrand': "+" if read.is_forward else "-",
+                            'ReadSeq':read.query_sequence}
         return out_dict
     except (ValueError, IndexError):
         return None
 
 # =============================================================================
-# 2. Supplementary Alignment (SA) Logic
+# 2. Indels/BNDs from Supplementary Alignment (SA)
 # =============================================================================
 
+# Get indels/BNDs from SA tag
 def get_sa_indel_vcf(read, fasta_file, target_positions, target_index):
     """
     Detects events by merging Primary and Supplementary Alignments.
@@ -671,9 +650,10 @@ def get_sa_indel_vcf(read, fasta_file, target_positions, target_index):
     if sv:
         # Add detailed read info to tagsx
         sv['read'] = read.query_name
-        sv['info']['RN'] = read.query_name
-        sv['info']['STRAND'] = aln1['strand']
-        sv['info']['CIGAR'] = read.cigarstring
+        sv['info']['Read'] = read.query_name
+        sv['info']['ReadSeq'] = read.query_sequence
+        sv['info']['ReadStrand'] = aln1['strand']
+        sv['info']['Cigar'] = read.cigarstring
         # Sanitize SA tag (replace semicolons to preserve VCF format)
         sv['info']['SA'] = sa.replace(';', '')
         sv['info']['SAMAPQ'] = sa_mapq
@@ -689,7 +669,7 @@ def get_sa_indel_vcf(read, fasta_file, target_positions, target_index):
     return None
 
 # =============================================================================
-# 3. Soft Clip Logic
+# 3. Indels from Softclips
 # =============================================================================
 
 def get_softclip_indel_vcf(read, fasta_file, target_positions, search_range, min_clip=8):
@@ -802,15 +782,14 @@ def get_softclip_indel_vcf(read, fasta_file, target_positions, search_range, min
         sv['distance'] = min(abs(sv['pos'] + 1 - x) for x in target_positions)
         sv['distance2'] = min(abs(sv['pos2'] - x) for x in target_positions)
         sv['info']['Source'] = 'SoftClip'
-    
+        sv['info']['Read'] = read.query_name
+        sv['info']['ReadSeq'] = read.query_sequence
+        sv['info']['ReadStrand'] = aln1['strand']
+        sv['info']['Cigar'] = read.cigarstring
+
         return sv
 
     return None
-
-
-# ============================================================================
-# SECTION 1: ORIGINAL INDEL CALCULATION FUNCTIONS
-# ============================================================================
 
 # function to count the number of reads that support an indel or BND event
 def add_normal_counts(df, reads, fasta, handicap=5,window=25,flank=300):
@@ -885,10 +864,10 @@ def add_normal_counts(df, reads, fasta, handicap=5,window=25,flank=300):
                 df.at[it,'control_alt_counts'] += 1
                 continue
 
-            ref_align = edlib.align(read_seq, row['refseq'], mode="HW", task="path") #align.align_optimal(seq.NucleotideSequence(row['refseq']),seq.NucleotideSequence(read.query_sequence),matrix=align.SubstitutionMatrix.std_nucleotide_matrix(),gap_penalty=(-10,-1),local=True,terminal_penalty=False,max_number=1)[0]
-            alt_align = edlib.align(read_seq, row['altseq'], mode="HW", task="path") #align.align_optimal(seq.NucleotideSequence(row['altseq']),seq.NucleotideSequence(read.query_sequence),matrix=align.SubstitutionMatrix.std_nucleotide_matrix(),gap_penalty=(-10,-1),local=True,terminal_penalty=False,max_number=1)[0]
+            ref_align = edlib.align(read_seq, row['refseq'], mode="HW", task="path")
+            alt_align = edlib.align(read_seq, row['altseq'], mode="HW", task="path")
 
-            if alt_align['editDistance'] < ref_align['editDistance']: #.score > 0 and alt_align.score - handicap > ref_align.score:
+            if alt_align['editDistance'] < ref_align['editDistance']:
                 ref_align_cigar_sum = cigar_summary(ref_align['cigar'])
                 alt_align_cigar_sum = cigar_summary(alt_align['cigar'])
 
@@ -897,7 +876,7 @@ def add_normal_counts(df, reads, fasta, handicap=5,window=25,flank=300):
                     len(row['ref']) == len(row['alt'])):
                     df.at[it,'control_alt_counts'] += 1
                     # print to stderr: found control alt count
-                    print(f"\tFound control alt count for {row['chrom']}:{row['pos']}:{row['ref']}:{row['alt']}:{read.query_name}", file=sys.stderr)
+                    #print(f"\tFound control alt count for {row['chrom']}:{row['pos']}:{row['ref']}:{row['alt']}:{read.query_name}", file=sys.stderr)
 
     df['control_total_counts'] = len(total_reads)
     return df.copy()
@@ -1150,6 +1129,14 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
     if not reads:
         return 0, 0.0
 
+    # Get control fractions
+    control_fractions = calculate_control_fractions(control_bam, chrom, start, window=50) if control_bam else {
+        'fraction_control_reads_del': 0.0,
+        'fraction_control_reads_ins': 0.0,
+        'fraction_control_reads_mismatch': 0.0,
+        'fraction_control_reads_softclip': 0.0
+    }
+
     # Extract features for each read
     features_list = []
     for read in reads:
@@ -1164,15 +1151,6 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
             for p in pampos:
                 if read_start <= p + 25 and read_end >= p - 25:
                     is_at_any_target = 1
-
-        
-        # Get control fractions
-        control_fractions = calculate_control_fractions(control_bam, chrom, start, window=50) if control_bam else {
-            'fraction_control_reads_del': 0.0,
-            'fraction_control_reads_ins': 0.0,
-            'fraction_control_reads_mismatch': 0.0,
-            'fraction_control_reads_softclip': 0.0
-        }
         
         # Calculate exclusivity features
         exclusivity = calculate_exclusivity_features(read, control_bam, chrom, start, window=100) if control_bam else {
@@ -1257,18 +1235,187 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
     
     return int((preds >= threshold).sum()), avg_probability
 
-def is_in_target(chrom, pos_0based, lookup):
-    if chrom not in lookup: return False
-    starts, ends = lookup[chrom]
+def merge_dicts_to_tuples(data):
+    """
+    Merges a list of dictionaries into a single dictionary.
+    Values are aggregated into tuples.
+    If a value is already a list/tuple, it is flattened to avoid nesting ((x,),).
+    """
+    # 1. Validation & Normalization
+    if not data:
+        return {}
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return {}
+
+    # 2. Identify all unique keys
+    all_keys = {k for d in data if isinstance(d, dict) for k in d.keys()}
+
+    merged = {}
     
-    # Find index where pos would insert into starts
-    idx = bisect_right(starts, pos_0based)
+    # 3. Aggregation with Flattening
+    for k in all_keys:
+        collected = []
+        for d in data:
+            if not isinstance(d, dict) or k not in d:
+                continue
+            
+            val = d[k]
+            
+            # If the value is already a list or tuple, extend (flatten)
+            # We explicitly exclude strings, which are technically iterable but should be treated as atomic here
+            if isinstance(val, (list, tuple)):
+                collected.extend(val)
+            else:
+                collected.append(val)
+        
+        merged[k] = tuple(collected)
+
+    return merged
+
+def write_vcf_output(df, outfile_name, vcf_header=None, sample_name="EDITED"):
+    """
+    Writes a VCF file using pysam.VariantFile.
+    Dynamically generates the VCF header based on keys found in the 'info' column.
+    """
+
+    info_tags = {
+        'SVTYPE': 'SV type.',
+        'SVLEN': 'SV length.',
+        'Read': 'Names of reads supporting this event.',
+        'ReadSeq':'Read sequences.',
+        'ReadStrand':'Read strands.',
+        'Source':'Event sources.',
+        'Cigar': 'Read CIGAR strings.',
+        'SA': 'Read supplementary alignments from SA tags.',
+        'SAMAPQ': 'Mapping qualities of supplementary alignments.' 
+    }
+
+    fmt_tags = {
+        'DP': 'Read depth at this position in edited sample.',
+        'CDP': 'Read depth at this position in the control sample.',
+        'AD': 'Number of edited reads in this sample.',
+        'AC': 'Number of unique editing events in this sample (includes BNDs).',
+        'EF': 'Fraction of edited reads in the edited sample (includes BNDs).',
+        'CAD': 'Number of edited reads in the control sample.',
+        'CEF': 'Fraction of edited reads in the control sample.'
+    }
+
+    # --- 1. PREPARE HEADER ---
+    # Create a stub header
+    header = vcf_header
+    if header is None:
+        header = pysam.VariantHeader()
+        header.add_line('##fileformat=VCFv4.2')
+
+    vcf_out = pysam.VariantFile(outfile_name, 'w', header=header)
+    vcf_out.header.add_sample(sample_name)
     
-    if idx == 0: return False
+    # DYNAMIC INFO FIELD DETECTION
+    # We scan the 'info' column to find all unique keys and guess their types
+    # This prevents 'KeyError' or 'ValueError' in pysam
+    all_info_keys = set()
     
-    # Check if the interval at idx-1 actually covers the position
-    # (This assumes non-overlapping intervals)
-    return ends[idx-1] > pos_0based
+    # Collect all keys from the dataframe
+    for info_dict in df['info']:
+        if isinstance(info_dict, dict):
+            all_info_keys.update(info_dict.keys())
+
+
+    all_info_keys.add('SVTYPE')
+    all_info_keys.add('SVLEN')
+    all_info_keys.difference_update(fmt_tags.keys())
+
+    # Add standard/known fields with specific types
+    # You can expand this list for other known integer/float fields
+    known_integers = {'SVLEN', 'END', 'MISMATCHES', 'BULGE_SIZE'}
+    flags = {'TARGET'}
+
+    for key in all_info_keys:
+        if key in known_integers:
+            if key not in header.info.keys():
+                vcf_out.header.info.add(key, 1, "Integer", f"{info_tags[key]}")
+        else:
+            # Default to unlimited string for flexibility
+            if key not in header.info.keys():
+                vcf_out.header.info.add(key, ".", "String", f"{info_tags[key]}")
+
+    for key in fmt_tags:
+        if key not in header.formats.keys():
+            vcf_out.header.formats.add(key, 1, "Integer", f"{fmt_tags[key]}")
+
+    counter = {}
+
+    for _, row in df.iterrows():
+        # Create a new record
+        # Note: We need to handle the contig (chrom). 
+        # If the contig isn't in the header, pysam usually adds it automatically or warns.
+        # Ideally, we add contigs to header, but here we let pysam handle it on the fly.
+        
+        if row['type'] == 'REF':
+            continue
+
+        # Make ID field for this variant
+        id = ':'.join([str(row['chrom']), str(row['pos']+1), row['type']])
+        counter[id] = counter.get(id, 0) + 1
+
+        rec = vcf_out.new_record()
+        rec.chrom = str(row['chrom'])
+        rec.pos = int(row['pos']+1)
+        rec.ref = str(row['ref']) if pd.notna(row['ref']) else "N"
+        rec.alts = (str(row['alt']),) if pd.notna(row['alt']) else ("<SV>",)
+        rec.id = f"{id}_{counter[id]}"
+        
+        rec.info['SVTYPE'] = row['type']
+        if row['type'] != 'BND':
+            rec.info['SVLEN'] = row['pos'] - row['pos2']
+            
+        # -- HANDLE INFO FIELDS --
+        if isinstance(row['info'], dict):
+            for k, v in row['info'].items():
+
+                if k not in all_info_keys:
+                    continue
+
+                # Pysam is strict about types. 
+                # The input 'v' is a tuple like ('TGG',) or (3,)
+                
+                # Unpack single-element tuples for cleaner VCF output
+                val_to_set = v
+                if isinstance(v, tuple) and len(v) == 1:
+                    val_to_set = v[0]
+                
+                # Safety: Ensure val_to_set matches the header expectation
+                # If we defined it as Integer, ensure it's an int
+                if k in known_integers:
+                    try:
+                        val_to_set = int(val_to_set)
+                        if k == 'END':
+                            val_to_set += 1
+
+                        rec.info[k] = val_to_set
+                    except (ValueError, TypeError):
+                        continue # Skip if bad data (e.g. '.' or None)
+                elif k in flags:
+                    rec.info[k] = True
+
+                else:
+                    # For string fields, join tuples if there are multiple items
+                    if isinstance(val_to_set, tuple):
+                        val_to_set = ','.join(map(str, val_to_set))
+                    else:
+                        val_to_set = str(val_to_set)
+
+                    rec.info[k] = val_to_set
+
+        for key in fmt_tags:
+            rec.samples[sample_name][key] = int(row['info'][key])
+    
+        vcf_out.write(rec)
+
+    vcf_out.close()
+
 
 # ============================================================================
 # SECTION 3: MAIN FUNCTION
@@ -1301,6 +1448,7 @@ def main():
     # Outputs
     parser.add_argument('-o','--outfile',type=str,help='Output file (optional)')
     parser.add_argument('-u','--unevaluable-reads-logfile',type=str,help='File with information on reads that were not evaluable.')
+    parser.add_argument('-V','--vcf-out',type=str,help="VCF output file with all passing events.")
     parser.add_argument('-v','--verbose',action='store_true',help='Print verbose output')
     
     # CRISPR prediction arguments
@@ -1322,11 +1470,12 @@ def main():
 
     # target regions, in VCF format.
     vcf_data = []
+    vcf_out_df = pd.DataFrame()
 
     try:
         # Open VCF file with pysam
         vcf_in = pysam.VariantFile(args.target_file)
-        
+
         for rec in vcf_in:
             start = rec.pos - 1
             end = rec.pos
@@ -1525,7 +1674,7 @@ def main():
 
                 # skip if indel is too far away from the PAM position
                 if (vcf_dict is None or 
-                    (vcf_dict['type']=='INDEL' and 
+                    (vcf_dict['type'] in ['DEL','DUP','INS'] and 
                         vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance)):
 
                     # print abbreviated read info (name, cigar, mapping info, sequence) to unevaluable read log
@@ -1535,7 +1684,7 @@ def main():
                     continue
                 
                 # if SA is an indel then it should be bounded by the read pair ends. If not then continue.
-                if (vcf_dict['type']=='INDEL' and proper_paired_read and
+                if (vcf_dict['type'] in ['DEL','DUP','INS'] and proper_paired_read and
                     (min([vcf_dict['pos'],vcf_dict['pos2']]) < min([read.reference_start,read.next_reference_start]) or
                      max([vcf_dict['pos'],vcf_dict['pos2']]) > min([read.reference_start,read.next_reference_start])+read.template_length)):
                         
@@ -1601,8 +1750,6 @@ def main():
                 # if unevaluable_read_log:
                 #     print(f"{str(read)}", file=unevaluable_read_log)
                 continue
-
-            vcf_dict['info'] = make_info_string(vcf_dict['info']) if vcf_dict['info']!='.' else '.'
             
             # Add indel info to dataframe
             readaln = pd.concat([readaln, pd.DataFrame([vcf_dict])], ignore_index=True)
@@ -1611,13 +1758,15 @@ def main():
             print("\tSorting indels", file=sys.stderr)
 
         # Group by read and process results
-        readaln = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
-        indelcounts = readaln.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).size().reset_index(name='counts')
+        indelcounts = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
+        indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).size().reset_index(name='counts')
 
+        indelcounts = indelcounts.merge(readaln.drop(columns=['read']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],how='left')
+        
         # Recast as int type, allowing for NA values
         indelcounts['pos'] = indelcounts['pos'].astype(pd.Int64Dtype())
         indelcounts['pos2'] = indelcounts['pos2'].astype(pd.Int64Dtype())
-
+        
         if args.verbose:
             print("\tGetting control counts", file=sys.stderr)
 
@@ -1650,35 +1799,47 @@ def main():
         indelcounts = indelcounts[(indelcounts['counts'] >= args.min_coverage) | (indelcounts['ref']=='.')]
         indelcounts = indelcounts[(indelcounts['control_alt_counts'] <= args.max_in_control) | (indelcounts['ref']=='.')]
         indelcounts = indelcounts[(indelcounts['Distance'] <= args.max_mutation_distance) | (indelcounts['ref']=='.')]
-        indelcounts = indelcounts[~indelcounts['alt'].str.contains('N')]
+        indelcounts = indelcounts[~indelcounts['alt'].str.contains('N')]            
 
-        indels = indelcounts
-
-        # # ORIGINAL INDEL CALCULATION
-        # indels = get_indels(bam=expsamfile,controlbam=consamfile,chr=row['Chromosome'],start=row['Start'],end=row['End'],
-        #                     fasta=refFasta,window=args.window,distance=args.distance,pam_positions=row['Pos'],minreads=args.minreads,maxcontrol=args.maxcontrol,verbose=args.verbose)
-        
         # Process indel results
         total_reads, indel_reads, control_total_reads, control_indel_reads = 0, 0, 0, 0
         indel_fraction, control_indel_fraction = 0, 0
         indel_keys, bnd_keys = '.', '.'
         bnds = []
 
-        if len(indels) > 0:
-            total_reads = sum(indels['counts'])
-            indel_reads = sum(indels[indels['type']!='REF']['counts'])
-            control_indel_reads = int(indels['control_alt_counts'].mean())
-            control_total_reads = int(indels['control_total_counts'].mean())
+        if len(indelcounts) > 0:
+            total_reads = sum(indelcounts['counts'])
+            indel_reads = sum(indelcounts[indelcounts['type']!='REF']['counts'])
+            control_indel_reads = int(indelcounts['control_alt_counts'].mean())
+            control_total_reads = int(indelcounts['control_total_counts'].mean())
+
+            # combine edit info from multiple reads
+            indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)
+            info_to_add = merge_dicts_to_tuples(row['Info'])
+            info_to_add['DP'] = total_reads
+            info_to_add['AD'] = indel_reads
+            info_to_add['AC'] = indel_reads
+            info_to_add['EF'] = indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
+            info_to_add['CDP'] = control_total_reads
+            info_to_add['CAD'] = control_indel_reads
+            info_to_add['CEF'] = round(control_indel_reads/control_total_reads,4) if control_total_reads > 0 else 0
+                        
+            indelcounts['info'] = [
+                {**d, **info_to_add} if d is not None else info_to_add 
+                for d in indelcounts['info']
+            ]    
+            
+            vcf_out_df = pd.concat([vcf_out_df,indelcounts],axis=0)
 
             # Separate BNDs and indels
-            bnds = indels[indels['type']=='BND'].copy()
-            indels = indels[indels['type']=='INDEL'].copy()
+            bnds = indelcounts[(indelcounts['type']=='BND') & (indelcounts['ref']!='.')].copy()
+            indels = indelcounts[(indelcounts['type']!='BND') & (indelcounts['ref']!='.')].copy()
 
             if len(indels) > 0:
-                indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
+                indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
             if len(bnds) > 0:
-                bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']}|{r['chrom2']}|{r['pos2']}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
+                bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
         # Calculate fractions and prepare output
         indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
@@ -1737,21 +1898,26 @@ def main():
 
         print("\t".join([str(field) for field in output_fields]), file=fp, flush=True)
 
+    # Write VCF output if requested.
+    if args.vcf_out:
+        write_vcf_output(vcf_out_df,args.vcf_out,vcf_header=vcf_in.header,sample_name="EDITED")
+
     # ========================================================================
     # STEP 6: Cleanup
     # ========================================================================
     
-    fp.close()
+    vcf_in.close()
+    edited_bamfile.close()
+    control_bamfile.close()
+    refFasta.close()
 
+    fp.close()
     if fp_log:
         fp_log.close()
 
     if unevaluable_read_log:
         unevaluable_read_log.close()
 
-    edited_bamfile.close()
-    control_bamfile.close()
-    refFasta.close()
 
 if __name__ == "__main__":
     main()

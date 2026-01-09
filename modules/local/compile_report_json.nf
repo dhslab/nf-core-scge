@@ -15,7 +15,6 @@ process COMPILE_REPORT_JSON {
 
     script:
     def args = task.ext.args ?: ''
-    def control_sample = params.control_sample ?: (meta.normal ?: "N/A")
     def input = [
         files.find{ it ==~ /.*\.wgs_overall_mean_cov_tumor\.csv$/ }?.with{ "--tumor_coverage $it" } ?: "",
         files.find{ it ==~ /.*\.wgs_overall_mean_cov_normal\.csv$/ }?.with{ "--normal_coverage $it" } ?: "",
@@ -31,7 +30,7 @@ process COMPILE_REPORT_JSON {
     """
     compile_report_data.py \\
         --sample_id ${meta.id} \\
-        --control_sample "${control_sample}" \\
+        --control_id "${meta.normal_id}" \\
         ${input} \\
         --output ${meta.id}.scge_report.json
 
