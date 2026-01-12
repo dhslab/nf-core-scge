@@ -91,12 +91,13 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
             if read.has_tag('SA'):
                 for sa in read.get_tag('SA').rstrip(';').split(';'):
                     sChr, sPos, sStrand, sCigar, sMq, sNm = sa.split(',')
+                    sPos = int(sPos)
                     if sChr != read.reference_name and int(sMq)>=minMq and int(sNm) <= maxMismatches:
                         readAligned = cigar_to_aligned_positions(read.cigarstring)
                         saAligned = cigar_to_aligned_positions(sCigar)
                         if len(readAligned.intersection(saAligned)) / len(readAligned) < 0.2:
                             if sStrand == '+':
-                                sPos = int(sPos) + len(saAligned)
+                                sPos = sPos + len(saAligned)
                             
                             mateseq = '.'
                             if read.reference_name != read.next_reference_name:
@@ -104,7 +105,7 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
                                 mateseq = mate.query_sequence
 
                             info = ['ID='+read.query_name, 'Type=PR', 'Read1Seq=' + read.query_sequence, 'Read2Seq=' + mateseq]
-                            df = pd.concat([df,pd.DataFrame([{'Chromosome':sChr,'Start':sPos-1,'End':int(sPos),'Var':'INS','Strand':sStrand,'Info':';'.join(info)}])]).reset_index(drop=True)
+                            df = pd.concat([df,pd.DataFrame([{'Chromosome':sChr,'Start':sPos-1,'End':sPos,'Var':'INS','Strand':sStrand,'Info':';'.join(info)}])]).reset_index(drop=True)
                         
         elif read.is_proper_pair and read.is_reverse and rightSoftClip >= minSoftClip:
             if read.has_tag('SA'):
