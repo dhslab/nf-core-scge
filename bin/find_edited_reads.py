@@ -1407,7 +1407,8 @@ def write_vcf_output(df, outfile_name, vcf_header=None, sample_name="EDITED"):
                     rec.info[k] = val_to_set
 
         for key in fmt_tags:
-            rec.samples[sample_name][key] = int(row['info'][key])
+            if key in row['info']:
+                rec.samples[sample_name][key] = int(row['info'][key])
     
         vcf_out.write(rec)
 
@@ -1828,17 +1829,17 @@ def main():
         indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)
         info_to_add = merge_dicts_to_tuples(row['Info'])
         info_to_add['DP'] = total_reads
-        info_to_add['AD'] = indel_reads
-        info_to_add['AC'] = indel_reads
-        info_to_add['EF'] = indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
         info_to_add['CDP'] = control_total_reads
-        info_to_add['CAD'] = control_indel_reads
-        info_to_add['CEF'] = round(control_indel_reads/control_total_reads,4) if control_total_reads > 0 else 0
                     
-        indelcounts['info'] = [
-            {**d, **info_to_add} if d is not None else info_to_add 
-            for d in indelcounts['info']
-        ]    
+        indelcounts['info'] = indelcounts.apply(
+            lambda row: {
+                **(row['info'] if isinstance(row['info'], dict) else {}), 
+                **info_to_add, 
+                'AD': row['counts'], 
+                'CAD': row['control_alt_counts']
+            }, 
+            axis=1
+        )
         
         if not indelcounts.empty:
             vcf_results.append(indelcounts)
