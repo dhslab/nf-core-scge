@@ -1614,7 +1614,7 @@ def main():
             print(f"Processing interval {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
 
         # Set up edit df
-        readaln = pd.DataFrame(columns=['read','chrom','pos','chrom2','pos2','ref','alt','strands','type','info'])
+        readaln = pd.DataFrame(columns=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'])
     
         if args.verbose:
             print(f"\tGetting reads that align within window of {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
@@ -1761,7 +1761,7 @@ def main():
         indelcounts = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
         indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).size().reset_index(name='counts')
 
-        indelcounts = indelcounts.merge(readaln.drop(columns=['read']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],how='left')
+        indelcounts = indelcounts.merge(readaln.drop(columns=['read','type']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt'],how='left')
         
         # Recast as int type, allowing for NA values
         indelcounts['pos'] = indelcounts['pos'].astype(pd.Int64Dtype())
