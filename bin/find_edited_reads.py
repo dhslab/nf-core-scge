@@ -1762,10 +1762,6 @@ def main():
 
             indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).size().reset_index(name='counts')
 
-            # print number of rows and columns for read aln and indelcounts
-            print(f"readaln: {len(readaln)} rows, {len(readaln.columns)} columns", file=sys.stderr)
-            print(f"indelcounts: {len(indelcounts)} rows, {len(indelcounts.columns)} columns", file=sys.stderr)         
-
             indelcounts = indelcounts.merge(readaln.drop(columns=['read']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],how='left')
             
             # Recast as int type, allowing for NA values
