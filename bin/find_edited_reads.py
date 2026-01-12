@@ -371,11 +371,8 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
         'chrom2': bp2_chrom,
         'pos2': bp2_pos,
         'strands': L['strand']+R['strand'] if L['is_primary'] else R['strand']+L['strand'],
-        'id': '.',
         'ref': ref_base,
         'alt': '.',
-        'qual': '.',
-        'filter': '.',
         'info': {}
     }
     read_seq = query_seq[read_start : read_end + 1]
@@ -384,7 +381,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
     # CASE 1: BND (Translocation OR Opposite Orientation Junction)
     # If chromosomes differ OR strands differ (opposite orientations), treat as BND.
     if bp1_chrom != bp2_chrom or L['strand'] != R['strand']:
-        sv['type'] = 'BND'
+        sv['alttype'] = 'BND'
         alt_seq = query_seq[L['q_end'] : R['q_start'] - 1] if read_gap else ''
 
         # Primary Alignment Logic for BND:
@@ -439,7 +436,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
             ref_base = get_sequence(fasta_handle, bp2_chrom, bp2_pos - 1, bp2_pos) # This is the base before the event, 0-based.
             sv['ref'] = ref_base
 
-        sv['type'] = 'DUP' if read_gap == 0 else 'INS'
+        sv['alttype'] = 'DUP' if read_gap == 0 else 'INS'
         #sv['info']['SVTYPE'] = 'DUP' if read_gap == 0 else 'INS'
         # sv['info']['SVLEN'] = abs(ref_span)
         # sv['info']['CHR2'] = sv['chrom2']        
@@ -463,7 +460,7 @@ def call_sv_from_split_read(aln1, aln2, query_seq, fasta_handle=None):
     elif ref_span > 0:
 
         # DELETION
-        sv['type'] = 'DEL'
+        sv['alttype'] = 'DEL'
         #sv['info']['SVTYPE'] = 'DEL'
         # sv['info']['SVLEN'] = -ref_span
         # sv['info']['CHR2'] = sv['chrom2']        
@@ -563,7 +560,7 @@ def get_cigar_indel_vcf(read, fasta_file, target_positions, target_index=None):
         out_dict['pos2'] = out_dict['pos'] + len(out_dict['ref'])
         out_dict['distance2'] = min(abs(out_dict['pos2'] - x) for x in target_positions)
         out_dict['strands'] = '++'
-        out_dict['type'] = 'DEL' if len(out_dict['ref']) > len(out_dict['alt']) else 'INS'
+        out_dict['alttype'] = 'DEL' if len(out_dict['ref']) > len(out_dict['alt']) else 'INS'
         out_dict['info'] = {'Source':'CIGAR',
                             'Read':read.query_name,
                             'Cigar':read.cigarstring,
@@ -813,7 +810,7 @@ def add_normal_counts(df, reads, fasta, handicap=5,window=25,flank=300):
         
         alt_seq = ref_seq
         if row['alt'] != '.':
-            alt_seq = generate_contig(row['chrom'], row['pos'], row['ref'], row['alt'], row['type'], fasta, flank)
+            alt_seq = generate_contig(row['chrom'], row['pos'], row['ref'], row['alt'], row['alttype'], fasta, flank)
         
         results.append({
             'refseq': ref_seq,
@@ -1353,11 +1350,11 @@ def write_vcf_output(df, outfile_name, vcf_header=None, sample_name="EDITED"):
         # If the contig isn't in the header, pysam usually adds it automatically or warns.
         # Ideally, we add contigs to header, but here we let pysam handle it on the fly.
         
-        if row['type'] == 'REF':
+        if row['alttype'] == 'REF':
             continue
 
         # Make ID field for this variant
-        id = ':'.join([str(row['chrom']), str(row['pos']+1), row['type']])
+        id = ':'.join([str(row['chrom']), str(row['pos']+1), row['alttype']])
         counter[id] = counter.get(id, 0) + 1
 
         rec = vcf_out.new_record()
@@ -1367,8 +1364,8 @@ def write_vcf_output(df, outfile_name, vcf_header=None, sample_name="EDITED"):
         rec.alts = (str(row['alt']),) if pd.notna(row['alt']) else ("<SV>",)
         rec.id = f"{id}_{counter[id]}"
         
-        rec.info['SVTYPE'] = row['type']
-        if row['type'] != 'BND':
+        rec.info['SVTYPE'] = row['alttype']
+        if row['alttype'] != 'BND':
             rec.info['SVLEN'] = row['pos'] - row['pos2']
             
         # -- HANDLE INFO FIELDS --
@@ -1605,6 +1602,8 @@ def main():
     if args.unevaluable_reads_logfile:
         unevaluable_read_log = open(args.unevaluable_reads_logfile, 'w')
 
+    vcf_results = []
+
     # ========================================================================
     # STEP 5: Process each genomic interval
     # ========================================================================
@@ -1614,7 +1613,7 @@ def main():
             print(f"Processing interval {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
 
         # Set up edit df
-        readaln = pd.DataFrame(columns=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'])
+        readaln = pd.DataFrame(columns=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'])
     
         if args.verbose:
             print(f"\tGetting reads that align within window of {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
@@ -1674,7 +1673,7 @@ def main():
 
                 # skip if indel is too far away from the PAM position
                 if (vcf_dict is None or 
-                    (vcf_dict['type'] in ['DEL','DUP','INS'] and 
+                    (vcf_dict['alttype'] in ['DEL','DUP','INS'] and 
                         vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance)):
 
                     # print abbreviated read info (name, cigar, mapping info, sequence) to unevaluable read log
@@ -1684,7 +1683,7 @@ def main():
                     continue
                 
                 # if SA is an indel then it should be bounded by the read pair ends. If not then continue.
-                if (vcf_dict['type'] in ['DEL','DUP','INS'] and proper_paired_read and
+                if (vcf_dict['alttype'] in ['DEL','DUP','INS'] and proper_paired_read and
                     (min([vcf_dict['pos'],vcf_dict['pos2']]) < min([read.reference_start,read.next_reference_start]) or
                      max([vcf_dict['pos'],vcf_dict['pos2']]) > min([read.reference_start,read.next_reference_start])+read.template_length)):
                         
@@ -1695,7 +1694,7 @@ def main():
                         continue
                 
                 # if SA is a BND, check to see if the other end is in the target list
-                if (vcf_dict['type']=='BND' and 
+                if (vcf_dict['alttype']=='BND' and 
                     (read.mapping_quality < args.min_bnd_mapqual or vcf_dict['info']['SAMAPQ'] < args.min_bnd_mapqual and 
                      vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance)): 
         
@@ -1741,7 +1740,7 @@ def main():
                     'alt': '.',
                     'strands': '.',
                     'info': '.',
-                    'type': 'REF'
+                    'alttype': 'REF'
                 }
 
             # If read doesnt meet any of the criteria then skip it.
@@ -1757,21 +1756,25 @@ def main():
         if args.verbose:
             print("\tSorting indels", file=sys.stderr)
 
-        # Group by read and process results
-        indelcounts = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
-        indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','type'],dropna=False).size().reset_index(name='counts')
+        if len(readaln) > 0:
 
-        indelcounts = indelcounts.merge(readaln.drop(columns=['read','type']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt'],how='left')
-        
-        # Recast as int type, allowing for NA values
-        indelcounts['pos'] = indelcounts['pos'].astype(pd.Int64Dtype())
-        indelcounts['pos2'] = indelcounts['pos2'].astype(pd.Int64Dtype())
-        
-        if args.verbose:
-            print("\tGetting control counts", file=sys.stderr)
+            indelcounts = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
 
-        # Get counts from control BAM
-        if len(indelcounts) > 0:
+            indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).size().reset_index(name='counts')
+
+            # print number of rows and columns for read aln and indelcounts
+            print(f"readaln: {len(readaln)} rows, {len(readaln.columns)} columns", file=sys.stderr)
+            print(f"indelcounts: {len(indelcounts)} rows, {len(indelcounts.columns)} columns", file=sys.stderr)         
+
+            indelcounts = indelcounts.merge(readaln.drop(columns=['read']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],how='left')
+            
+            # Recast as int type, allowing for NA values
+            indelcounts['pos'] = indelcounts['pos'].astype(pd.Int64Dtype())
+            indelcounts['pos2'] = indelcounts['pos2'].astype(pd.Int64Dtype())
+            
+            if args.verbose:
+                print("\tGetting control counts", file=sys.stderr)
+
             # Add pam positions to the df
             if row['Pos'] is not pd.NA:
                 indelcounts['Positions'] = [row['Pos']] * len(indelcounts)
@@ -1789,7 +1792,20 @@ def main():
 
             indelcounts = add_normal_counts(indelcounts, [ x for x in control_bamfile.fetch(contig=row['Chromosome'], start=row['Start']-args.target_window, end=row['End']+args.target_window) ], refFasta, window=args.max_mutation_distance)
         
-        else:
+        else: # in cases there are no evaluable reads
+
+            indelcounts = pd.DataFrame(columns=['chrom','pos','distance','chrom2','pos2','distance2','ref','alt','alttype','info','counts','control_alt_counts','control_total_counts','Positions','Distance'])
+            indelcounts['chrom'] = row['Chromosome']
+            indelcounts['pos'] = row['Start']
+            indelcounts['distance'] = '.'
+            indelcounts['chrom2'] = row['Chromosome']
+            indelcounts['pos2'] = row['End']
+            indelcounts['distance2'] = '.'
+            indelcounts['ref'] = '.'
+            indelcounts['alt'] = '.'
+            indelcounts['alttype'] = 'REF'
+            indelcounts['info'] = row['Info']
+            indelcounts['counts'] = 0            
             indelcounts['control_alt_counts'] = 0
             indelcounts['control_total_counts'] = 0
             indelcounts['Positions'] = pd.NA
@@ -1807,39 +1823,39 @@ def main():
         indel_keys, bnd_keys = '.', '.'
         bnds = []
 
-        if len(indelcounts) > 0:
-            total_reads = sum(indelcounts['counts'])
-            indel_reads = sum(indelcounts[indelcounts['type']!='REF']['counts'])
-            control_indel_reads = int(indelcounts['control_alt_counts'].mean())
-            control_total_reads = int(indelcounts['control_total_counts'].mean())
+        total_reads = sum(indelcounts['counts']) if len(indelcounts) > 0 else 0
+        indel_reads = sum(indelcounts[indelcounts['alttype']!='REF']['counts']) if len(indelcounts) > 0 else 0
+        control_indel_reads = int(indelcounts['control_alt_counts'].mean()) if len(indelcounts) > 0 else 0
+        control_total_reads = int(indelcounts['control_total_counts'].mean()) if len(indelcounts) > 0 else 0
 
-            # combine edit info from multiple reads
-            indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)
-            info_to_add = merge_dicts_to_tuples(row['Info'])
-            info_to_add['DP'] = total_reads
-            info_to_add['AD'] = indel_reads
-            info_to_add['AC'] = indel_reads
-            info_to_add['EF'] = indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
-            info_to_add['CDP'] = control_total_reads
-            info_to_add['CAD'] = control_indel_reads
-            info_to_add['CEF'] = round(control_indel_reads/control_total_reads,4) if control_total_reads > 0 else 0
-                        
-            indelcounts['info'] = [
-                {**d, **info_to_add} if d is not None else info_to_add 
-                for d in indelcounts['info']
-            ]    
-            
-            vcf_out_df = pd.concat([vcf_out_df,indelcounts],axis=0)
+        # combine info from multiple reads for this position
+        indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)
+        info_to_add = merge_dicts_to_tuples(row['Info'])
+        info_to_add['DP'] = total_reads
+        info_to_add['AD'] = indel_reads
+        info_to_add['AC'] = indel_reads
+        info_to_add['EF'] = indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
+        info_to_add['CDP'] = control_total_reads
+        info_to_add['CAD'] = control_indel_reads
+        info_to_add['CEF'] = round(control_indel_reads/control_total_reads,4) if control_total_reads > 0 else 0
+                    
+        indelcounts['info'] = [
+            {**d, **info_to_add} if d is not None else info_to_add 
+            for d in indelcounts['info']
+        ]    
+        
+        if not indelcounts.empty:
+            vcf_results.append(indelcounts)
+        
+        # Separate BNDs and indels
+        bnds = indelcounts[(indelcounts['alttype']=='BND') & (indelcounts['ref']!='.')].copy()
+        indels = indelcounts[(indelcounts['alttype']!='BND') & (indelcounts['ref']!='.')].copy()
 
-            # Separate BNDs and indels
-            bnds = indelcounts[(indelcounts['type']=='BND') & (indelcounts['ref']!='.')].copy()
-            indels = indelcounts[(indelcounts['type']!='BND') & (indelcounts['ref']!='.')].copy()
+        if len(indels) > 0:
+            indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
-            if len(indels) > 0:
-                indels['Key'] = indels.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
-
-            if len(bnds) > 0:
-                bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
+        if len(bnds) > 0:
+            bnds['Key'] = bnds.apply(lambda r: f"{r['chrom']}|{r['pos']+1}|{r['chrom2']}|{r['pos2']+1}|{r['strands']}|{r['ref']}|{r['alt']}|{r['distance']}|{r['distance2']}|{r['counts']}|{r['control_alt_counts']}", axis=1)
 
         # Calculate fractions and prepare output
         indel_fraction = round(indel_reads/total_reads,4) if total_reads > 0 else 0
@@ -1900,6 +1916,7 @@ def main():
 
     # Write VCF output if requested.
     if args.vcf_out:
+        vcf_out_df = pd.concat(vcf_results, axis=0, ignore_index=True)
         write_vcf_output(vcf_out_df,args.vcf_out,vcf_header=vcf_in.header,sample_name="EDITED")
 
     # ========================================================================
