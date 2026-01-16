@@ -1751,7 +1751,15 @@ def main():
                 #     print(f"{str(read)}", file=unevaluable_read_log)
                 continue
             
-            # Add indel info to dataframe
+            # truncate ref or alt allele for readbility in Excel, etc.
+            if len(vcf_dict['ref']) > 20:
+                vcf_dict['alt'] = f"DEL{len(vcf_dict['ref'])-1}"
+                vcf_dict['ref'] = vcf_dict['ref'][0]
+
+            if len(vcf_dict['alt']) > 20:
+                vcf_dict['alt'] = f"INS{len(vcf_dict['alt'])-1}"
+
+            # Add indel info to dataframe            
             readaln = pd.concat([readaln, pd.DataFrame([vcf_dict])], ignore_index=True)
 
         if args.verbose:
