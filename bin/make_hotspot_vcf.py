@@ -34,34 +34,56 @@ def add_sequence_column(row: pd.Series, fasta_handle: pysam.FastaFile) -> str:
         return "N" * (row['End'] - row['Start'])
 
 
-def dataframe_to_vcf(df: pd.DataFrame, fasta_handle: pysam.FastaFile) -> str:
+def dataframe_to_vcf(df: pd.DataFrame, fasta_handle: pysam.FastaFile, outfile_path: str) -> None:
     """
-    Converts a DataFrame with genomic positions into a VCF formatted string,
-    including a proper header with contigs from the reference FASTA.
+    Converts a DataFrame with genomic positions into a VCF file using pysam.
+    Records are sorted based on the contig order in the provided fasta_handle.
+    
+    Args:
+        df: DataFrame containing 'Chromosome', 'Position', and 'Sequence' columns.
+        fasta_handle: Open pysam.FastaFile object.
+        outfile_path: Path to write the output VCF.
     """
-    vcf_lines = ["##fileformat=VCFv4.2"]
+    # 1. Enforce Sorting Order based on Reference FASTA
+    # We create a categorical type for the 'Chromosome' column using the 
+    # ordered list of references from the pysam FastaFile.
+    df_sorted = df.copy()
+    df_sorted['Chromosome'] = pd.Categorical(
+        df_sorted['Chromosome'], 
+        categories=fasta_handle.references, 
+        ordered=True
+    )
+    
+    # Sort by Chromosome (ref order) then Position. 
+    # DropNA ensures we don't crash on chroms not in the reference.
+    df_sorted = df_sorted.sort_values(by=['Chromosome', 'Position']).dropna(subset=['Chromosome'])
 
-    # Add contig lines to the header from the FASTA index
+    # 2. Create the VCF Header
+    header = pysam.VariantHeader()
+    
+    # Add contigs to header with lengths from the FASTA index
     for contig in fasta_handle.references:
         length = fasta_handle.get_reference_length(contig)
-        vcf_lines.append(f"##contig=<ID={contig},length={length}>")
-        
-    vcf_lines.append("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")
+        header.contigs.add(contig, length=length)
     
-    # Prepare DataFrame for VCF format
-    df_vcf = df.copy()
-    df_vcf['#CHROM'] = df_vcf['Chromosome']
-    df_vcf['POS'] = df_vcf['Position'] + 1 # VCF is 1-based
-    df_vcf['ID'] = '.'
-    df_vcf['REF'] = df_vcf['Sequence']
-    df_vcf['ALT'] = '.'  # No alternative allele for a hotspot VCF
-    df_vcf['QUAL'] = '.'
-    df_vcf['FILTER'] = 'PASS'
-    df_vcf['INFO'] = '.'
-    
-    vcf_body = df_vcf[['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO']].to_csv(sep='\t', index=False, header=False)
-    
-    return "\n".join(vcf_lines) + "\n" + vcf_body
+    # 3. Write directly to the specified output file
+    # pysam.VariantFile handles opening the file for writing.
+    with pysam.VariantFile(outfile_path, 'w', header=header) as vcf_out:
+        for _, row in df_sorted.iterrows():
+            # Create a new record object
+            rec = vcf_out.new_record()
+            
+            # Fill fields
+            rec.chrom = str(row['Chromosome'])
+            rec.pos = int(row['Position'])
+            rec.id = '.'
+            rec.ref = row['Sequence']
+            rec.alts = ('N')
+            rec.filter.add('PASS')
+            
+            # Write record
+            vcf_out.write(rec)
+
 
 # --- Main Application Logic ---
 
@@ -89,6 +111,7 @@ def main():
         # --- 2. Read and Merge Genomic Regions ---
         print(f"Reading and processing BED file: {args.bed}", file=sys.stderr)
         bed_df = pd.read_csv(args.bed, sep='\t', usecols=[0, 1, 2], names=['Chromosome', 'Start', 'End'])
+        bed_df['Start'] = bed_df['Start'] + 1
 
         # Read in editing targets in VCF format
         print(f"Reading editing targets: {args.targets}", file=sys.stderr)
@@ -126,12 +149,7 @@ def main():
         })
 
         # --- 5. Convert to VCF and Write to File ---
-        result_vcf_str = dataframe_to_vcf(vcf_df, fasta_handle)
-        output_filename = f"{args.outfile}"
-    
-        with open(output_filename, "w") as f:
-            f.write(result_vcf_str)
-        print(f"Successfully wrote hotspot VCF to '{output_filename}'", file=sys.stderr)
+        dataframe_to_vcf(vcf_df, fasta_handle, args.outfile)
 
     except Exception as e:
         sys.exit(f"An error occurred: {e}")
