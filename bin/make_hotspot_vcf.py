@@ -90,12 +90,14 @@ def main():
         print(f"Reading and processing BED file: {args.bed}", file=sys.stderr)
         bed_df = pd.read_csv(args.bed, sep='\t', usecols=[0, 1, 2], names=['Chromosome', 'Start', 'End'])
 
-        # Read in editing targets, in the format: Source,DNA_Sequence,PAM,Chromosome,Strand,Start,Bulge_Type,Mismatch,Bulge_Size,On_target
+        # Read in editing targets in VCF format
         print(f"Reading editing targets: {args.targets}", file=sys.stderr)
-        targets_df = pd.read_csv(args.targets, sep=',')[['Chromosome','Start']]
-        targets_df['Start'] = targets_df['Start'].astype(int) - args.window
-        targets_df['End'] = targets_df['Start'] + (args.window * 2)
-                
+        vcf_in = pysam.VariantFile(args.targets)
+        vcf_data = [(record.chrom, record.pos) for record in vcf_in]
+        targets_df = pd.DataFrame(vcf_data, columns=['Chromosome', 'Start'])
+        targets_df['Start'] = targets_df['Start'] - args.window
+        targets_df['End'] = targets_df['Start'] + (args.window)
+
         bed_df = pd.concat([bed_df,targets_df],ignore_index=True)
 
         merged_df = pr.PyRanges(bed_df).merge().sort().df

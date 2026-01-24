@@ -94,7 +94,7 @@ ch_cram_reference = params.cram_reference
 // Gene regions / target file for analysis
 ch_param_target_file = params.target_file ?
     Channel.fromPath("${params.target_file}", checkIfExists: true).first() 
-    : Channel.value([])
+    : []
 
 // Nirvana path
 ch_nirvana_path = params.nirvana_path
@@ -183,12 +183,15 @@ workflow SCGE {
     ch_target_files = ch_target_files.mix(
         ch_sample_meta
             .combine(ch_param_target_file)
+            .view()
             .map { meta, targetfile -> 
-                if (targetfile){ 
+                if (targetfile!=[]){ 
                     [ meta.id, targetfile ]
-                } else {
+                } else if (meta.targetfile) {
                     [ meta.id, meta.target_file ? file(meta.target_file, checkIfExists: true) : [] ]
-                } 
+                } else {
+                    error "NO Target file provided."
+                }
             }
     )
 
@@ -254,7 +257,7 @@ workflow SCGE {
         ch_versions = ch_versions.mix(SCGE_ANALYSIS.out.versions)
 
     }
-    
+
     //
     //
     // Collate and save software versions
@@ -288,7 +291,7 @@ workflow SCGE {
         ch_multiqc_custom_config.toList(),
         ch_multiqc_logo.toList()
     )
-
+    
     emit:
     multiqc_report = MULTIQC.out.report.toList()  // channel: [ path(file) ]
     versions       = ch_versions                  // channel: [ path(file) ]
