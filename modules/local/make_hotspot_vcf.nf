@@ -14,7 +14,7 @@ process MAKE_HOTSPOT_VCF {
     script:
     def args = [
         bed_file.find{ it ==~ /.*\.(bed)$/ }?.with{ "--bed $it" }                                  ?: "",
-        editing_targets.find{ it ==~ /.*\.(csv)$/ }?.with{ "--targets $it" }                       ?: "",
+        editing_targets.find{ it ==~ /.*\.(vcf|vcf.gz)$/ }?.with{ "--targets $it" }                       ?: "",
         params.hotspot_window_size ? "--window ${params.hotspot_window_size}"                       : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" }                          ?: ""
     ].join(' ').trim()

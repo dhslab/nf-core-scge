@@ -99,7 +99,7 @@ ch_param_target_file = params.target_file ?
 // Nirvana path
 ch_nirvana_path = params.nirvana_path
     ? Channel.fromPath("${params.nirvana_path}", checkIfExists: true)
-    : Channel.empty()
+    : []
 
 /*
 ~~~~~~~~~~~~~~~~~~
@@ -182,13 +182,13 @@ workflow SCGE {
     // get editing target file as separate channel
     ch_target_files = ch_target_files.mix(
         ch_sample_meta
-            .combine(ch_param_target_file)
-            .view()
-            .map { meta, targetfile -> 
+            .filter{ it.sample_type == "tumor" }
+            .map { meta -> 
+                def targetfile = params.target_file ? 
+                        file(params.target_file, checkIfExists: true) : 
+                        (meta.target_file ? file(meta.target_file, checkIfExists: true) : [])
                 if (targetfile!=[]){ 
                     [ meta.id, targetfile ]
-                } else if (meta.targetfile) {
-                    [ meta.id, meta.target_file ? file(meta.target_file, checkIfExists: true) : [] ]
                 } else {
                     error "NO Target file provided."
                 }
@@ -214,6 +214,8 @@ workflow SCGE {
     )
     ch_versions = ch_versions.mix(MAKE_HOTSPOT_VCF.out.versions)
     ch_hotspot_vcf = MAKE_HOTSPOT_VCF.out.hotspot_vcf
+
+    ch_hotspot_vcf.dump(tag:'hotspot_vcf')
 
     // Join alignment samples with hotspot VCF
     ch_alignment_samples = PREPARE_SOMATIC_FASTQS.out.samples
@@ -241,7 +243,7 @@ workflow SCGE {
         ch_dragen_output = ch_dragen_output.mix(
                 DRAGEN_SCGE.out.dragen_output
                 .map { meta, dragenfiles -> [ meta.id, meta, dragenfiles ] }
-                .join(ch_param_target_file)
+                .join(ch_target_files)
                 .map { id, meta, dragenfiles, targetfile -> [ meta, dragenfiles, targetfile ] }
         )
     }
