@@ -48,6 +48,9 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
 
     df = pd.DataFrame(columns=['Chromosome','Start','End','Var','Strand','Info'])
 
+    if not contig in bam.references:
+        return df
+    
     # format of output: 
     # chr pos1 pos2 strand readname
     # iterate through once and get split reads and first end of discordant reads

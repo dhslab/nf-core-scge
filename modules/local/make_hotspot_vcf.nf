@@ -1,4 +1,5 @@
 process MAKE_HOTSPOT_VCF {
+    tag "${id}"
     label 'process_low'
     container "ghcr.io/dhslab/docker-cleutils"
 

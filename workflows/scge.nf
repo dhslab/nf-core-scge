@@ -31,6 +31,49 @@ def generateMetaFromCsv(csv_string) {
     }.findAll { it }
 }
 
+def check_reference_contig(fasta, contig) {
+    if (!contig || contig == null || contig == false){
+        return true
+    }
+    def fai_file = new File("${fasta}.fai")
+    if (!fai_file.exists()) {
+        error "ERROR: FASTA index file not found: ${fai_file}"
+    }
+    def found = false
+    fai_file.eachLine { line ->
+        def current_contig = line.split('\t')[0]        
+        if (current_contig == contig) {
+            found = true
+        }
+    }
+    if (!found) {
+        error "ERROR: Contig '${contig}' not found in reference index: ${fai_file}"
+    }
+    return true
+}
+
+def check_dragen_hash_contig(dragen_ref, contig) {
+    // if no contig is passed, then continue
+    if (!contig || contig == null || contig == false){
+        return true
+    }
+    def cfg_file = new File("${dragen_ref}/hash_table.cfg")
+    if (!cfg_file.exists()) {
+        error "ERROR: DRAGEN hash table config not found: ${cfg_file}"
+    }
+    def found = false
+    def target_string = "'${contig}'"
+    cfg_file.eachLine { line ->
+        if (line.contains(target_string)) {
+            found = true
+        }
+    }
+    if (!found) {
+        error "ERROR: Contig '${contig}' not found in DRAGEN reference config: ${cfg_file}"
+    }
+    return true
+}
+
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     CREATE CHANNELS FOR INPUT PARAMETERS
@@ -43,8 +86,13 @@ ch_mastersheet = params.input ?
     Channel.empty()
 
 // DRAGEN reference directory
-ch_reference_dir = params.refdir
+ch_reference_dir = params.refdir && check_dragen_hash_contig(params.refdir, params.transgene_name)
     ? Channel.fromPath(params.refdir, type: 'dir', checkIfExists: true).collect()
+    : Channel.empty()
+
+// FastA reference
+ch_fasta_reference = params.fasta && check_reference_contig(params.fasta, params.transgene_name)
+    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
     : Channel.empty()
 
 // DRAGEN adapter sequences for read 1
@@ -71,11 +119,6 @@ ch_hotspot_bed = params.hotspot_bed
     ? Channel.fromPath("${params.hotspot_bed}", checkIfExists: true).collect()
     : []
 
-// FastA reference
-ch_fasta_reference = params.fasta
-    ? Channel.fromPath("${params.fasta}*", checkIfExists: true).collect()
-    : Channel.empty()
-
 // SNV systematic noise BED file
 ch_snv_noisefile = params.snv_noisefile
     ? Channel.fromPath(params.snv_noisefile, checkIfExists: true).collect()
@@ -98,7 +141,7 @@ ch_param_target_file = params.target_file ?
 
 // Nirvana path
 ch_nirvana_path = params.nirvana_path
-    ? Channel.fromPath("${params.nirvana_path}", checkIfExists: true)
+    ? Channel.fromPath("${params.nirvana_path}", checkIfExists: true).collect()
     : []
 
 /*
@@ -142,10 +185,6 @@ workflow SCGE {
     ch_dragen_usage = Channel.empty()
 
     //
-    // dump samplesheet channel
-    ch_input_samplesheet.dump(tag:'mastersheet')
-
-    //
     // MODULE: Parse input samplesheet to format samples for processing.
     //         Output of this process are csv files for samples that need to be aligned
     //         and samples that need to be analyzed
@@ -154,9 +193,6 @@ workflow SCGE {
         ch_input_samplesheet
     )
     ch_versions = ch_versions.mix(PARSE_INPUT_SAMPLESHEET.out.versions)
-
-    PARSE_INPUT_SAMPLESHEET.out.samples_to_align.dump(tag:'alignmentsamples')
-    PARSE_INPUT_SAMPLESHEET.out.samples_to_analyze.dump(tag:'analysissamples')
 
     // Get dragen outputs and add target files to analyze
     ch_dragen_output = ch_dragen_output.mix(
@@ -214,8 +250,6 @@ workflow SCGE {
     )
     ch_versions = ch_versions.mix(MAKE_HOTSPOT_VCF.out.versions)
     ch_hotspot_vcf = MAKE_HOTSPOT_VCF.out.hotspot_vcf
-
-    ch_hotspot_vcf.dump(tag:'hotspot_vcf')
 
     // Join alignment samples with hotspot VCF
     ch_alignment_samples = PREPARE_SOMATIC_FASTQS.out.samples

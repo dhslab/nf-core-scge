@@ -60,10 +60,8 @@ def process_input(input_file: str, output_dir: str) -> None:
         
         tumor_df = df[common_cols].copy()
         tumor_df['sample_type'] = 'tumor'
-        tumor_df['individual_id'] = tumor_df['id']
         normal_df = df[common_cols].copy()
         normal_df['sample_type'] = 'normal'
-        normal_df['individual_id'] = normal_df['id']
         
         tumor_df['id'] = df['tumor_id']
         normal_df['id'] = df['normal_id']

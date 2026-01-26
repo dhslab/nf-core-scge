@@ -33,7 +33,7 @@ include { CUSTOM_DUMPSOFTWAREVERSIONS } from '../../modules/nf-core/custom/dumps
 
 // Vep cache
 ch_vepcache = params.vepcache
-    ? Channel.fromPath(params.vepcache, type: 'dir', checkIfExists: true)
+    ? Channel.fromPath(params.vepcache, type: 'dir', checkIfExists: true).collect()
     : Channel.empty()
 
 ch_cytobands = params.cytobands
@@ -41,7 +41,7 @@ ch_cytobands = params.cytobands
     : []
 
 ch_crispr_model = params.crispr_model ?
-    Channel.fromPath("${params.crispr_model}", checkIfExists: true) 
+    Channel.fromPath("${params.crispr_model}", checkIfExists: true).collect() 
     : []
 
 ch_transgene_name = params.transgene_name && params.transgene_name != false && params.transgene_name != null
@@ -180,7 +180,7 @@ workflow SCGE_ANALYSIS {
     COMPILE_REPORT_JSON(
         ch_report_inputs
         .groupTuple()
-        .map{ it -> [ it[0], it[1].flatten() ] },
+        .map{ it -> [ it[0], it[1].flatten() ] }.view(),
         Channel.value("${new Date().getTime()}"))
     ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
 

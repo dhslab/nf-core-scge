@@ -64,8 +64,6 @@ workflow GATHER_ALIGNMENT_SAMPLES {
             .filter{ it != [] }
     )
 
-    ch_crams_to_convert.dump(tag:'crams_to_convert', pretty:true)
-
     //
     //
     // SUBWORKFLOW: Partition BAM/CRAM files that need to be converted to fastq and realigned. 
@@ -152,7 +150,9 @@ workflow GATHER_ALIGNMENT_SAMPLES {
                 }
                 .filter{ it!= [] }
         )
-    
+        .unique()
+
+    //
     //
     // MODULE: Create fastq_list with local/staged fastq paths and appropriate metadata
     //
@@ -206,9 +206,6 @@ workflow GATHER_ALIGNMENT_SAMPLES {
             .map{ meta, reads, fastq_list -> [ meta, reads.flatten(), fastq_list ] }
         )
 
-    ch_gathered_samples.dump(tag:'gathered_samples', pretty:true)
-
-    //
     emit:
     samples  = ch_gathered_samples  // channel: [ val(meta), path(reads), path(fastq_list) ]
     versions = ch_versions           // channel: [ path(file) ]
@@ -233,14 +230,14 @@ workflow PREPARE_SOMATIC_FASTQS {
         .map { meta, reads, fastqlist ->
             [ meta.individual_id, meta, reads, fastqlist ]
         }
-        .cross( // and join with normal samples
+        .combine( // and join with normal samples
             ch_prepare_somatic_fastqs_samples.normal
             .map { meta, reads, fastqlist ->
                 [ meta.individual_id, meta, reads, fastqlist ]
-            }
-        ).map { tumor, normal -> [ tumor[1], tumor[2], tumor[3], normal[1], normal[2], normal[3] ] }
-        // on joined samples, set tumor and normal id to meta and combine reads.
-        .map { tumor_meta, tumor_reads, tumor_fastqlist, normal_meta, normal_reads, normal_fastqlist ->
+            },
+            by: 0
+        )
+        .map { id, tumor_meta, tumor_reads, tumor_fastqlist, normal_meta, normal_reads, normal_fastqlist ->
             def new_meta = [:]
             new_meta['id'] = tumor_meta['id']
             new_meta['sex'] = tumor_meta['sex']
@@ -254,7 +251,7 @@ workflow PREPARE_SOMATIC_FASTQS {
             reads: [ meta, reads ]
             fastqlist: [ meta.id, meta, fastqlists ]
         }
-        
+
     ch_prepare_somatic_fastqs_output = ch_prepare_somatic_fastqs.reads
         .join(
         ch_prepare_somatic_fastqs.fastqlist
