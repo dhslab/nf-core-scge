@@ -184,16 +184,17 @@ workflow SCGE_ANALYSIS {
         Channel.value("${new Date().getTime()}"))
     ch_versions = ch_versions.mix(COMPILE_REPORT_JSON.out.versions)
 
-/*
+
     // Render report
     MAKE_SCGE_REPORT(
         COMPILE_REPORT_JSON.out.json
         .join(GENERATE_CNA_BAF_PLOTS.out.plots)
+        .join(MAKE_CIRCOS_PLOT.out.plot)
     )
-*/
 
     emit:
     versions = ch_versions  // channel: [ path(file) ]
+    scge_report = MAKE_SCGE_REPORT.out.scge_report
 
 }
 

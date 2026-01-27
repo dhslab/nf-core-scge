@@ -7,3 +7,14 @@ testing/
 testing*
 *.pyc
 .dir_bash_history
+results/
+logs/
+mastersheets/
+null/
+results*
+test_output/
+test_results/
+test_logs/
+test_mastersheets/
+test_null/
+test_results*
