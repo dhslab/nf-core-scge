@@ -114,7 +114,7 @@ def main():
     targeted_gene_mutations = []
     try:
         sv_df = pd.read_csv(
-            args.vcf_tsv,
+            args.somatic_variants,
             sep='	',
             comment='#',
             keep_default_na=False,
