@@ -1087,7 +1087,7 @@ def calculate_exclusivity_features(read, control_bam, chrom, position, window=10
     control_has_same_ins = False
     control_has_same_del = False
     
-    for control_read in control_bam.fetch(chrom, position - window, position + window):
+    for control_read in control_bam.fetch(chrom, max(0, position - window), position + window):
         if control_read.is_unmapped or control_read.is_duplicate or not control_read.cigartuples:
             continue
         ctrl_start, ctrl_end = control_read.reference_start, control_read.reference_end
@@ -1620,7 +1620,7 @@ def main():
             print(f"\tGetting reads that align within window of {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
 
         # get reads that align within a defined region containing the merged target interval
-        for read in edited_bamfile.fetch(row['Chromosome'], row['Start']-args.target_window, row['End']+args.target_window, multiple_iterators = True):
+        for read in edited_bamfile.fetch(row['Chromosome'], max(0, row['Start']-args.target_window), row['End']+args.target_window, multiple_iterators = True):
 
             # skip if not primary alignment or a duplicate or poor mapping quality
             if (read.is_mapped is False or
@@ -1795,7 +1795,7 @@ def main():
                 indelcounts['Positions'] = pd.NA
                 indelcounts['Distance'] = pd.NA
 
-            indelcounts = add_normal_counts(indelcounts, [ x for x in control_bamfile.fetch(contig=row['Chromosome'], start=row['Start']-args.target_window, end=row['End']+args.target_window) ], refFasta, window=args.max_mutation_distance)
+            indelcounts = add_normal_counts(indelcounts, [ x for x in control_bamfile.fetch(contig=row['Chromosome'], start=max(0, row['Start']-args.target_window), end=row['End']+args.target_window) ], refFasta, window=args.max_mutation_distance)
         
         else: # in cases there are no evaluable reads
 
