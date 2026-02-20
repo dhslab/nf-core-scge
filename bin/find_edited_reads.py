@@ -82,6 +82,38 @@ def reverse_complement(seq):
     complement = str.maketrans('ACGTNacgtn', 'TGCANtgcan')
     return seq.translate(complement)[::-1]
 
+def parse_region_string(region_string):
+    """
+    Parses a genomic region string in the format 'chrom:start-end'.
+    """
+    if not region_string:
+        raise ValueError("Region string is empty.")
+
+    clean_region = region_string.replace(',', '')
+    
+    if ':' not in clean_region:
+        raise ValueError(f"Invalid format: '{region_string}'. Expected 'chrom:start-end'.")
+    
+    chrom, coords = clean_region.rsplit(':', 1)
+    
+    if not chrom:
+        raise ValueError(f"Invalid format: '{region_string}'. Chromosome name is empty.")
+    
+    if '-' not in coords:
+        raise ValueError(f"Invalid format: '{region_string}'. Expected 'start-end'.")
+    
+    try:
+        start_str, end_str = coords.split('-')
+        start = int(start_str)
+        end = int(end_str)
+    except ValueError:
+        raise ValueError(f"Invalid coordinates in '{region_string}'.")
+        
+    if start > end:
+        raise ValueError(f"Invalid coordinates: Start ({start}) cannot be greater than End ({end}).")
+    
+    return chrom, start, end
+
 def get_sequence(fasta_handle, chrom, start, end):
     """Safe fetch from fasta."""
     if not fasta_handle:
@@ -98,13 +130,18 @@ def parse_cigar_string(cigar_str):
     # Use findall (which runs in C) and a list comprehension
     return [(CIGAR_OPS[op], int(length)) for length, op in CIGAR_REGEX.findall(cigar_str)]
 
-def cigar_summary(cigar):
-    cigar_dict = {'M': 0, 'I': 1, 'D': 2, 'N': 3, 'S': 4, 'H': 5, 'P': 6, '=': 7, 'X': 8}
-    # use regex to parse cigar string into tuples
-    cigar_tuples = re.findall(r'(\d+)([MIDNSHP=X])', cigar)
+def cigar_summary(cigar_str):
+    # Map back the ints from parse_cigar_string to letters 
+    # CIGAR_OPS = {'M':0, 'I':1, 'D':2, 'N':3, 'S':4, 'H':5, 'P':6, '=':0, 'X':0}
+    INV_CIGAR_OPS = {0: 'M', 1: 'I', 2: 'D', 3: 'N', 4: 'S', 5: 'H', 6: 'P'}
+    
     cigar_sum = { 'M': 0, 'I': 0, 'D': 0, 'N': 0, 'S': 0, 'H': 0, 'P': 0, '=': 0, 'X': 0 }
-    for length, operation in cigar_tuples:
-        cigar_sum[operation] += int(length)
+    
+    # Use your fast pre-compiled regex parser
+    tuples = parse_cigar_string(cigar_str)
+    
+    for op_int, length in tuples:
+        cigar_sum[INV_CIGAR_OPS.get(op_int, 'M')] += length
 
     return cigar_sum
 
@@ -788,94 +825,128 @@ def get_softclip_indel_vcf(read, fasta_file, target_positions, search_range, min
 
     return None
 
-# function to count the number of reads that support an indel or BND event
-def add_normal_counts(df, reads, fasta, handicap=5,window=25,flank=300):
-
-    # make ref and alt sequences for each indel/BND
-    results = []
-
-    for _, row in df.iterrows():
-        # 0-based index of the variant start
-        # VCF POS is 1-based, so pos-1 is the 0-based index of the anchor base
-        start_idx = int(row['pos']) - 1
+def add_normal_counts(df, reads, fasta, flank=300, debug=False):
+    
+    # 1. PRE-COMPUTE: Move DataFrame data into a native Python list of dicts.
+    # Native Python objects are 100x faster to iterate and update than Pandas DataFrames.
+    variants = []
+    for idx, row in df.iterrows():
+        pos = int(row['pos'])
+        chrom = row['chrom']
+        ref = row['ref']
+        alt = row['alt']
         
-        # 1. Get REF sequence with flanks
-        # Interval: [pos - 1 - flank, pos - 1 + len(ref) + flank]
-        # This covers the anchor, the rest of the ref allele, and both flanks.
-        ref_seq = fasta.fetch(
-            row['chrom'], 
-            start_idx - flank, 
-            start_idx + len(row['ref']) + flank
-        )
+        start_idx = pos - 1
+        ref_seq = fasta.fetch(chrom, start_idx - flank, start_idx + len(ref) + flank)
         
         alt_seq = ref_seq
-        if row['alt'] != '.':
-            alt_seq = generate_contig(row['chrom'], row['pos'], row['ref'], row['alt'], row['alttype'], fasta, flank)
+        if alt != '.':
+            alt_seq = generate_contig(chrom, pos, ref, alt, row['alttype'], fasta, flank)
         
-        results.append({
+        variants.append({
+            'idx': idx,
+            'chrom': chrom,
+            'pos': pos,
+            'ref': ref,
+            'alt': alt,
+            'ref_len': len(ref),
+            'alt_len': len(alt),
             'refseq': ref_seq,
             'altseq': alt_seq,
-            'control_alt_counts': 0,
-            'control_total_counts': 0
+            'control_alt_counts': 0
         })
-
-    # Assign back to DataFrame efficiently
-    result_df = pd.DataFrame(results)
-    df = pd.concat([df.reset_index(drop=True), result_df], axis=1)
 
     total_reads = set()
 
-    # iterate through reads in bam file for the first position
+    # 2. READ LOOP: Iterate reads and filter irrelevant ones early
     for read in reads:
-        # skip if not primary alignment or a duplicate or alignment doesnt overlap start,end
-        if read.is_mapped is False or \
-            read.is_duplicate is True or \
-            read.is_secondary is True or \
-            read.is_supplementary is True or \
-            read.mapping_quality == 0:
+        if not read.is_mapped or read.is_duplicate or read.is_secondary or read.is_supplementary or read.mapping_quality == 0:
             continue
 
         total_reads.add(read.query_name)
 
-        # for speed: if the read has no indels, add it to the ref_count set
-        if len(read.cigartuples) == 1 and read.cigartuples[0][0] == 0 and read.cigartuples[0][1] == len(read.query_sequence) and read.has_tag('SA') is False:
+        cigar = read.cigartuples
+        # Fast exit: perfectly matched reads with no SA tag
+        if cigar and len(cigar) == 1 and cigar[0][0] == 0 and not read.has_tag('SA'):
             continue
+            
+        # Extract sequence once per read
+        read_seq = read.query_sequence
+        if not read_seq:
+            continue
+            
+        # Extract location data for spatial filtering
+        read_chrom = read.reference_name
+        read_start = read.reference_start
         
-        for it, row in df.iterrows():                        
+        # Check for indels using tuples (1=I, 2=D) instead of string parsing (much faster)
+        has_indel = any(op in (1, 2) for op, length in cigar) if cigar else False
 
-            # if cigar has any D/I operations, get indel from read
-            if ('D' in read.cigarstring or 'I' in read.cigarstring):
+        # 3. VARIANT LOOP
+        for v in variants:
+            
+            # --- OPTIMIZATION: Spatial Overlap Filter ---
+            # Don't align reads to variants on different chromosomes or out of range
+            if read_chrom != v['chrom']:
+                continue
+            
+            # Read must be roughly within the variant's flanking window to be relevant
+            if not ((v['pos'] - flank - len(read_seq)) <= read_start <= (v['pos'] + flank)):
+                continue
 
-                vcf_dict = get_cigar_indel_vcf(read, fasta, row['pos'])
-
-                if vcf_dict and vcf_dict['pos'] == row['pos'] and vcf_dict['ref'] == row['ref'] and vcf_dict['alt'] == row['alt']:
-                    df.at[it,'control_alt_counts'] += 1
+            # Process VCF via CIGAR if read has indels
+            if has_indel:
+                vcf_dict = get_cigar_indel_vcf(read, fasta, v['pos'])
+                if vcf_dict and vcf_dict['pos'] == v['pos'] and vcf_dict['ref'] == v['ref'] and vcf_dict['alt'] == v['alt']:
+                    v['control_alt_counts'] += 1
                     continue
 
-            read_seq = read.query_sequence
+            # Fast string search
+            if read_seq in v['refseq']:
+                continue
+
+            if read_seq in v['altseq']:
+                v['control_alt_counts'] += 1
+                continue
+
+            # Expensive alignments (only reached if all fast filters fail)
+            ref_align = edlib.align(read_seq, v['refseq'], mode="HW", task="path")
+            alt_align = edlib.align(read_seq, v['altseq'], mode="HW", task="path")
             
-            if read_seq in row['refseq']:
+            # Skip CIGAR summary logic if edit distance is clearly worse or equal
+            if alt_align['editDistance'] >= ref_align['editDistance']:
                 continue
 
-            if read_seq in row['altseq']:
-                df.at[it,'control_alt_counts'] += 1
-                continue
+            ref_cigar_sum = cigar_summary(ref_align['cigar'])
+            alt_cigar_sum = cigar_summary(alt_align['cigar'])
 
-            ref_align = edlib.align(read_seq, row['refseq'], mode="HW", task="path")
-            alt_align = edlib.align(read_seq, row['altseq'], mode="HW", task="path")
+            # .get('=', 0) safely handles cases where that operation doesn't exist in the CIGAR
+            if alt_cigar_sum.get('=', 0) > ref_cigar_sum.get('=', 0):
+                
+                is_alt = False
+                ref_D = ref_cigar_sum.get('D', 0)
+                alt_D = alt_cigar_sum.get('D', 0)
+                ref_I = ref_cigar_sum.get('I', 0)
+                alt_I = alt_cigar_sum.get('I', 0)
 
-            if alt_align['editDistance'] < ref_align['editDistance']:
-                ref_align_cigar_sum = cigar_summary(ref_align['cigar'])
-                alt_align_cigar_sum = cigar_summary(alt_align['cigar'])
+                if v['ref_len'] > v['alt_len'] and ref_D >= alt_D:
+                    is_alt = True
+                elif v['ref_len'] < v['alt_len'] and ref_I >= alt_I:
+                    is_alt = True
+                elif v['ref_len'] == v['alt_len']:
+                    is_alt = True
 
-                if ((len(row['ref']) > len(row['alt']) and ref_align_cigar_sum['D'] >= alt_align_cigar_sum['D']) or
-                    (len(row['ref']) < len(row['alt']) and ref_align_cigar_sum['I'] >= alt_align_cigar_sum['I']) or
-                    len(row['ref']) == len(row['alt'])):
-                    df.at[it,'control_alt_counts'] += 1
-                    # print to stderr: found control alt count
-                    #print(f"\tFound control alt count for {row['chrom']}:{row['pos']}:{row['ref']}:{row['alt']}:{read.query_name}", file=sys.stderr)
+                if is_alt:
+                    v['control_alt_counts'] += 1
+                    if debug:
+                        print(f"\tFound control alt count for {v['chrom']}:{v['pos']}:{v['ref']}:{v['alt']}:{ref_D}:{alt_D}:{ref_I}:{alt_I}:{read.query_name}:{read_seq}", file=sys.stderr)
 
+    # 4. REBUILD DATAFRAME: Map calculated data directly back to new columns
+    df['refseq'] = [v['refseq'] for v in variants]
+    df['altseq'] = [v['altseq'] for v in variants]
+    df['control_alt_counts'] = [v['control_alt_counts'] for v in variants]
     df['control_total_counts'] = len(total_reads)
+
     return df.copy()
 
 # ============================================================================
@@ -1010,26 +1081,21 @@ def parse_cigar_once(read):
 def count_mismatches_fast(read):
     """
     Returns the number of single-base mismatches (SNPs) in the alignment.
-    Excludes Indels and Soft-clips.
+    Excludes Indels. Extremely fast version using pre-parsed cigartuples.
     """
     try:
-        # 1. Get total Edit Distance (Mismatches + Indels)
-        nm_tag = read.get_tag("NM")
-        
-        # 2. Get CIGAR statistics
-        # read.get_cigar_stats() returns a tuple. The first element is a list of counts 
-        # by CIGAR operation (M, I, D, N, S, H, P, =, X, B).
-        # Index 1 = Insertions (I)
-        # Index 2 = Deletions (D)
-        stats = read.get_cigar_stats()[0]
-        insertion_len = stats[1]
-        deletion_len = stats[2]
-        
-        # 3. Subtract Indels from NM to isolate Mismatches
-        return nm_tag - (insertion_len + deletion_len)
-        
-    except (KeyError, IndexError):
-        # Handle reads without NM tags or unmapped reads
+        nm = read.get_tag("NM")
+        if nm == 0: 
+            return 0
+            
+        cigar = read.cigartuples
+        if not cigar: 
+            return nm
+            
+        # Operation 1 is Insertion, 2 is Deletion
+        indels = sum(length for op, length in cigar if op in (1, 2))
+        return max(0, nm - indels)
+    except KeyError:
         return 0
 
 def calculate_control_fractions(control_bam, chrom, position, window=50):
@@ -1436,18 +1502,22 @@ def main():
     parser.add_argument('-l','--min-softclip-length',type=int,default=8,help='Minimum softclip length')
     parser.add_argument('-b','--min-bnd-mapqual',type=int,default=40,help='Minimum BND mapping quality')
     parser.add_argument('-m','--min-coverage',type=int,default=1,help='Minimum reads')
-    parser.add_argument('-x','--max-in-control',type=int,default=5,help='Maximum supporting reads in control/unedited sample to report an indel/bnd event.')
+    parser.add_argument('-x','--max-in-control',type=int,default=0,help='Maximum supporting reads in control/unedited sample to report an indel/bnd event.')
     parser.add_argument('-q','--min-mapqual',type=int,default=20,help='Minimum mapping quality')
     parser.add_argument('-n','--max-read-mismatches',type=int,default=4,help='Maximum number of mismatches')
 
     # Optionally search at targets from one chromosome
     parser.add_argument('-c','--chromosome',type=str,default=None,help='Chromosome to process')
+    # add option to accept a list of regions to process (chr:pos1-pos2,chr:pos1:pos2, etc)
+    parser.add_argument('-r','--regions',type=str,default=None,help='Regions to process (chr:pos1-pos2,chr:pos1:pos2, etc)')
 
     # Outputs
     parser.add_argument('-o','--outfile',type=str,help='Output file (optional)')
     parser.add_argument('-u','--unevaluable-reads-logfile',type=str,help='File with information on reads that were not evaluable.')
     parser.add_argument('-V','--vcf-out',type=str,help="VCF output file with all passing events.")
     parser.add_argument('-v','--verbose',action='store_true',help='Print verbose output')
+    # add vv option for debugging
+    parser.add_argument('-vv','--debug',action='store_true',help='Print debug output')
     
     # CRISPR prediction arguments
     parser.add_argument('--crispr-model',type=str,default='models/site14_site5_combined_model.pkl',help='Trained CRISPR ML model file (.pkl) for read prediction (default: site14_site5_combined_model.pkl)')
@@ -1532,23 +1602,6 @@ def main():
         on='Cluster', how='left'
     )
 
-    # Filter by chromosome if specified
-    if args.chromosome is not None:
-        print("Processing chromosome", args.chromosome, file=sys.stderr)
-        if args.chromosome.startswith('chr'):
-            mergedBedDf = mergedBedDf[mergedBedDf['Chromosome'] == args.chromosome]
-        else:
-            mergedBedDf = mergedBedDf[(mergedBedDf['Chromosome'] == args.chromosome) | 
-                                    (mergedBedDf['Chromosome'] == f"chr{args.chromosome}")]
-        
-        if len(mergedBedDf) == 0:
-            print(f"Warning: No data found for chromosome {args.chromosome}", file=sys.stderr)
-            all_chromosomes = sorted(bedPr.df['Chromosome'].unique())
-            print(f"Available chromosomes: {all_chromosomes}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            print(f"Found {len(mergedBedDf)} intervals for chromosome {args.chromosome}", file=sys.stderr)
-
     if args.verbose:
         print("Done processing input file", file=sys.stderr)
 
@@ -1609,7 +1662,38 @@ def main():
     # STEP 5: Process each genomic interval
     # ========================================================================
     
-    for _, row in mergedBedDf.iterrows():
+    vcf_dicts = []
+
+    region_list = [parse_region_string(region) for region in args.regions.split(',')] if args.regions else None
+
+    total_intervals = len(mergedBedDf)
+    
+    # Use enumerate(..., start=1) to keep track of the current loop index
+    for i, (_, row) in enumerate(mergedBedDf.iterrows(), 1):
+
+        # Print an update every 10 intervals, or on the very last interval
+        if i % 10 == 0 or i == total_intervals:
+            print(f"Progress: [{i}/{total_intervals}] intervals processed ({(i/total_intervals)*100:.1f}%)", file=sys.stderr)
+
+        # Process single chromosome, if specified
+        if args.chromosome is not None:
+            # skip row if Chromosome != args.chromosome
+            if row['Chromosome'] != args.chromosome:
+                continue
+            
+        # Process specific regions, if specified
+        if region_list:
+            overlaps = False
+            for r_chrom, r_start, r_end in region_list:
+                # Standard overlap logic: StartA < EndB AND EndA > StartB
+                if row['Chromosome'] == r_chrom and row['Start'] <= r_end and row['End'] >= r_start:
+                    overlaps = True
+                    break # Found an overlap, no need to check other regions
+            
+            # If the current row doesn't overlap any region in region_list, skip it
+            if not overlaps:
+                continue
+
         if args.verbose:
             print(f"Processing interval {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
 
@@ -1648,7 +1732,7 @@ def main():
             vcf_dict = None
 
             # if cigar has any D/I operations
-            if ('D' in read.cigarstring or 'I' in read.cigarstring) and proper_paired_read:
+            if any(op in (1, 2) for op, _ in cigar) and proper_paired_read:
 
                 if args.verbose:
                     print(f"\tAnalyzing cigars in {read.query_name} from {row['Chromosome']}:{row['Start']-args.target_window}-{row['End']+args.target_window}", file=sys.stderr)
@@ -1746,9 +1830,6 @@ def main():
 
             # If read doesnt meet any of the criteria then skip it.
             else:
-                # print abbreviated read info (name, cigar, mapping info, sequence) to unevaluable read log
-                # if unevaluable_read_log:
-                #     print(f"{str(read)}", file=unevaluable_read_log)
                 continue
             
             # truncate ref or alt allele for readbility in Excel, etc.
@@ -1760,7 +1841,11 @@ def main():
                 vcf_dict['alt'] = f"INS{len(vcf_dict['alt'])-1}"
 
             # Add indel info to dataframe            
-            readaln = pd.concat([readaln, pd.DataFrame([vcf_dict])], ignore_index=True)
+            #readaln = pd.concat([readaln, pd.DataFrame([vcf_dict])], ignore_index=True)
+            vcf_dicts.append(vcf_dict)
+
+        # make df of vcf_dicts
+        readaln = pd.DataFrame(vcf_dicts)
 
         if args.verbose:
             print("\tSorting indels", file=sys.stderr)
@@ -1768,9 +1853,7 @@ def main():
         if len(readaln) > 0:
 
             indelcounts = readaln.sort_values(by=['read','chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],key=lambda col: col != '',ascending=False).groupby('read').first().reset_index()
-
             indelcounts = indelcounts.groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).size().reset_index(name='counts')
-
             indelcounts = indelcounts.merge(readaln.drop(columns=['read']).groupby(['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],dropna=False).agg(list).reset_index(),on=['chrom','pos','distance','chrom2','pos2','distance2','strands','ref','alt','alttype'],how='left')
             
             # Recast as int type, allowing for NA values
@@ -1795,8 +1878,8 @@ def main():
                 indelcounts['Positions'] = pd.NA
                 indelcounts['Distance'] = pd.NA
 
-            indelcounts = add_normal_counts(indelcounts, [ x for x in control_bamfile.fetch(contig=row['Chromosome'], start=max(0, row['Start']-args.target_window), end=row['End']+args.target_window) ], refFasta, window=args.max_mutation_distance)
-        
+            indelcounts = add_normal_counts(indelcounts, [ x for x in control_bamfile.fetch(contig=row['Chromosome'], start=row['Start']-args.target_window, end=row['End']+args.target_window) ], refFasta, debug=args.debug)
+
         else: # in cases there are no evaluable reads
 
             indelcounts = pd.DataFrame(columns=['chrom','pos','distance','chrom2','pos2','distance2','ref','alt','alttype','info','counts','control_alt_counts','control_total_counts','Positions','Distance'])
@@ -1830,7 +1913,7 @@ def main():
 
         total_reads = sum(indelcounts['counts']) if len(indelcounts) > 0 else 0
         indel_reads = sum(indelcounts[indelcounts['alttype']!='REF']['counts']) if len(indelcounts) > 0 else 0
-        control_indel_reads = int(indelcounts['control_alt_counts'].mean()) if len(indelcounts) > 0 else 0
+        control_indel_reads = int(indelcounts['control_alt_counts'].sum()) if len(indelcounts) > 0 else 0
         control_total_reads = int(indelcounts['control_total_counts'].mean()) if len(indelcounts) > 0 else 0
 
         # combine info from multiple reads for this position
