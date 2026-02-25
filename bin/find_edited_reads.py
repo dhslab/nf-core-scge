@@ -1656,20 +1656,22 @@ def main():
     if args.unevaluable_reads_logfile:
         unevaluable_read_log = open(args.unevaluable_reads_logfile, 'w')
 
-    vcf_results = []
-
     # ========================================================================
     # STEP 5: Process each genomic interval
     # ========================================================================
     
-    vcf_dicts = []
-
     region_list = [parse_region_string(region) for region in args.regions.split(',')] if args.regions else None
 
     total_intervals = len(mergedBedDf)
     
+    # This stores all indel records to print as a VCF at the end.
+    all_indel_records = []
+
     # Use enumerate(..., start=1) to keep track of the current loop index
     for i, (_, row) in enumerate(mergedBedDf.iterrows(), 1):
+
+        # List of indels for this interval
+        indel_vcf_records = []
 
         # Print an update every 10 intervals, or on the very last interval
         if i % 10 == 0 or i == total_intervals:
@@ -1841,11 +1843,15 @@ def main():
                 vcf_dict['alt'] = f"INS{len(vcf_dict['alt'])-1}"
 
             # Add indel info to dataframe            
-            #readaln = pd.concat([readaln, pd.DataFrame([vcf_dict])], ignore_index=True)
-            vcf_dicts.append(vcf_dict)
+            indel_vcf_records.append(vcf_dict)
 
-        # make df of vcf_dicts
-        readaln = pd.DataFrame(vcf_dicts)
+            # 
+            # End loop over reads for this region
+            #
+
+
+        # make df of all indel records
+        readaln = pd.DataFrame(indel_vcf_records)
 
         if args.verbose:
             print("\tSorting indels", file=sys.stderr)
@@ -1933,7 +1939,7 @@ def main():
         )
         
         if not indelcounts.empty:
-            vcf_results.append(indelcounts)
+            all_indel_records.append(indelcounts)
         
         # Separate BNDs and indels
         bnds = indelcounts[(indelcounts['alttype']=='BND') & (indelcounts['ref']!='.')].copy()
@@ -2004,7 +2010,7 @@ def main():
 
     # Write VCF output if requested.
     if args.vcf_out:
-        vcf_out_df = pd.concat(vcf_results, axis=0, ignore_index=True)
+        vcf_out_df = pd.concat(all_indel_records, axis=0, ignore_index=True)
         write_vcf_output(vcf_out_df,args.vcf_out,vcf_header=vcf_in.header,sample_name="EDITED")
 
     # ========================================================================
