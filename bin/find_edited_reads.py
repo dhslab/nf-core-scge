@@ -837,7 +837,7 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
         alt = row['alt']
         
         start_idx = pos - 1
-        ref_seq = fasta.fetch(chrom, start_idx - flank, start_idx + len(ref) + flank)
+        ref_seq = fasta.fetch(chrom, max(0, start_idx - flank), start_idx + len(ref) + flank)
         
         alt_seq = ref_seq
         if alt != '.':
