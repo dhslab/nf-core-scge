@@ -1,0 +1,46 @@
+%%metro title: Unified CRISPR Off-Target Workflow
+%%metro line: ecs | ECS truth (hotspots) | #E6194B
+%%metro line: wgs | WGS genome-wide discovery | #4363D8
+%%metro line: model | WGS-only model (ECS-trained) | #3CB44B
+
+graph LR
+    subgraph in [Samplesheet]
+        ss[sample datatype guide crams vcf]
+    end
+
+    subgraph ecsarm [ECS arm: error-corrected truth]
+        ecs[ECS_INDELS]
+        truth[ECS truth VAF]
+    end
+
+    subgraph wgsarm [WGS arm: genome-wide homology-free]
+        wl[WGS_WORKLIST]
+        pon[PON_OFFTARGET_FILTER]
+        worklist[PoN worklist]
+    end
+
+    subgraph modelarm [Paired: WGS-only model]
+        h2t[HOTSPOT_TO_TABLE]
+        score[SCORE_HOTSPOTS]
+        train[training.tsv]
+        recall[RECALL_VS_VAF]
+    end
+
+    subgraph rep [Report]
+        rec[RECONCILE_OFFTARGET_REPORT]
+        out[offtarget_report.csv]
+    end
+
+    ss -->|ecs| ecs
+    ecs -->|ecs| truth
+    ss -->|wgs| wl
+    wl -->|wgs| pon
+    pon -->|wgs| worklist
+    ss -->|model| h2t
+    truth -->|model| h2t
+    h2t -->|model| score
+    score -->|model| train
+    train -->|model| recall
+    worklist -->|wgs| rec
+    truth -->|model| rec
+    rec -->|wgs| out

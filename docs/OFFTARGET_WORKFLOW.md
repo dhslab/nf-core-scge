@@ -1,11 +1,21 @@
 # Unified CRISPR Off-Target Workflow
 
-A self-contained arm added to nf-core-scge on branch `feat/unified-offtarget-wgs`. It runs
+A self-contained arm added to nf-core-scge on branch `feat/offtarget-wgs`. It runs
 via a **named entry** (`-entry OFFTARGET`) and **does not touch the default SCGE pipeline**.
 
 Per the PI (2026-07-09): the legacy `crispr_ml_*` read-level classifier is **deprecated** for
 off-target work; this workflow uses the pileup shape-model approach
 (`worklist_from_vcf` / `pon_filter` / `score` + `wgs_shape_model.pkl`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/offtarget_metro_dark.svg">
+  <img alt="Unified CRISPR Off-Target Workflow metro map" src="images/offtarget_metro.svg" width="820">
+</picture>
+
+*Three lines: **ECS truth** (red) at hotspots, **WGS genome-wide discovery** (blue) → PoN-filtered
+worklist, and the **WGS-only model** (green) that joins WGS features to ECS truth. Source:
+[`offtarget_metro.mmd`](offtarget_metro.mmd) (rendered with [nf-metro](https://github.com/seqeralabs/nf-metro);
+an interactive pan/zoom version is at [`images/offtarget_metro.html`](images/offtarget_metro.html)).*
 
 ## What it produces
 

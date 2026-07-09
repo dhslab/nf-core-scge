@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1065" height="495" viewBox="0 0 1065 495" style="color-scheme: light">
+<defs>
+</defs>
+<metadata id="diagram-manifest" data-schema-version="1.0"><![CDATA[{"groups":[{"color":"#E6194B","id":"ecs","label":"ECS truth (hotspots)"},{"color":"#4363D8","id":"wgs","label":"WGS genome-wide discovery"},{"color":"#3CB44B","id":"model","label":"WGS-only model (ECS-trained)"}],"height":495,"match":{"flags":"i","target":"fqProcessName","type":"regex"},"nodes":[{"groups":["ecs","model","wgs"],"h":18.0,"id":"ss","label":"sample datatype guide crams vcf","patterns":[],"r":5.0,"region":"in","rx":5.0,"w":10.0,"x":203.5,"y":124.0},{"groups":["ecs"],"h":10.0,"id":"ecs","label":"ECS_INDELS","patterns":[],"r":5.0,"region":"ecsarm","rx":5.0,"w":10.0,"x":447.0,"y":120.0},{"groups":["ecs","model"],"h":14.0,"id":"truth","label":"ECS truth VAF","patterns":[],"r":5.0,"region":"ecsarm","rx":5.0,"w":10.0,"x":507.0,"y":122.0},{"groups":["wgs"],"h":10.0,"id":"wl","label":"WGS_WORKLIST","patterns":[],"r":5.0,"region":"wgsarm","rx":5.0,"w":10.0,"x":455.0,"y":299.0},{"groups":["wgs"],"h":10.0,"id":"pon","label":"PON_OFFTARGET_FILTER","patterns":[],"r":5.0,"region":"wgsarm","rx":5.0,"w":10.0,"x":515.0,"y":299.0},{"groups":["wgs"],"h":10.0,"id":"worklist","label":"PoN worklist","patterns":[],"r":5.0,"region":"wgsarm","rx":5.0,"w":10.0,"x":575.0,"y":299.0},{"groups":["model"],"h":10.0,"id":"h2t","label":"HOTSPOT_TO_TABLE","patterns":[],"r":5.0,"region":"modelarm","rx":5.0,"w":10.0,"x":759.0,"y":120.0},{"groups":["model"],"h":10.0,"id":"score","label":"SCORE_HOTSPOTS","patterns":[],"r":5.0,"region":"modelarm","rx":5.0,"w":10.0,"x":819.0,"y":120.0},{"groups":["model"],"h":10.0,"id":"train","label":"training.tsv","patterns":[],"r":5.0,"region":"modelarm","rx":5.0,"w":10.0,"x":879.0,"y":120.0},{"groups":["model"],"h":10.0,"id":"recall","label":"RECALL_VS_VAF","patterns":[],"r":5.0,"region":"modelarm","rx":5.0,"w":10.0,"x":939.0,"y":120.0},{"groups":["model","wgs"],"h":14.0,"id":"rec","label":"RECONCILE_OFFTARGET_REPORT","patterns":[],"r":5.0,"region":"rep","rx":5.0,"w":10.0,"x":804.0,"y":301.0},{"groups":["wgs"],"h":10.0,"id":"out","label":"offtarget_report.csv","patterns":[],"r":5.0,"region":"rep","rx":5.0,"w":10.0,"x":864.0,"y":299.0}],"regions":[{"id":"in","label":"Samplesheet"},{"id":"ecsarm","label":"ECS arm: error-corrected truth"},{"id":"wgsarm","label":"WGS arm: genome-wide homology-free"},{"id":"modelarm","label":"Paired: WGS-only model"},{"id":"rep","label":"Report"}],"title":"Unified CRISPR Off-Target Workflow","version":"1.0","width":1065}]]></metadata>
+<style>.nf-metro-bg { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
+.nf-metro-title { fill: var(--nfm-map-title-color, light-dark(#111111, #ffffff)); }
+.nf-metro-station-label { fill: var(--nfm-map-label-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-section-box { fill: var(--nfm-map-section-fill, light-dark(#ededed, #373737)); stroke: var(--nfm-map-section-stroke, light-dark(#e6e6e6, #595959)); }
+.nf-metro-section-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-underline { stroke: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-legend-bg { fill: var(--nfm-map-legend-bg, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.3))); }
+.nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
+.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
+<rect x="0" y="0" width="1065" height="495" fill="#f5f5f5" class="nf-metro-bg" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#111111" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Unified CRISPR Off-Target Workflow</text>
+<rect x="60.0" y="70.0" width="287.0" height="100.0" rx="8" ry="8" fill="#ededed" stroke="#e6e6e6" stroke-width="1.0" class="nf-metro-section-box" data-section-id="in" data-section-lines="ecs,model,wgs" />
+<circle cx="71.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="in" />
+<text x="71.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="in">1</text>
+<text x="87.0" y="55.0" font-size="16.0" fill="#666666" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="in">Samplesheet</text>
+<rect x="397.0" y="70.0" width="172.5" height="100.0" rx="8" ry="8" fill="#ededed" stroke="#e6e6e6" stroke-width="1.0" class="nf-metro-section-box" data-section-id="ecsarm" data-section-lines="ecs,model" />
+<circle cx="408.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="ecsarm" />
+<text x="408.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="ecsarm">2</text>
+<text x="424.0" y="55.0" font-size="16.0" fill="#666666" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="ecsarm">ECS arm: error-corrected truth</text>
+<rect x="397.0" y="245.0" width="236.0" height="100.0" rx="8" ry="8" fill="#ededed" stroke="#e6e6e6" stroke-width="1.0" class="nf-metro-section-box" data-section-id="wgsarm" data-section-lines="wgs" />
+<circle cx="408.0" cy="360.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="wgsarm" />
+<text x="408.0" y="360.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="wgsarm">3</text>
+<text x="424.0" y="360.0" font-size="16.0" fill="#666666" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="wgsarm">WGS arm: genome-wide homology-free</text>
+<rect x="683.0" y="70.0" width="322.1" height="100.0" rx="8" ry="8" fill="#ededed" stroke="#e6e6e6" stroke-width="1.0" class="nf-metro-section-box" data-section-id="modelarm" data-section-lines="model" />
+<circle cx="694.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="modelarm" />
+<text x="694.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="modelarm">4</text>
+<text x="710.0" y="55.0" font-size="16.0" fill="#666666" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="modelarm">Paired: WGS-only model</text>
+<rect x="683.0" y="245.0" width="275.0" height="100.0" rx="8" ry="8" fill="#ededed" stroke="#e6e6e6" stroke-width="1.0" class="nf-metro-section-box" data-section-id="rep" data-section-lines="model,wgs" />
+<circle cx="694.0" cy="230.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="rep" />
+<text x="694.0" y="230.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="rep">5</text>
+<text x="710.0" y="230.0" font-size="16.0" fill="#666666" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="rep">Report</text>
+<path d="M759.0,120.0 L819.0,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M819.0,120.0 L879.0,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M879.0,120.0 L939.0,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M203.5,128.0 L347.0,128.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M683.0,120.0 L759.0,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M507.0,124.0 L569.5,124.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M683.0,303.0 L804.0,303.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M347.0,128.0 L357.0,128.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M569.5,124.0 L579.5,124.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M579.5,124.0 L646.0,124.0 M652.0,124.0 L654.0,124.0 Q664.0,124.0,664.0,134.0 L664.0,293.0 Q664.0,303.0,674.0,303.0 L683.0,303.0" stroke="#3CB44B" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-model" data-line-id="model" />
+<path d="M357.0,128.0 L360.0,128.0 Q370.0,128.0,370.0,138.0 L370.0,175.0 Q370.0,189.0,384.0,189.0 L642.0,189.0 Q652.0,189.0,652.0,179.0 L652.0,130.0 Q652.0,120.0,662.0,120.0 L683.0,120.0" stroke="#3CB44B" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-model" data-line-id="model" />
+<path d="M579.5,124.0 L589.5,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M589.5,120.0 L683.0,120.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" class="metro-line-model" data-line-id="model" />
+<path d="M455.0,299.0 L515.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M515.0,299.0 L575.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M804.0,299.0 L864.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M203.5,124.0 L347.0,124.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M397.0,299.0 L455.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M575.0,299.0 L633.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M683.0,299.0 L804.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M347.0,124.0 L353.0,124.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M353.0,124.0 L360.0,124.0 Q374.0,124.0,374.0,138.0 L374.0,289.0 Q374.0,299.0,384.0,299.0 L397.0,299.0" stroke="#4363D8" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M633.0,299.0 L683.0,299.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M447.0,120.0 L507.0,120.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" class="metro-line-ecs" data-line-id="ecs" />
+<path d="M203.5,120.0 L347.0,120.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" class="metro-line-ecs" data-line-id="ecs" />
+<path d="M397.0,120.0 L447.0,120.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" class="metro-line-ecs" data-line-id="ecs" />
+<path d="M347.0,120.0 L357.0,120.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" class="metro-line-ecs" data-line-id="ecs" />
+<path d="M357.0,120.0 L397.0,120.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" class="metro-line-ecs" data-line-id="ecs" />
+<g class="nf-metro-station-group" data-node-id="ss" data-node-cx="203.5" data-node-cy="124.0" data-node-r="5.0" data-node-groups="ecs,model,wgs" data-node-region="in" data-node-w="10.0" data-node-h="18.0" data-node-rx="5.0">
+<rect x="198.5" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="ss" data-station-lines="ecs,model,wgs" data-station-label="sample datatype guide crams vcf" data-section-id="in" data-section-name="Samplesheet" />
+</g>
+<g class="nf-metro-station-group" data-node-id="ecs" data-node-cx="447.0" data-node-cy="120.0" data-node-r="5.0" data-node-groups="ecs" data-node-region="ecsarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="442.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="ecs" data-station-lines="ecs" data-station-label="ECS_INDELS" data-section-id="ecsarm" data-section-name="ECS arm: error-corrected truth" />
+</g>
+<g class="nf-metro-station-group" data-node-id="truth" data-node-cx="507.0" data-node-cy="122.0" data-node-r="5.0" data-node-groups="ecs,model" data-node-region="ecsarm" data-node-w="10.0" data-node-h="14.0" data-node-rx="5.0">
+<rect x="502.0" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="truth" data-station-lines="ecs,model" data-station-label="ECS truth VAF" data-section-id="ecsarm" data-section-name="ECS arm: error-corrected truth" />
+</g>
+<g class="nf-metro-station-group" data-node-id="wl" data-node-cx="455.0" data-node-cy="299.0" data-node-r="5.0" data-node-groups="wgs" data-node-region="wgsarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="450.0" y="294.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="wl" data-station-lines="wgs" data-station-label="WGS_WORKLIST" data-section-id="wgsarm" data-section-name="WGS arm: genome-wide homology-free" />
+</g>
+<g class="nf-metro-station-group" data-node-id="pon" data-node-cx="515.0" data-node-cy="299.0" data-node-r="5.0" data-node-groups="wgs" data-node-region="wgsarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="510.0" y="294.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="pon" data-station-lines="wgs" data-station-label="PON_OFFTARGET_FILTER" data-section-id="wgsarm" data-section-name="WGS arm: genome-wide homology-free" />
+</g>
+<g class="nf-metro-station-group" data-node-id="worklist" data-node-cx="575.0" data-node-cy="299.0" data-node-r="5.0" data-node-groups="wgs" data-node-region="wgsarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="570.0" y="294.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="worklist" data-station-lines="wgs" data-station-label="PoN worklist" data-section-id="wgsarm" data-section-name="WGS arm: genome-wide homology-free" />
+</g>
+<g class="nf-metro-station-group" data-node-id="h2t" data-node-cx="759.0" data-node-cy="120.0" data-node-r="5.0" data-node-groups="model" data-node-region="modelarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="754.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="h2t" data-station-lines="model" data-station-label="HOTSPOT_TO_TABLE" data-section-id="modelarm" data-section-name="Paired: WGS-only model" />
+</g>
+<g class="nf-metro-station-group" data-node-id="score" data-node-cx="819.0" data-node-cy="120.0" data-node-r="5.0" data-node-groups="model" data-node-region="modelarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="814.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="score" data-station-lines="model" data-station-label="SCORE_HOTSPOTS" data-section-id="modelarm" data-section-name="Paired: WGS-only model" />
+</g>
+<g class="nf-metro-station-group" data-node-id="train" data-node-cx="879.0" data-node-cy="120.0" data-node-r="5.0" data-node-groups="model" data-node-region="modelarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="874.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="train" data-station-lines="model" data-station-label="training.tsv" data-section-id="modelarm" data-section-name="Paired: WGS-only model" />
+</g>
+<g class="nf-metro-station-group" data-node-id="recall" data-node-cx="939.0" data-node-cy="120.0" data-node-r="5.0" data-node-groups="model" data-node-region="modelarm" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="934.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="recall" data-station-lines="model" data-station-label="RECALL_VS_VAF" data-section-id="modelarm" data-section-name="Paired: WGS-only model" />
+</g>
+<g class="nf-metro-station-group" data-node-id="rec" data-node-cx="804.0" data-node-cy="301.0" data-node-r="5.0" data-node-groups="model,wgs" data-node-region="rep" data-node-w="10.0" data-node-h="14.0" data-node-rx="5.0">
+<rect x="799.0" y="294.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rec" data-station-lines="model,wgs" data-station-label="RECONCILE_OFFTARGET_REPORT" data-section-id="rep" data-section-name="Report" />
+</g>
+<g class="nf-metro-station-group" data-node-id="out" data-node-cx="864.0" data-node-cy="299.0" data-node-r="5.0" data-node-groups="wgs" data-node-region="rep" data-node-w="10.0" data-node-h="10.0" data-node-rx="5.0">
+<rect x="859.0" y="294.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="out" data-station-lines="wgs" data-station-label="offtarget_report.csv" data-section-id="rep" data-section-name="Report" />
+</g>
+<text x="447.0" y="131.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">ECS_INDELS</text>
+<text x="447.0" y="131.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="ecs" class="nf-metro-station-label">ECS_INDELS</text>
+<text x="455.0" y="310.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">WGS_WORKLIST</text>
+<text x="455.0" y="310.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="wl" class="nf-metro-station-label">WGS_WORKLIST</text>
+<text x="804.0" y="314.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">RECONCILE_OFFTARGET_REPORT</text>
+<text x="804.0" y="314.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rec" class="nf-metro-station-label">RECONCILE_OFFTARGET_REPORT</text>
+<text x="759.0" y="131.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">HOTSPOT_TO_TABLE</text>
+<text x="759.0" y="131.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="h2t" class="nf-metro-station-label">HOTSPOT_TO_TABLE</text>
+<text x="203.5" y="139.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">sample datatype guide crams vcf</text>
+<text x="203.5" y="139.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="ss" class="nf-metro-station-label">sample datatype guide crams vcf</text>
+<text x="507.0" y="106.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">ECS truth VAF</text>
+<text x="507.0" y="106.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="truth" class="nf-metro-station-label">ECS truth VAF</text>
+<text x="515.0" y="285.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">PON_OFFTARGET_FILTER</text>
+<text x="515.0" y="285.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="pon" class="nf-metro-station-label">PON_OFFTARGET_FILTER</text>
+<text x="864.0" y="285.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">offtarget_report.csv</text>
+<text x="864.0" y="285.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="out" class="nf-metro-station-label">offtarget_report.csv</text>
+<text x="819.0" y="106.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">SCORE_HOTSPOTS</text>
+<text x="819.0" y="106.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="score" class="nf-metro-station-label">SCORE_HOTSPOTS</text>
+<text x="575.0" y="310.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">PoN worklist</text>
+<text x="575.0" y="310.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="worklist" class="nf-metro-station-label">PoN worklist</text>
+<text x="887.1" y="131.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">training.tsv</text>
+<text x="887.1" y="131.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="train" class="nf-metro-station-label">training.tsv</text>
+<text x="942.6" y="106.0" font-size="13.0" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">RECALL_VS_VAF</text>
+<text x="942.6" y="106.0" font-size="13.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="recall" class="nf-metro-station-label">RECALL_VS_VAF</text>
+<rect x="60.0" y="375.0" width="275.6" height="96.0" rx="6" ry="6" fill="rgba(255, 255, 255, 0.8)" class="nf-metro-legend-bg" />
+<path d="M72.0,399.0 L96.0,399.0" stroke="#E6194B" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="399.0" font-size="14.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">ECS truth (hotspots)</text>
+<path d="M72.0,423.0 L96.0,423.0" stroke="#4363D8" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="423.0" font-size="14.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">WGS genome-wide discovery</text>
+<path d="M72.0,447.0 L96.0,447.0" stroke="#3CB44B" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="447.0" font-size="14.0" fill="#333333" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">WGS-only model (ECS-trained)</text>
+<text x="1035.0" y="487.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0</text>
+</svg>

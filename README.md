@@ -46,6 +46,11 @@ filtered worklist) → per-hotspot WGS scoring → `training.tsv` (WGS features 
 recall-vs-VAF curve and a reconciled report. Full details in
 [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/offtarget_metro_dark.svg">
+  <img alt="Unified CRISPR Off-Target Workflow metro map" src="docs/images/offtarget_metro.svg" width="820">
+</picture>
+
 ## Usage
 
 ### Default SCGE pipeline
