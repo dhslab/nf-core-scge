@@ -19,6 +19,7 @@ include { SCGE                    } from './workflows/scge'
 include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { INPUT_CHECK             } from './subworkflows/local/input_check'
+include { OFFTARGET_WORKFLOW      } from './workflows/offtarget'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -56,6 +57,15 @@ workflow {
         params.hook_url,
         SCGE.out.multiqc_report
     )
+}
+
+//
+// WORKFLOW: Unified CRISPR Off-Target Workflow.
+// Run with:  nextflow run . -entry OFFTARGET -profile ris --input offtarget_samplesheet.csv --outdir ./results
+// When -entry OFFTARGET is given, the default SCGE workflow above does not run.
+//
+workflow OFFTARGET {
+    OFFTARGET_WORKFLOW()
 }
 
 /*
