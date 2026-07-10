@@ -184,3 +184,46 @@ def locus_features(bam, chrom, start, end, min_span=MIN_SPAN,
 MODEL_FEATURES = ["indel_frac", "conc_ratio", "pos_conc", "pos_mad",
                   "modal_len", "modal_mapq", "softclip_frac"]
 HOMOLOGY_FEATURES = ["min_mm", "n_tools"]
+
+
+def check_sklearn_version(model, name="model", raise_on_backward=True):
+    """Loudly flag a scikit-learn version skew between a pickled model and the
+    runtime, so a container/library bump can't silently mis-score.
+
+    No-op for non-sklearn models (e.g. xgboost) or when the pickle did not record
+    a version. Behaviour on a (major, minor) mismatch:
+      * runtime OLDER than the pickle  -> raise RuntimeError (the backward-
+        incompatible load is the case that silently corrupts predictions);
+      * any other skew (e.g. the intended 1.6.1 model under a 1.8.0 runtime)
+        -> RuntimeWarning on stderr and proceed.
+    """
+    import warnings
+    pickled = getattr(model, "_sklearn_version", None)
+    if pickled is None:  # unwrap a Pipeline and inspect its final estimator
+        steps = getattr(model, "steps", None)
+        if steps:
+            try:
+                pickled = getattr(steps[-1][1], "_sklearn_version", None)
+            except Exception:
+                pickled = None
+    if pickled is None:
+        return  # not an sklearn estimator, or version not recorded in the pickle
+    try:
+        import sklearn
+        runtime = sklearn.__version__
+        r = tuple(int(x) for x in runtime.split(".")[:2])
+        p = tuple(int(x) for x in pickled.split(".")[:2])
+    except Exception:
+        return
+    if r == p:
+        return
+    msg = (f"[sklearn version guard] {name}: model pickled under scikit-learn "
+           f"{pickled} but the runtime is {runtime}.")
+    if raise_on_backward and r < p:
+        raise RuntimeError(
+            msg + " The runtime is OLDER than the model — loading it can silently "
+            f"produce wrong scores. Rebuild the image with scikit-learn>={pickled} "
+            "or re-pickle the model.")
+    warnings.warn(
+        msg + " Proceeding with a forward-compatible load; sanity-check outputs if "
+        "this skew is unexpected.", RuntimeWarning)

@@ -4,7 +4,7 @@
 process ECS_INDELS {
     tag "$meta.id"
     label 'process_highmem'
-    container "ghcr.io/dhslab/docker-scge:latest"
+    container "ghcr.io/dhslab/docker-scge-offtarget:260710"
 
     input:
     tuple val(meta), val(edited_cram), val(control_cram), val(target_file)

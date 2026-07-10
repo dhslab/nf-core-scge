@@ -29,7 +29,7 @@ import pysam
 import joblib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import read_records, features_from_records, parse_target_info, MODEL_FEATURES
+from features import read_records, features_from_records, parse_target_info, MODEL_FEATURES, check_sklearn_version
 
 REPO = "/storage2/fs1/dspencer/Active/clinseq/projects/scge"
 CRAM_LIST = f"{REPO}/cram_list.txt"
@@ -201,6 +201,7 @@ def main():
 
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
+    check_sklearn_version(model, name=os.path.basename(args.model))
     crams = cram_index(args.cram_list)
     df = load_table(args.table, args.sample, args.sheet)
     cand = stage1(df, args.max_mismatch, args.min_ifrac, args.max_control,

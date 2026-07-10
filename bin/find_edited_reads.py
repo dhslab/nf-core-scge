@@ -1630,6 +1630,8 @@ def main():
             crispr_model = joblib.load(args.crispr_model)
             print(f"CRISPR model loaded successfully", file=sys.stderr)
             print(f"CRISPR prediction enabled with threshold {args.crispr_threshold}", file=sys.stderr)
+            from features import check_sklearn_version
+            check_sklearn_version(crispr_model, name=os.path.basename(args.crispr_model))
         except Exception as e:
             print(f"Error loading CRISPR model '{args.crispr_model}': {e}", file=sys.stderr)
             print(f"Make sure the model file exists in the current directory or provide full path", file=sys.stderr)

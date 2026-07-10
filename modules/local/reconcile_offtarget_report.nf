@@ -4,7 +4,7 @@
 process RECONCILE_OFFTARGET_REPORT {
     tag "cohort"
     label 'process_low'
-    container "ghcr.io/dhslab/docker-scge:latest"
+    container "ghcr.io/dhslab/docker-scge-offtarget:260710"
 
     input:
     path worklist

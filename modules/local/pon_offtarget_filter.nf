@@ -5,7 +5,7 @@
 process PON_OFFTARGET_FILTER {
     tag "cohort"
     label 'process_medium'
-    container "ghcr.io/dhslab/docker-scge:latest"
+    container "ghcr.io/dhslab/docker-scge-offtarget:260710"
 
     input:
     path worklist

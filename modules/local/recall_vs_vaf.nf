@@ -4,7 +4,7 @@
 process RECALL_VS_VAF {
     tag "cohort"
     label 'process_low'
-    container "ghcr.io/dhslab/docker-scge:latest"
+    container "ghcr.io/dhslab/docker-scge-offtarget:260710"
 
     input:
     path training

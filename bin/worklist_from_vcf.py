@@ -24,7 +24,7 @@ import pysam
 import joblib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import read_records, features_from_records, MODEL_FEATURES, parse_target_info
+from features import read_records, features_from_records, MODEL_FEATURES, parse_target_info, check_sklearn_version
 import score as S
 
 REF = S.REF
@@ -109,6 +109,7 @@ def main():
 
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
+    check_sklearn_version(model, name=os.path.basename(args.model))
     crams = S.cram_index(args.cram_list)
     if args.sample:
         crams = {args.sample: crams[args.sample]}

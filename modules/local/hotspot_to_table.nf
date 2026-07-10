@@ -4,7 +4,7 @@
 process HOTSPOT_TO_TABLE {
     tag "cohort"
     label 'process_low'
-    container "ghcr.io/dhslab/docker-scge:latest"
+    container "ghcr.io/dhslab/docker-scge-offtarget:260710"
 
     input:
     path ecs_tables      // all ECS *.offtarget_analysis.tsv
