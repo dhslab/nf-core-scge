@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from __future__ import division
+import os
+import importlib.util
 import pysam
 import biotite.sequence.align as align
 import biotite.sequence as seq
@@ -12,6 +14,28 @@ import scipy.stats as stats
 import pandas as pd, pyranges as pr
 import joblib
 import numpy as np
+
+# ---------------------------------------------------------------------------
+# Import shared feature helpers from crispr_ml_features.py
+# ---------------------------------------------------------------------------
+
+def _load_crispr_ml_features():
+    """Load crispr_ml_features.py from the same bin/ directory."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    feat_path = os.path.join(script_dir, "crispr_ml_features.py")
+    if not os.path.exists(feat_path):
+        raise FileNotFoundError(
+            f"Cannot find crispr_ml_features.py at {feat_path}"
+        )
+    spec = importlib.util.spec_from_file_location("crispr_ml_features", feat_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+_FEAT = _load_crispr_ml_features()
+
+_softclip_pam_distance        = _FEAT._softclip_pam_distance
+_precompute_site_ref_features = _FEAT._precompute_site_ref_features
 
 # ============================================================================
 # SECTION 1: ORIGINAL INDEL CALCULATION FUNCTIONS
@@ -733,7 +757,7 @@ def calculate_distance_to_closest_pam(position, targets_df, chrom):
     return distances.min() if len(distances) > 0 else -1
 
 def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta, is_on_target=0, control_bam=None, threshold=0.80):
-    
+
     reads = []
     for read in bam_file.fetch(chrom, start, end):
         if read.is_unmapped or read.is_duplicate:
@@ -742,14 +766,25 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
     if not reads:
         return 0, 0.0
 
+    # Pre-compute site-level reference features once (fasta is a pysam.FastaFile handle)
+    ref_site_feats = _precompute_site_ref_features(fasta, chrom, start)
+
+    # Pre-compute site-level control features once
+    control_fractions = calculate_control_fractions(control_bam, chrom, start, window=50) if control_bam else {
+        'fraction_control_reads_del': 0.0,
+        'fraction_control_reads_ins': 0.0,
+        'fraction_control_reads_mismatch': 0.0,
+        'fraction_control_reads_softclip': 0.0
+    }
+
     # Extract features for each read
     features_list = []
     for read in reads:
         cigar_data = parse_cigar_once(read)
-        
+
         read_start = read.reference_start
         read_end = read.reference_end
-        
+
         # Check if read overlaps with target sites
         is_at_any_target = 0
         if pampos is not None:
@@ -757,29 +792,20 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
                 if read_start <= p + 25 and read_end >= p - 25:
                     is_at_any_target = 1
 
-        
-        # Get control fractions
-        control_fractions = calculate_control_fractions(control_bam, chrom, start, window=50) if control_bam else {
-            'fraction_control_reads_del': 0.0,
-            'fraction_control_reads_ins': 0.0,
-            'fraction_control_reads_mismatch': 0.0,
-            'fraction_control_reads_softclip': 0.0
-        }
-        
         # Calculate exclusivity features
         exclusivity = calculate_exclusivity_features(read, control_bam, chrom, start, window=100) if control_bam else {
             'deletion_exclusive_to_edited': 0,
             'control_has_same_variant': 0,
         }
-        
-        # Convert read features to binary
+
+        # Convert read features to binary (still needed for vs-control deltas)
         read_has_deletion = 1 if cigar_data['deletions'] > 0 else 0
         read_has_insertion = 1 if cigar_data['insertions'] > 0 else 0
         read_has_mismatch = 1 if count_mismatches_fast(read) > 0 else 0
-        
+
         # Calculate indel characteristics
         total_indel_size = cigar_data['insertions'] + cigar_data['deletions']
-        
+
         # Indel size category
         indel_size_category = 0
         if total_indel_size > 0:
@@ -789,46 +815,35 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
                 indel_size_category = 2
             else:
                 indel_size_category = 3
-        
-        # Insertion to deletion ratio
-        insertion_to_deletion_ratio = 0.0
-        if cigar_data['deletions'] > 0:
-            insertion_to_deletion_ratio = cigar_data['insertions'] / cigar_data['deletions']
-        elif cigar_data['insertions'] > 0:
-            insertion_to_deletion_ratio = 10.0
-        else:
-            insertion_to_deletion_ratio = 0.0
-        
+
         # Indel complexity score
         indel_complexity_score = 0.0
         if read.cigartuples:
             indel_operations = [op for op, length in read.cigartuples if op in [1, 2]]
             complexity = len(indel_operations) + (total_indel_size / 10.0)
             indel_complexity_score = min(complexity, 10.0)
-        
-        # Create features dictionary
+
+        # Create features dictionary (14 model features + is_on_target_site metadata)
         features = {
             'read_pair_gap': abs(read.template_length) if hasattr(read, 'template_length') and read.is_paired and read.is_proper_pair else -1,
-            'read_insertion': cigar_data['insertions'],
-            'read_deletion': cigar_data['deletions'],
-            'read_mismatch': count_mismatches_fast(read),
             'read_softclip': cigar_data['softclips'],
             'read_del_vs_control': read_has_deletion - control_fractions['fraction_control_reads_del'],
             'read_ins_vs_control': read_has_insertion - control_fractions['fraction_control_reads_ins'],
             'read_mismatch_vs_control': read_has_mismatch - control_fractions['fraction_control_reads_mismatch'],
             'deletion_exclusive_to_edited': exclusivity['deletion_exclusive_to_edited'],
-            'control_has_same_variant': exclusivity['control_has_same_variant'],
-            'distance_to_closest_pam': min(abs(x-start) for x in pampos) if pampos is not None else -1,
+            'distance_to_closest_pam': min(abs(x - start) for x in pampos) if pampos is not None else -1,
             'is_on_target_site': is_on_target,
             'is_at_any_target_site': is_at_any_target,
             'total_indel_size': total_indel_size,
             'indel_size_category': indel_size_category,
-            'insertion_to_deletion_ratio': insertion_to_deletion_ratio,
-            'indel_complexity_score': indel_complexity_score
+            'indel_complexity_score': indel_complexity_score,
+            'softclip_dist_to_PAM': _softclip_pam_distance(read, pampos if pampos is not None else []),
+            'is_in_homopolymer': ref_site_feats.get('is_in_homopolymer', 0),
+            'dist_to_microsatellite': ref_site_feats.get('dist_to_microsatellite', 999),
         }
-        
+
         features_list.append(features)
-    
+
     if not features_list:
         return 0, 0.0
 
@@ -836,17 +851,24 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
     if hasattr(model, 'feature_names_in_'):
         expected_features = list(model.feature_names_in_)
     else:
-        expected_features = ['read_pair_gap', 'read_insertion', 'read_deletion', 'read_mismatch', 'read_softclip', 'read_del_vs_control', 'read_ins_vs_control', 'read_mismatch_vs_control', 'deletion_exclusive_to_edited', 'control_has_same_variant', 'is_on_target_site', 'is_at_any_target_site', 'distance_to_closest_pam', 'total_indel_size', 'indel_size_category', 'insertion_to_deletion_ratio', 'indel_complexity_score']
-    
+        expected_features = [
+            'read_pair_gap', 'read_softclip',
+            'read_del_vs_control', 'read_ins_vs_control', 'read_mismatch_vs_control',
+            'deletion_exclusive_to_edited',
+            'is_on_target_site', 'is_at_any_target_site', 'distance_to_closest_pam',
+            'total_indel_size', 'indel_size_category', 'indel_complexity_score',
+            'softclip_dist_to_PAM', 'is_in_homopolymer', 'dist_to_microsatellite',
+        ]
+
     features_df = pd.DataFrame(features_list)
     features_df = features_df.reindex(columns=expected_features, fill_value=0)
-    
+
     # Get model predictions
     preds = model.predict_proba(features_df)[:, 1]
-    
+
     # Calculate results
     avg_probability = float(preds.mean() * 100)
-    
+
     return int((preds >= threshold).sum()), avg_probability
 
 # ============================================================================

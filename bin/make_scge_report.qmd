@@ -293,6 +293,7 @@ def plot_bar_chart(x_values, y_values, xlabel, ylabel, output_file, type, highli
                  color=highlight_line['color'], fontsize=12, va='bottom', ha='right')
     plt.xlabel(rf"{xlabel}", fontsize=14)
     plt.ylabel(rf"{ylabel}", fontsize=14)
+    plt.xticks(rotation=90)
     plt.tight_layout()
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
