@@ -62,16 +62,39 @@ nextflow run . -entry OFFTARGET -profile ris \
 | `offtarget_hotspot_pad` | 25 | bp window to match a worklist hit to a predicted hotspot |
 | `offtarget_snapshots` | false | render IGV-style pileup PNGs for LIKELY EDITs |
 
-## Confidence / validation status
+## What this workflow is (and is not)
 
-- **WGS worklist + PoN** (`worklist_from_vcf.py`, `pon_filter.py`): the validated core. Established
-  result to reproduce: LIKELY EDIT 276→185 after PoN; PLCB2 positive control survives; zero
-  convincing homology-blind off-targets.
-- **Paired training/recall arm** (`hotspot_to_table.py`, `join_training_table.py`, `recall_vs_vaf.py`):
-  **new code, not yet run on real data.** Python compiles and the schema-level logic is correct
-  against a real `offtarget_analysis.tsv`, but validate on the first RIS run — in particular the
-  (guide, chrom, start) join (an ECS/WGS coordinate off-by-one would yield an empty `training.tsv`;
-  `join_training_table.py` warns if so).
+Scoped honestly against the real validation data (`read_cnn/pileup/`):
+
+- **It is** a **hotspot edit-confirmation + genome-wide screen**. At known/nominated hotspots the
+  WGS shape scorer recovers edits well (see numbers below); genome-wide it produces a PoN-filtered,
+  ranked worklist for review.
+- **It is not (yet)** a proven *homology-free de novo* off-target detector, and it does **not** yet
+  carry a demonstrated detection floor below ~5% VAF. Treat WGS-only calls as trustworthy **≥5% VAF**;
+  below that the workflow has no ground truth to stand on (see gaps).
+
+## Measured accuracy (from `read_cnn/pileup/`)
+
+| Component | Metric | n |
+|---|---|---|
+| WGS hotspot scorer (`score_wgs.csv`) | ROC-AUC **0.82**; LIKELY-EDIT recall **0.92** @ precision **0.75** | 94 (53 pos / 41 neg) |
+| Genome-wide PoN (`wgs_offtarget_worklist_pon.csv`) | LIKELY EDIT **276 → 185** after PoN; 118/185 on-target | 2737 candidates |
+| ECS→WGS depth transfer (`check_transfer_ecs.csv`) | signal preserved at 30×: VAF median full 0.242 → d30 0.236; 51/51 positives survive | 258 |
+| Recall vs ECS VAF (`score_wgs.csv`) | 1.00 (0.05–0.20), 0.96 (0.20–0.50), 0.83 (>0.50) | 53 positives |
+
+## Open gaps (do not overclaim past these)
+
+1. **Sub-5% floor is unmeasured.** The truth set contains **zero** positives below VAF 0.05
+   (min detected = 0.056), so the recall-vs-VAF curve cannot yet certify a floor under 5%. At 30×
+   a 2% edit ≈ 0.6 supporting reads — physically near-unrecoverable — but that is *asserted*, not shown.
+2. **Off-target discovery has no positive control.** The genome-wide arm finds no convincing novel
+   off-targets; the residual LIKELY-EDIT hits recur at TCR loci (chr14:22.5M / chr7:142.8M) and are
+   lineage/mapping artifacts, not guide off-targets. "Finds nothing" is validated; "would fire on a
+   real off-target" is not.
+3. **The paired Nextflow glue arm** (`hotspot_to_table.py`, `join_training_table.py`,
+   `recall_vs_vaf.py`) is validated only at the script/schema level — the first RIS run
+   (`run_offtarget_aavs1.sh`, AAVS1 paired subset) is what proves the (guide, chrom, start) join
+   end-to-end (an ECS/WGS coordinate off-by-one yields an empty `training.tsv`; the joiner warns).
 
 ## Container note
 

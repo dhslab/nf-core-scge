@@ -21,10 +21,11 @@ and AWS Batch.
 The pipeline has **two entry points**:
 
 1. **`SCGE`** (default) — the full per-sample analysis and report.
-2. **`OFFTARGET`** (`-entry OFFTARGET`) — the **Unified CRISPR Off-Target Workflow**: genome-wide,
-   homology-free off-target discovery from WGS + error-corrected (ECS) truth at hotspots, plus a
-   model that recovers homology-based edits from WGS alone. See
-   [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
+2. **`OFFTARGET`** (`-entry OFFTARGET`) — the **Unified CRISPR Off-Target Workflow**: a WGS hotspot
+   edit-confirmation model (trained on error-corrected ECS truth) plus a genome-wide, PoN-filtered
+   worklist for review. WGS-only calls are validated **≥5% VAF** (ROC-AUC 0.82, recall 0.92 at
+   hotspots); the sub-5% floor and homology-free *de novo* discovery are not yet proven — see the
+   scope and open gaps in [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
 ## Pipeline summary
 
