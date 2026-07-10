@@ -38,7 +38,13 @@ The pipeline has **two entry points**:
 6. **Report**: results compiled to JSON (`COMPILE_REPORT_JSON`) and rendered to HTML (Quarto)
 7. **MultiQC** aggregate QC
 
-![SCGE analysis DAG](docs/images/scge_analysis_DAG.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/scge_metro_dark.svg">
+  <img alt="nf-core/scge analysis metro map" src="docs/images/scge_metro.svg" width="900">
+</picture>
+
+*Animated [nf-metro](https://github.com/seqeralabs/nf-metro) map of the default `SCGE` workflow; an
+interactive pan/zoom version is at [`docs/images/scge_metro.html`](docs/images/scge_metro.html).*
 
 **`OFFTARGET` workflow** (`workflows/offtarget.nf`): `ECS_INDELS` (error-corrected truth VAF at
 hotspots) + `WGS_WORKLIST` → `PON_OFFTARGET_FILTER` (genome-wide, homology-free, Panel-of-Normals
@@ -80,7 +86,7 @@ nextflow run . -profile ris,dragen4 \
 
 `-profile ris` (Compute1/LSF) or `ris2` (Compute2/SLURM); add `dragen4` (local DRAGEN) or
 `dragenaws` (AWS DRAGEN) when aligning. `-profile stub` gives a dependency-free dry run. See
-`run.sh` / `run_test.sh` for working `bsub` wrappers, and `CLAUDE.md` for the full RIS invocation.
+`run.sh` / `run_test.sh` for working `bsub` wrappers.
 
 ### Unified CRISPR Off-Target Workflow
 
@@ -117,7 +123,7 @@ is given, the default SCGE workflow does not run.
 | Analysis + off-target | `ghcr.io/dhslab/docker-scge:latest` |
 | Report rendering | `ghcr.io/dhslab/docker-quarto-chromoseq:latest` |
 | Off-target annotation (VEP) | `ghcr.io/dhslab/docker-vep_release113` |
-| DRAGEN | `apldx/oracle8-dragen-4.3.6` (local) / `job-definition://dragen_v4-4-6` (AWS) |
+| CRISPR_ML | `TBD` |
 
 Nextflow itself runs inside `ghcr.io/dhslab/docker-baseimage:latest` on RIS (see `run.sh`).
 
@@ -129,16 +135,10 @@ Nextflow itself runs inside `ghcr.io/dhslab/docker-baseimage:latest` on RIS (see
 - **Nextflow dry run**: `nextflow run . -profile stub --input <samplesheet> --outdir ./stub` (or add
   `-entry OFFTARGET`). Requires Java 17+ (present in the RIS container).
 
-## Reference data (storage2)
-
-- Reference FASTA + DRAGEN hash: `.../projects/scge/data/refdata/singh_v4.3.6/`
-- VEP cache: `.../spencerlab/refdata/hg38/VEP113_cache/`
-- DRAGEN accessory files (dbSNP, adapters, noise BEDs): `.../spencerlab/refdata/hg38/dragenfiles/`
-
 ## Credits
 
 dhslab/nf-core-scge was originally written by Nidhi and is developed and maintained by the
-Spencer Lab (Washington University in St. Louis). Built with the
+[Spencer Lab](https://www.davidspencerlab.org/) (Washington University in St. Louis). Built with the
 [nf-core](https://nf-co.re) framework.
 
 ## Citations
