@@ -3,7 +3,7 @@
 A self-contained arm added to nf-core-scge on branch `feat/offtarget-wgs`. It runs
 via a **named entry** (`-entry OFFTARGET`) and **does not touch the default SCGE pipeline**.
 
-Per the PI (2026-07-09): the legacy `crispr_ml_*` read-level classifier is **deprecated** for
+(2026-07-09): the legacy `crispr_ml_*` read-level classifier is **deprecated** for
 off-target work; this workflow uses the pileup shape-model approach
 (`worklist_from_vcf` / `pon_filter` / `score` + `wgs_shape_model.pkl`).
 
@@ -17,38 +17,51 @@ worklist, and the **WGS-only model** (green) that joins WGS features to ECS trut
 [`offtarget_metro.mmd`](offtarget_metro.mmd) (rendered with [nf-metro](https://github.com/seqeralabs/nf-metro);
 an interactive pan/zoom version is at [`images/offtarget_metro.html`](images/offtarget_metro.html)).*
 
-## What it produces
+## What you get
 
-| Output (`<outdir>/offtarget/`) | From | Meaning |
-|---|---|---|
-| `wgs_offtarget_worklist_pon.csv` | WGS_WORKLIST → PON_OFFTARGET_FILTER | genome-wide, homology-free, PoN-filtered ranked off-target worklist |
-| `offtarget_report.csv` | RECONCILE_OFFTARGET_REPORT | the worklist annotated with `is_hotspot` / `ecs_confirmed` / `ecs_if` |
-| `<id>.offtarget_analysis.tsv` | ECS_INDELS | per-hotspot ECS error-corrected edit call + VAF (truth) |
-| `training.tsv` | BUILD_TRAINING_TABLE | one row per (guide × hotspot): WGS features + ECS VAF + label (feeds the **offline** trainer) |
-| `recall_vs_vaf.{csv,png}` | RECALL_VS_VAF | WGS recall of ECS-confirmed edits vs ECS VAF, and the trustworthy-VAF floor |
+Everything lands in `<outdir>/offtarget/`.
 
-## Run modes (auto-detected from the samplesheet `datatype` column)
+- **`wgs_offtarget_worklist_pon.csv`** — the main result. Every candidate edit found in the WGS,
+  ranked, with germline and artifact calls already knocked out by the panel of normals. Start here.
+- **`offtarget_report.csv`** — the same worklist with two extra columns: whether each hit falls on a
+  known hotspot, and whether ECS confirmed it.
+- **`<id>.offtarget_analysis.tsv`** — the ECS answer at each hotspot: edited or not, and at what VAF.
+  This is the ground truth.
+- **`recall_vs_vaf.csv` / `.png`** — how often the WGS catches an ECS-confirmed edit, split by VAF.
+  Read it as: above this VAF, believe the WGS calls; below it, don't.
+- **`training.tsv`** — one row per hotspot lining up the WGS features against the ECS answer. Only
+  used to retrain the model offline; ignore it on a normal run.
 
-- **paired** (ecs + wgs rows): everything above — this is how the WGS-only model is trained/validated.
-- **wgs_only**: worklist + PoN + report (no training/recall; empty ECS channels skip those steps).
-- **ecs_only**: ECS truth tables only.
+The last two only show up when you give it both ECS and WGS.
 
-## Usage
+## What runs depends on the samplesheet
+
+The `datatype` column decides:
+
+- **ECS + WGS rows** → the whole thing: worklist, report, training table, recall curve. Use this to
+  build or check the model.
+- **WGS only** → worklist and report. No training table or recall curve.
+- **ECS only** → just the hotspot truth tables.
+
+## Running it
 
 ```bash
 nextflow run . -entry OFFTARGET -profile ris \
     --input offtarget_samplesheet.csv \
     --outdir ./results_offtarget
 ```
-`run_offtarget.sh` wraps this in the RIS `bsub`. Samplesheet template:
+
+`run_offtarget.sh` does the same thing under `bsub` on RIS, and there's a filled-in example at
 `assets/offtarget_samplesheet_template.csv`.
 
-**Samplesheet** (`sample,datatype,guide,edited_cram,control_cram,target_file,vcf`):
-- `datatype` ∈ {ecs, wgs} — routes the row.
-- `guide` — the join key between an ECS sample and its WGS counterpart.
-- WGS `edited_cram` must be the DRAGEN `<base>_tumor.cram`; the matched normal `<base>.cram`
-  and `<base>.hard-filtered.vcf.gz` must sit **beside it** (the scripts derive them by name).
-- All paths **absolute** (CRAMs/VCFs are read from bind-mounted storage, not staged).
+You hand it one samplesheet with these columns:
+`sample,datatype,guide,edited_cram,control_cram,target_file,vcf`. A few rules:
+
+- `datatype` is `ecs` or `wgs`. That's what sorts each row into the right arm.
+- `guide` links an ECS sample to its WGS partner — same guide means same experiment.
+- For a WGS row, point `edited_cram` at the DRAGEN `<name>_tumor.cram`, and keep `<name>.cram` (the
+  normal) and `<name>.hard-filtered.vcf.gz` in the same folder. The scripts find them by name.
+- Use absolute paths — the CRAMs are read straight off storage, not copied in.
 
 ## Key params (in `nextflow.config`)
 
@@ -82,25 +95,10 @@ Scoped honestly against the real validation data (`read_cnn/pileup/`):
 | ECS→WGS depth transfer (`check_transfer_ecs.csv`) | signal preserved at 30×: VAF median full 0.242 → d30 0.236; 51/51 positives survive | 258 |
 | Recall vs ECS VAF (`score_wgs.csv`) | 1.00 (0.05–0.20), 0.96 (0.20–0.50), 0.83 (>0.50) | 53 positives |
 
-## Open gaps (do not overclaim past these)
+## Container
 
-1. **Sub-5% floor is unmeasured.** The truth set contains **zero** positives below VAF 0.05
-   (min detected = 0.056), so the recall-vs-VAF curve cannot yet certify a floor under 5%. At 30×
-   a 2% edit ≈ 0.6 supporting reads — physically near-unrecoverable — but that is *asserted*, not shown.
-2. **Off-target discovery has no positive control.** The genome-wide arm finds no convincing novel
-   off-targets; the residual LIKELY-EDIT hits recur at TCR loci (chr14:22.5M / chr7:142.8M) and are
-   lineage/mapping artifacts, not guide off-targets. "Finds nothing" is validated; "would fire on a
-   real off-target" is not.
-3. **The paired Nextflow glue arm** (`hotspot_to_table.py`, `join_training_table.py`,
-   `recall_vs_vaf.py`) is validated only at the script/schema level — the first RIS run
-   (`run_offtarget_aavs1.sh`, AAVS1 paired subset) is what proves the (guide, chrom, start) join
-   end-to-end (an ECS/WGS coordinate off-by-one yields an empty `training.tsv`; the joiner warns).
-
-## Container note
-
-Processes use `ghcr.io/dhslab/docker-scge:latest`, which must contain the new `bin/` scripts and
-their deps (pysam, scikit-learn matching `wgs_shape_model.pkl`, joblib, pandas, numpy, **matplotlib**).
-`docker-scge` already carries the ML stack for the existing pipeline; confirm `matplotlib` is present
-(needed for snapshots + the recall curve) and rebuild the image so the new scripts are baked in
-(the scripts cross-import, so they must be co-installed on `PYTHONPATH`, as the pipeline already does
-for `crispr_ml_features.py`).
+Every process runs in `ghcr.io/dhslab/docker-scge-offtarget:260710`, built from the
+`docker-scge-offtarget/` folder in [dhslab-docker-images](https://github.com/dhslab/dhslab-docker-images).
+It pins the versions the scripts and models need — notably scikit-learn 1.8.0, which is what
+`wgs_shape_model.pkl` was trained under. If you ever change that pin, the build's own model-load
+check (and the runtime guard in `bin/features.py`) will complain rather than quietly mis-score.
