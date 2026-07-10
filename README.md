@@ -38,13 +38,7 @@ The pipeline has **two entry points**:
 6. **Report**: results compiled to JSON (`COMPILE_REPORT_JSON`) and rendered to HTML (Quarto)
 7. **MultiQC** aggregate QC
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/scge_metro_dark.svg">
-  <img alt="nf-core/scge analysis metro map" src="docs/images/scge_metro.svg" width="900">
-</picture>
-
-*Animated [nf-metro](https://github.com/seqeralabs/nf-metro) map of the default `SCGE` workflow; an
-interactive pan/zoom version is at [`docs/images/scge_metro.html`](docs/images/scge_metro.html).*
+![SCGE analysis DAG](docs/images/scge_analysis_DAG.jpg)
 
 **`OFFTARGET` workflow** (`workflows/offtarget.nf`): `ECS_INDELS` (error-corrected truth VAF at
 hotspots) + `WGS_WORKLIST` → `PON_OFFTARGET_FILTER` (genome-wide, homology-free, Panel-of-Normals
