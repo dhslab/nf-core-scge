@@ -29,8 +29,10 @@ Everything lands in `<outdir>/offtarget/`.
   This is the ground truth.
 - **`recall_vs_vaf.csv` / `.png`** — how often the WGS catches an ECS-confirmed edit, split by VAF.
   Read it as: above this VAF, believe the WGS calls; below it, don't.
-- **`training.tsv`** — one row per hotspot lining up the WGS features against the ECS answer. Only
-  used to retrain the model offline; ignore it on a normal run.
+- **`training.tsv`** — one row per hotspot lining up the WGS features against the ECS answer, with a
+  `label` marking genuine *somatic* edits: ECS shows an edit **and** it's absent from the matched WGS
+  normal (germline/recurrent sites are demoted, so they don't get called edits). Only used to retrain
+  the model offline; ignore it on a normal run.
 
 The last two only show up when you give it both ECS and WGS.
 
@@ -43,16 +45,30 @@ The `datatype` column decides:
 - **WGS only** → worklist and report. No training table or recall curve.
 - **ECS only** → just the hotspot truth tables.
 
+The run logs the mode it picked up front (`OFFTARGET mode: paired / wgs_only / ecs_only`), and it
+stops early with a clear error if the `datatype` column is missing or has anything other than
+`ecs`/`wgs`.
+
 ## Running it
 
+On RIS Compute2 (SLURM + Apptainer) — the path the first real run went through:
+
 ```bash
-nextflow run . -entry OFFTARGET -profile ris \
-    --input offtarget_samplesheet.csv \
-    --outdir ./results_offtarget
+sbatch run_offtarget_aavs1_slurm.sh      # -profile ris2,apptainer; the head job submits tasks to SLURM
 ```
 
-`run_offtarget.sh` does the same thing under `bsub` on RIS, and there's a filled-in example at
-`assets/offtarget_samplesheet_template.csv`.
+or directly (the head job must run somewhere that can `sbatch` — a login/compute node, **not** the
+interactive JupyterLab exec node):
+
+```bash
+module load nextflow apptainer
+nextflow run . -entry OFFTARGET -profile ris2,apptainer \
+    --input offtarget_samplesheet.csv \
+    --outdir ./results_offtarget -resume
+```
+
+On RIS Compute1 (LSF) use `run_offtarget_aavs1.sh` instead (`bsub`, `-profile ris`). There's a
+filled-in example samplesheet at `assets/offtarget_samplesheet_template.csv`.
 
 You hand it one samplesheet with these columns:
 `sample,datatype,guide,edited_cram,control_cram,target_file,vcf`. A few rules:
@@ -72,28 +88,39 @@ You hand it one samplesheet with these columns:
 | `offtarget_min_span` | 8 | spanning-read coverage gate |
 | `offtarget_hi_score` | 0.60 | shape score ≥ this = "detected" for the recall curve |
 | `offtarget_target_recall` | 0.80 | recall level whose VAF floor is reported |
+| `offtarget_germline_max_ctrl_if` | 0.05 | matched-normal indel frac above this = germline/artifact, not a somatic edit (`label` 0) |
 | `offtarget_hotspot_pad` | 25 | bp window to match a worklist hit to a predicted hotspot |
 | `offtarget_snapshots` | false | render IGV-style pileup PNGs for LIKELY EDITs |
 
 ## What this workflow is (and is not)
 
-Scoped honestly against the real validation data (`read_cnn/pileup/`):
+- **It is** a **hotspot edit-confirmation + genome-wide screen**. At known/nominated hotspots the WGS
+  shape scorer recovers edits well; genome-wide it produces a PoN-filtered, ranked worklist for review.
+  On-target recovery is proven end-to-end: on the first real AAVS1 run the AAVS1 on-target
+  (chr19, *PPP1R12C*) came back with `is_hotspot=1, ecs_confirmed=1` for both guides, **from WGS alone**.
+- **It also** recovers the one confirmed *off*-target edit we have — **PLCB2 chr12:32,679,410** (90% VAF,
+  ECS-confirmed, ~202 WGS indel reads). That is the proof WGS-only can find a real, homology-based
+  off-target. See `OFFTARGET_POSITIVE_CONTROL.md` at the project root.
+- **It is not (yet)** a workflow with a *quantified* off-target detection floor ("trust down to X% VAF").
+  Across both cohorts (AAVS1 + the 30-guide CAR-T screen) the human-reviewed truth set holds only
+  **2 confirmed off-targets**, both >85% VAF — there is no low-abundance off-target population to measure
+  recall against. That's the editing being highly on-target-specific, not a bug; but it means sub-5%
+  off-target sensitivity is unproven. Treat WGS-only calls as trustworthy at hotspots **≥5% VAF**.
 
-- **It is** a **hotspot edit-confirmation + genome-wide screen**. At known/nominated hotspots the
-  WGS shape scorer recovers edits well (see numbers below); genome-wide it produces a PoN-filtered,
-  ranked worklist for review.
-- **It is not (yet)** a proven *homology-free de novo* off-target detector, and it does **not** yet
-  carry a demonstrated detection floor below ~5% VAF. Treat WGS-only calls as trustworthy **≥5% VAF**;
-  below that the workflow has no ground truth to stand on (see gaps).
+## Validation
 
-## Measured accuracy (from `read_cnn/pileup/`)
+**First real run** (AAVS1, 2 WGS × 6 ECS, RIS Compute2 / SLURM + Apptainer): completed end-to-end; the
+ECS⋈WGS join produced a labeled `training.tsv`; the on-target was recovered in WGS alone (above). The
+recall-vs-VAF curve behaves as depth predicts — near-zero below ~1% VAF, rising with abundance — but the
+off-target bins above 5% are too sparse (single digits) to fix a floor, per the specificity finding above.
+
+**Offline component accuracy** (from `read_cnn/pileup/`, the analysis the model was built on):
 
 | Component | Metric | n |
 |---|---|---|
 | WGS hotspot scorer (`score_wgs.csv`) | ROC-AUC **0.82**; LIKELY-EDIT recall **0.92** @ precision **0.75** | 94 (53 pos / 41 neg) |
 | Genome-wide PoN (`wgs_offtarget_worklist_pon.csv`) | LIKELY EDIT **276 → 185** after PoN; 118/185 on-target | 2737 candidates |
-| ECS→WGS depth transfer (`check_transfer_ecs.csv`) | signal preserved at 30×: VAF median full 0.242 → d30 0.236; 51/51 positives survive | 258 |
-| Recall vs ECS VAF (`score_wgs.csv`) | 1.00 (0.05–0.20), 0.96 (0.20–0.50), 0.83 (>0.50) | 53 positives |
+| ECS→WGS depth transfer (`check_transfer_ecs.csv`) | signal preserved at 30×: VAF median 0.242 → 0.236; 51/51 positives survive | 258 |
 
 ## Container
 

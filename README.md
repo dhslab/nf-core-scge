@@ -23,9 +23,11 @@ The pipeline has **two entry points**:
 1. **`SCGE`** (default) — the full per-sample analysis and report.
 2. **`OFFTARGET`** (`-entry OFFTARGET`) — the **Unified CRISPR Off-Target Workflow**: a WGS hotspot
    edit-confirmation model (trained on error-corrected ECS truth) plus a genome-wide, PoN-filtered
-   worklist for review. WGS-only calls are validated **≥5% VAF** (ROC-AUC 0.82, recall 0.92 at
-   hotspots); the sub-5% floor and homology-free *de novo* discovery are not yet proven — see the
-   scope and open gaps in [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
+   worklist for review. Validated end-to-end on a real AAVS1 run: the on-target is recovered from WGS
+   alone, as is the one confirmed off-target we have (PLCB2 chr12:32,679,410, 90% VAF). Real
+   off-targets are rare and high-VAF in both cohorts (editing is highly on-target-specific), so a
+   sub-5% off-target floor is unproven — trust WGS-only calls at hotspots **≥5% VAF**. Scope and
+   validation in [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
 ## Pipeline summary
 
@@ -86,14 +88,19 @@ nextflow run . -profile ris,dragen4 \
 ### Unified CRISPR Off-Target Workflow
 
 ```bash
-nextflow run . -entry OFFTARGET -profile ris \
+# RIS Compute2 (SLURM + Apptainer) — the validated path:
+sbatch run_offtarget_aavs1_slurm.sh          # -profile ris2,apptainer
+
+# or directly (from a node that can sbatch, not the interactive exec node):
+nextflow run . -entry OFFTARGET -profile ris2,apptainer \
     --input offtarget_samplesheet.csv \
-    --outdir ./results_offtarget
+    --outdir ./results_offtarget -resume
 ```
 
-Samplesheet `sample,datatype{ecs|wgs},guide,edited_cram,control_cram,target_file,vcf` — template at
-`assets/offtarget_samplesheet_template.csv`, wrapper at `run_offtarget.sh`. When `-entry OFFTARGET`
-is given, the default SCGE workflow does not run.
+On RIS Compute1 (LSF) use `run_offtarget_aavs1.sh` (`bsub`, `-profile ris`). Samplesheet
+`sample,datatype{ecs|wgs},guide,edited_cram,control_cram,target_file,vcf` — template at
+`assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
+workflow does not run. Full docs: [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
 ## Key parameters
 
