@@ -102,6 +102,11 @@ On RIS Compute1 (LSF) use `run_offtarget_aavs1.sh` (`bsub`, `-profile ris`). Sam
 `assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
 workflow does not run. Full docs: [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
+Add `--offtarget_snapshots true` to render an IGV-style **edited-vs-normal** read pileup for every
+LIKELY EDIT (into `<outdir>/offtarget/snapshots/`) — by-eye verification straight from the CRAM:
+
+![tumor vs normal pileup snapshot](docs/images/offtarget_snapshot_example.png)
+
 ## Key parameters
 
 | Parameter | Default | Description |

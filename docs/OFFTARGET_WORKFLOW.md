@@ -36,6 +36,21 @@ Everything lands in `<outdir>/offtarget/`.
 
 The last two only show up when you give it both ECS and WGS.
 
+### Verification snapshots (optional)
+
+Add `--offtarget_snapshots true` and every **LIKELY EDIT** in the WGS worklist gets an IGV-style
+read pileup — **edited (tumor) on the left, matched normal on the right** — written to
+`<outdir>/offtarget/snapshots/`, one PNG per call. A real edit shows indel-bearing reads (red
+deletions, purple insertion ticks) stacked at the locus in the tumor over a clean normal; an
+artifact shows up in both or neither. It's the by-eye confirmation step, straight from the CRAM,
+no IGV needed. Off by default (`offtarget_snapshots = false`) because it renders one image per hit.
+
+![tumor vs normal pileup snapshot](images/offtarget_snapshot_example.png)
+
+*Example output: the AAVS1 on-target (chr19:55,115,731). Left (edited) — deletions and insertions
+pile up at the cut site; right (unedited normal) — clean. The CART run (`run_offtarget_cart_slurm.sh`)
+turns this on, so the confirmed off-targets (PLCB2, CNNM3) get the same tumor/normal packet.*
+
 ## What runs depends on the samplesheet
 
 The `datatype` column decides:

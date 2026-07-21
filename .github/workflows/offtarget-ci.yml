@@ -35,7 +35,9 @@ jobs:
       - name: Install Nextflow
         uses: nf-core/setup-nextflow@v1
         with:
-          version: "latest-everything"
+          # pin a stable release: the repo config's check_max() doesn't parse under the
+          # 26.x edge that "latest-everything" now resolves to.
+          version: "25.10.4"
 
       # stub blocks only `touch` their outputs, so no container/data is needed — this is a
       # pure wiring check. Derive single-arm sheets from the template to hit every mode.
