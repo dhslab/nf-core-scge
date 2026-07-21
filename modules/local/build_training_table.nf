@@ -21,6 +21,7 @@ process BUILD_TRAINING_TABLE {
         --wgs-scores ${wgs_scores} \\
         --truth ${truth} \\
         --samplesheet ${samplesheet} \\
+        --germline-max-ctrl-if ${params.offtarget_germline_max_ctrl_if} \\
         --out training.tsv
 
     cat <<-END_VERSIONS > versions.yml

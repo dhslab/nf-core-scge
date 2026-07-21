@@ -22,6 +22,9 @@ def main():
     ap.add_argument("--wgs-scores", required=True, help="score.py output CSV (WGS at hotspots)")
     ap.add_argument("--truth", required=True, help="ecs_hotspot_truth.csv from hotspot_to_table.py")
     ap.add_argument("--samplesheet", required=True)
+    ap.add_argument("--germline-max-ctrl-if", type=float, default=0.05,
+                    help="a hotspot whose matched-normal (WGS) indel fraction exceeds this is "
+                         "germline/artifact, not a somatic edit -> label 0 even if ECS shows an indel")
     ap.add_argument("--out", default="training.tsv")
     args = ap.parse_args()
 
@@ -43,13 +46,30 @@ def main():
 
     merged = wgs.merge(truth[["guide", "chrom", "start", "ecs_if", "ecs_is_edit", "is_target"]],
                        on=["guide", "chrom", "start"], how="inner")
-    merged = merged.rename(columns={"ecs_is_edit": "label"})
+
+    # Training label = a SOMATIC edit: ECS saw an indel AND it is absent from the matched WGS
+    # normal. ECS alone can't exclude germline here — its control is a different individual, so
+    # control_indel_fraction is ~0 everywhere — so the matched-normal WGS signal (ctrl_if) is the
+    # only thing that separates a real edit from a germline/recurrent variant. The raw ECS call is
+    # kept as `ecs_is_edit`; `label` (what the trainer + recall metric consume) is the somatic one.
+    is_edit = merged["ecs_is_edit"] == 1
+    if "ctrl_if" in merged.columns:
+        ctrl = pd.to_numeric(merged["ctrl_if"], errors="coerce").fillna(0.0)
+        germline = is_edit & (ctrl > args.germline_max_ctrl_if)
+        merged["label"] = (is_edit & (ctrl <= args.germline_max_ctrl_if)).astype(int)
+    else:
+        print("WARN: no ctrl_if (matched-normal) column — cannot exclude germline; "
+              "label = raw ECS edit", file=sys.stderr)
+        germline = pd.Series(False, index=merged.index)
+        merged["label"] = is_edit.astype(int)
     merged.to_csv(args.out, sep="\t", index=False)
 
     n_pos = int((merged["label"] == 1).sum())
+    n_germ = int(germline.sum())
     print(f"wrote {args.out}: {len(merged)} rows "
-          f"({n_pos} ECS-positive, {len(merged) - n_pos} ECS-negative) "
-          f"across {merged['guide'].nunique()} guides")
+          f"({n_pos} somatic-edit positives, {n_germ} ECS edits demoted as germline/in-normal, "
+          f"{len(merged) - n_pos - n_germ} ECS-negative) across "
+          f"{merged['guide'].nunique() if len(merged) else 0} guides")
     if len(merged) == 0:
         msg = ("empty join — WGS sample->guide and hotspot coords do not line up with the "
                "ECS truth (a coordinate off-by-one between the arms is the usual culprit)")
