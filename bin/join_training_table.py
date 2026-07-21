@@ -51,9 +51,14 @@ def main():
           f"({n_pos} ECS-positive, {len(merged) - n_pos} ECS-negative) "
           f"across {merged['guide'].nunique()} guides")
     if len(merged) == 0:
-        print("WARN: empty join — check that WGS sample->guide and hotspot coords match "
-              "the ECS truth (coordinate off-by-one between arms is the usual culprit).",
-              file=sys.stderr)
+        msg = ("empty join — WGS sample->guide and hotspot coords do not line up with the "
+               "ECS truth (a coordinate off-by-one between the arms is the usual culprit)")
+        # If BOTH arms produced rows but nothing joined, this is a keying bug, not a
+        # legitimately empty run: fail loudly so a silent empty training.tsv can't pass.
+        # Only warn when one side is genuinely empty (e.g. an ECS- or WGS-less run).
+        if len(wgs) > 0 and len(truth) > 0:
+            sys.exit(f"ERROR: {msg} [{len(wgs)} WGS rows x {len(truth)} ECS truth rows -> 0 joined]")
+        print(f"WARN: {msg} [{len(wgs)} WGS rows, {len(truth)} ECS truth rows]", file=sys.stderr)
 
 
 if __name__ == "__main__":

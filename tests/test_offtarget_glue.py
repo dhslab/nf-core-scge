@@ -4,8 +4,11 @@ Scenario (see conftest): one guide, two ECS replicates + one WGS sample, three h
 (a real edit, a true negative, and a below-floor low-VAF edit). These lock in the
 ECS⋈WGS join and the recall-vs-VAF behaviour that the Nextflow layer depends on.
 """
+import subprocess
+import sys
+
 import pandas as pd
-from conftest import run
+from conftest import BIN, run
 
 
 def test_hotspot_to_table(workspace):
@@ -80,15 +83,21 @@ def test_reconcile_report(workspace):
 
 
 def test_join_empty_on_coord_mismatch(workspace):
-    """Guardrail: an ECS/WGS coordinate drift yields an empty join, and the script warns."""
+    """Guardrail: when both arms have rows but coords drift, the join is empty and the
+    script must FAIL — a silent empty training.tsv would otherwise pass as a clean run."""
     run("hotspot_to_table.py",
         "--ecs-tables", "PLCB2_ecs_1.offtarget_analysis.tsv", "PLCB2_ecs_2.offtarget_analysis.tsv",
         "--samplesheet", "samplesheet.csv", cwd=workspace)
     w = pd.read_csv(workspace / "wgs_hotspot_scores.csv")
     w["start"] += 5                                        # simulate a 5bp drift
     w.to_csv(workspace / "wgs_shifted.csv", index=False)
-    proc = run("join_training_table.py", "--wgs-scores", "wgs_shifted.csv",
-               "--truth", "ecs_hotspot_truth.csv", "--samplesheet", "samplesheet.csv", cwd=workspace)
 
-    assert "empty join" in proc.stderr
-    assert len(pd.read_csv(workspace / "training.tsv", sep="\t")) == 0
+    # invoke directly (not the rc==0 run() helper) because we expect a non-zero exit
+    proc = subprocess.run(
+        [sys.executable, str(BIN / "join_training_table.py"),
+         "--wgs-scores", "wgs_shifted.csv", "--truth", "ecs_hotspot_truth.csv",
+         "--samplesheet", "samplesheet.csv"],
+        cwd=workspace, capture_output=True, text=True)
+
+    assert proc.returncode != 0                            # both arms had rows -> hard fail
+    assert "ERROR" in proc.stderr and "empty join" in proc.stderr

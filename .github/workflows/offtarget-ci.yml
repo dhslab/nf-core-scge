@@ -1,0 +1,73 @@
+name: offtarget CI
+# Exercises the -entry OFFTARGET workflow that the default nf-core CI does not cover:
+#   1. stub run  — DAG wiring for all three modes (paired / wgs_only / ecs_only)
+#   2. glue tests — the ECS<->WGS join logic (tests/test_offtarget_glue.py)
+on:
+  push:
+    branches:
+      - dev
+      - "feat/offtarget-**"
+  pull_request:
+    paths:
+      - "workflows/offtarget.nf"
+      - "subworkflows/local/**"
+      - "modules/local/**"
+      - "bin/**"
+      - "tests/**"
+      - "conf/stub.config"
+      - "assets/offtarget_samplesheet_template.csv"
+      - ".github/workflows/offtarget-ci.yml"
+
+env:
+  NXF_ANSI_LOG: false
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  stub:
+    name: OFFTARGET stub run (DAG wiring, all modes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: "latest-everything"
+
+      # stub blocks only `touch` their outputs, so no container/data is needed — this is a
+      # pure wiring check. Derive single-arm sheets from the template to hit every mode.
+      - name: Build per-mode samplesheets
+        run: |
+          SS=assets/offtarget_samplesheet_template.csv
+          head -1 "$SS" | tee ss_wgs.csv > ss_ecs.csv
+          grep -iE ',wgs,' "$SS" >> ss_wgs.csv
+          grep -iE ',ecs,' "$SS" >> ss_ecs.csv
+
+      - name: Stub run — paired
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input "$SS" --outdir out_paired
+        env:
+          SS: assets/offtarget_samplesheet_template.csv
+      - name: Stub run — wgs_only
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_wgs.csv --outdir out_wgs
+      - name: Stub run — ecs_only
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_ecs.csv --outdir out_ecs
+
+  glue-tests:
+    name: OFFTARGET glue-logic unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # the glue scripts are pure-pandas; a clean checkout has no repo-root vendored dirs to shadow.
+      - name: Install test deps
+        run: python -m pip install --quiet pandas matplotlib pytest
+
+      - name: Run glue tests
+        run: python -m pytest -q tests/test_offtarget_glue.py
