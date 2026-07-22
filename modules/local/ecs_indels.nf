@@ -16,13 +16,17 @@ process ECS_INDELS {
     path "versions.yml", emit: versions
 
     script:
+    // The per-read "unevaluable reads" log is a debug artifact that is NOT an emitted
+    // output and is not consumed downstream, yet it grows to ~0.1-1 TB per sample and
+    // was the sole cause of multi-TB work-dir bloat / ENOSPC. Off unless explicitly asked.
+    def unevaluable = params.offtarget_ecs_unevaluable_log ? "-u ${meta.id}.unevaluable_reads.txt" : ""
     """
     find_edited_reads.py \\
         --fasta ${reference} \\
         --edited-bam ${edited_cram} \\
         --control-bam ${control_cram} \\
         --target-file ${target_file} \\
-        -u ${meta.id}.unevaluable_reads.txt \\
+        ${unevaluable} \\
         --vcf-out ${meta.id}.offtarget_edits.vcf \\
         -o ${meta.id}.offtarget_analysis.tsv
 

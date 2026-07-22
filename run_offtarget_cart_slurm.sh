@@ -30,10 +30,18 @@ export APPTAINER_BINDPATH="/storage2,/scratch2"
 export NXF_OPTS='-Xmx8g'
 mkdir -p "$NXF_APPTAINER_CACHEDIR"
 
+# Work dir on /storage2 (repo-local ./work). With offtarget_ecs_unevaluable_log=false
+# (the default), ECS_INDELS writes only its small .tsv/.vcf (~1 MB/sample) instead of the
+# ~0.5-1 TB/sample unevaluable-reads debug log that previously filled storage2 (ENOSPC)
+# AND the shared /scratch2 group quota (EDQUOT). The whole run is now a few GB, so it fits
+# comfortably here and avoids the scratch2 group-quota dependency entirely.
+export NXF_WORK="${SLURM_SUBMIT_DIR:-$(dirname "$(readlink -f "$0")")}/work"
+
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$(readlink -f "$0")")}"
 
 nextflow run . -entry OFFTARGET -profile ris2,apptainer \
     --input /storage2/fs1/dspencer/Active/clinseq/projects/scge/cart_seq/offtarget_samplesheet_cart.csv \
     --outdir ./results_offtarget_cart \
     --offtarget_snapshots true \
+    -work-dir "$NXF_WORK" \
     -resume
