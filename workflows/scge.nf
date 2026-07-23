@@ -20,7 +20,8 @@ include { PREPARE_SOMATIC_FASTQS      } from '../subworkflows/local/gather_align
 include { MAKE_HOTSPOT_VCF            } from '../modules/local/make_hotspot_vcf.nf'
 include { DRAGEN_SCGE                 } from '../modules/local/dragen_scge.nf'
 include { SCGE_ANALYSIS               } from '../subworkflows/local/scge_analysis.nf'
-//include { TRANSGENE_TO_VCF            } from '../modules/local/transgene_to_vcf'
+// Note: TRANSGENE_TO_VCF is included and invoked inside the SCGE_ANALYSIS subworkflow
+// (subworkflows/local/scge_analysis.nf), not here.
 
 def generateMetaFromCsv(csv_string) {
     def lines = csv_string.readLines()

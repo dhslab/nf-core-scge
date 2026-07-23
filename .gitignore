@@ -75,17 +75,11 @@ __pycache__/
 
 # ---- Legacy CRISPR-ML scripts / models (deprecated; see REPO_INVENTORY.md) ----
 bin/*.bak
-bin/build_crispr_training_dataset.py
 bin/build_from_curated_tsv.py
 bin/build_training_from_tsv.py
 bin/convert_targets.pl
-bin/crispr_ml_features.py
-bin/evaluate_aavs1_v3.py
-bin/evaluate_crosslocus_v3.py
 bin/train_aavs1_v3.sh
 bin/train_aavs1_v3_lsf.sh
-bin/train_crispr_model.py
-bin/train_multilocus_v1.py
 bin/tsv_to_vcf.py
 assets/NO_*.csv
 assets/NO_*.tsv

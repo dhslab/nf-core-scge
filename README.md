@@ -66,14 +66,25 @@ tumor_sample_1,case1,tumor,/path/to/fastq_list.csv,/path/to/hotspot.csv
 normal_sample_1,case1,normal,/path/to/fastq_list.csv,/path/to/hotspot.csv
 ```
 
-**Analysis only** (`--run_alignment false`) — point at existing DRAGEN output directories:
+**Analysis only** (`--run_alignment false`) — **the low-barrier on-ramp: no DRAGEN license or
+FPGA hardware required.** If you already have DRAGEN output directories (from a prior run, a core,
+or a collaborator), point at them and the pipeline runs only the annotation/report half. Use a
+plain container profile (`docker`/`singularity`/`apptainer`) — the `dragen4`/`dragenaws` profiles
+are needed **only** when actually aligning.
 
 ```csv
 id,dragen_path,target_file
 sample1,/path/to/dragen_output/sample1,/path/to/sample1.targets.vcf
 ```
 
-Run on RIS Compute1 (LSF):
+```bash
+# analysis only — no DRAGEN needed:
+nextflow run . -profile ris2,apptainer \
+    --input mastersheet.csv --run_alignment false \
+    --outdir ./results
+```
+
+**Alignment + analysis** — requires a DRAGEN license + reference; add the DRAGEN profile:
 
 ```bash
 nextflow run . -profile ris,dragen4 \
@@ -81,9 +92,9 @@ nextflow run . -profile ris,dragen4 \
     --outdir ./results
 ```
 
-`-profile ris` (Compute1/LSF) or `ris2` (Compute2/SLURM); add `dragen4` (local DRAGEN) or
-`dragenaws` (AWS DRAGEN) when aligning. `-profile stub` gives a dependency-free dry run. See
-`run.sh` / `run_test.sh` for working `bsub` wrappers.
+Compute profiles: `-profile ris` (Compute1/LSF) or `ris2` (Compute2/SLURM), plus a container
+engine (`apptainer`/`singularity`/`docker`); add `dragen4` (local DRAGEN) or `dragenaws` (AWS
+DRAGEN) **only when aligning**. `-profile stub` gives a dependency-free dry run.
 
 ### Unified CRISPR Off-Target Workflow
 
