@@ -138,12 +138,14 @@ LIKELY EDIT (into `<outdir>/offtarget/snapshots/`) — by-eye verification strai
 
 | Purpose | Image |
 |---|---|
-| Analysis + off-target | `ghcr.io/dhslab/docker-scge:latest` |
-| Report rendering | `ghcr.io/dhslab/docker-quarto-chromoseq:latest` |
-| Off-target annotation (VEP) | `ghcr.io/dhslab/docker-vep_release113` |
-| CRISPR_ML | `TBD` |
+| Default SCGE analysis (incl. CRISPR_ML edit classification, `GET_INDELS` `--crispr_model`) | `ghcr.io/dhslab/docker-scge:latest` |
+| Off-target ML (`-entry OFFTARGET`: ECS truth + WGS scoring/training) | `ghcr.io/dhslab/docker-scge-offtarget:260710` |
+| Variant annotation (VEP) | `ghcr.io/dhslab/docker-vep_release113:250810` |
+| Report rendering (Quarto) | `ghcr.io/dhslab/docker-quarto-chromoseq:latest` |
+| DRAGEN alignment / calling | via `task.ext.dragen_container` (`dragen4` / `dragenaws` profile) |
 
-Nextflow itself runs inside `ghcr.io/dhslab/docker-baseimage:latest` on RIS (see `run.sh`).
+The CRISPR_ML edit classifier has no separate image — it runs inside `docker-scge:latest`. Nextflow
+itself runs inside `ghcr.io/dhslab/docker-baseimage:latest` on RIS.
 
 ## Testing
 
