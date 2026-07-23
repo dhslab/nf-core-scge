@@ -16,7 +16,7 @@ process RECALL_VS_VAF {
 
     script:
     """
-    recall_vs_vaf.py \\
+    python ${projectDir}/bin/recall_vs_vaf.py \\
         --training ${training} \\
         --hi ${params.offtarget_hi_score} \\
         --target-recall ${params.offtarget_target_recall} \\

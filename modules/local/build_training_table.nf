@@ -16,8 +16,12 @@ process BUILD_TRAINING_TABLE {
     path "versions.yml", emit: versions
 
     script:
+    // Invoke the repo script by explicit path, NOT bare name: the container bakes an older
+    // copy at /opt/scge-offtarget/bin that would otherwise shadow the repo's bin/ (Nextflow
+    // only *appends* the pipeline bin/ to PATH). Explicit `python ${projectDir}/bin/...` is
+    // immune to both PATH ordering and the script's executable bit.
     """
-    join_training_table.py \\
+    python ${projectDir}/bin/join_training_table.py \\
         --wgs-scores ${wgs_scores} \\
         --truth ${truth} \\
         --samplesheet ${samplesheet} \\

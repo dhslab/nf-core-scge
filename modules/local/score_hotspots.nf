@@ -19,7 +19,7 @@ process SCORE_HOTSPOTS {
 
     script:
     """
-    score.py \\
+    python ${projectDir}/bin/score.py \\
         --table ${table} \\
         --cram-list ${cram_map} \\
         --ref ${reference} \\

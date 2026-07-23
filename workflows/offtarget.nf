@@ -51,6 +51,40 @@ workflow OFFTARGET_WORKFLOW {
     def mode = (n_ecs && n_wgs) ? 'paired' : (n_wgs ? 'wgs_only' : 'ecs_only')
     log.info "OFFTARGET mode: ${mode}  (${n_ecs} ecs, ${n_wgs} wgs rows)"
 
+    // ---- preflight: WGS rows depend on DRAGEN sidecar files derived from the tumor CRAM name
+    // by convention (bin/worklist_from_vcf.py, bin/score.py): the matched normal '<base>.cram'
+    // and the somatic VCF '<base>.hard-filtered.vcf.gz' must sit beside '<base>_tumor.cram'.
+    // Validate them up front with a named-file error, so a misnamed or missing sidecar fails
+    // clearly here instead of surfacing as a confusing empty worklist or a mid-run task crash.
+    // Skipped under -stub-run and -preview, where inputs are placeholder paths that need not exist.
+    if (n_wgs > 0 && !workflow.stubRun && !workflow.preview) {
+        def eci = hdr.indexOf('edited_cram')
+        def si  = hdr.indexOf('sample')
+        if (eci < 0) { error "OFFTARGET: --input has no 'edited_cram' column" }
+        def problems = []
+        rows.drop(1).each { line ->
+            def cols = line.split(',', -1)
+            if ((cols[dti] ?: '').trim().toLowerCase() != 'wgs') return
+            def sample = si >= 0 ? (cols[si] ?: '').trim() : '?'
+            def tumor  = (cols[eci] ?: '').trim()
+            if (!tumor.endsWith('_tumor.cram')) {
+                problems << "row '${sample}': WGS edited_cram must be a DRAGEN '<base>_tumor.cram' (got '${tumor}')"
+                return
+            }
+            def base = tumor - ~/_tumor\.cram$/
+            [ (tumor)                                    : 'tumor CRAM',
+              ("${base}.cram".toString())                : 'matched-normal CRAM',
+              ("${base}.hard-filtered.vcf.gz".toString()): 'DRAGEN somatic VCF' ].each { p, what ->
+                if (!file(p).exists()) problems << "row '${sample}': missing ${what}: ${p}"
+            }
+        }
+        if (problems) {
+            error "OFFTARGET: DRAGEN sidecar preflight failed. The WGS arm derives the matched\n" +
+                  "normal and somatic VCF from the tumor CRAM name; each must exist beside it:\n  " +
+                  problems.join('\n  ')
+        }
+    }
+
     ch_rows = Channel.fromPath(ch_ss)
         | splitCsv(header: true)
         | branch { row ->

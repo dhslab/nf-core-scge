@@ -18,7 +18,7 @@ process PON_OFFTARGET_FILTER {
 
     script:
     """
-    pon_filter.py \\
+    python ${projectDir}/bin/pon_filter.py \\
         --worklist ${worklist} \\
         --cram-list ${cram_map} \\
         --ref ${reference} \\

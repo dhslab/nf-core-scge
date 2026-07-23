@@ -22,7 +22,7 @@ process WGS_WORKLIST {
     def homology = params.offtarget_homology_table ? "--homology-table '${params.offtarget_homology_table}'" : ""
     def snaps    = params.offtarget_snapshots ? "--snapshot-dir snapshots" : ""
     """
-    worklist_from_vcf.py \\
+    python ${projectDir}/bin/worklist_from_vcf.py \\
         --cram-list ${cram_map} \\
         --ref ${reference} \\
         --model ${model} \\

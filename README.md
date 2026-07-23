@@ -88,8 +88,8 @@ nextflow run . -profile ris,dragen4 \
 ### Unified CRISPR Off-Target Workflow
 
 ```bash
-# RIS Compute2 (SLURM + Apptainer) — the validated path:
-sbatch run_offtarget_aavs1_slurm.sh          # -profile ris2,apptainer
+# RIS Compute2 (SLURM + Apptainer) — the validated path. One wrapper for any cohort:
+sbatch run_offtarget.sh --input <samplesheet.csv> --outdir <dir> [--snapshots]
 
 # or directly (from a node that can sbatch, not the interactive exec node):
 nextflow run . -entry OFFTARGET -profile ris2,apptainer \
@@ -97,7 +97,7 @@ nextflow run . -entry OFFTARGET -profile ris2,apptainer \
     --outdir ./results_offtarget -resume
 ```
 
-On RIS Compute1 (LSF) use `run_offtarget_aavs1.sh` (`bsub`, `-profile ris`). Samplesheet
+On RIS Compute1 (LSF) run `nextflow run . -entry OFFTARGET -profile ris` under `bsub`. Samplesheet
 `sample,datatype{ecs|wgs},guide,edited_cram,control_cram,target_file,vcf` — template at
 `assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
 workflow does not run. Full docs: [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).

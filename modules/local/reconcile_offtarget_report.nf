@@ -17,7 +17,7 @@ process RECONCILE_OFFTARGET_REPORT {
     script:
     def truth_arg = truth.name != 'NO_FILE' ? "--truth ${truth}" : ""
     """
-    reconcile_offtarget_report.py \\
+    python ${projectDir}/bin/reconcile_offtarget_report.py \\
         --worklist ${worklist} \\
         ${truth_arg} \\
         --pad ${params.offtarget_hotspot_pad} \\

@@ -20,7 +20,7 @@
 #     module load apptainer nextflow
 # Anything genuinely missing (no apptainer, no java) is reported SKIP, not FAIL.
 # The real AAVS1 acceptance run needs a cohort and stays separate:
-#     bash run_offtarget_aavs1.sh
+#     sbatch run_offtarget.sh --input offtarget_samplesheet_aavs1.csv --outdir results_offtarget_aavs1
 #
 # Usage:   bash run_offtarget_tests.sh
 #   OFFTARGET_CONTAINER=ghcr.io/dhslab/docker-scge-offtarget:TAG  bash run_offtarget_tests.sh
@@ -243,7 +243,7 @@ if [ "$fail" -gt 0 ]; then printf '  failed: %s\n' "${FAILED_NAMES[*]}"; fi
 cat <<EOF
 
   Not covered here (needs a real cohort — run from a compute node):
-    Tier 4  real AAVS1 acceptance run:  bash run_offtarget_aavs1.sh
+    Tier 4  real AAVS1 acceptance run:  sbatch run_offtarget.sh --input offtarget_samplesheet_aavs1.csv --outdir results_offtarget_aavs1
             then check results_offtarget_aavs1/offtarget/ for:
               training.tsv         non-empty, labels {0,1}   (empty => join broke)
               offtarget_report.csv AAVS1 on-target: is_hotspot=1 & ecs_confirmed=1

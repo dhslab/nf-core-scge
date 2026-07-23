@@ -48,8 +48,8 @@ no IGV needed. Off by default (`offtarget_snapshots = false`) because it renders
 ![tumor vs normal pileup snapshot](images/offtarget_snapshot_example.png)
 
 *Example output: the AAVS1 on-target (chr19:55,115,731). Left (edited) — deletions and insertions
-pile up at the cut site; right (unedited normal) — clean. The CART run (`run_offtarget_cart_slurm.sh`)
-turns this on, so the confirmed off-targets (PLCB2, CNNM3) get the same tumor/normal packet.*
+pile up at the cut site; right (unedited normal) — clean. Pass `--snapshots` to `run_offtarget.sh`
+to turn this on, so the confirmed off-targets (PLCB2, CNNM3) get the same tumor/normal packet.*
 
 ## What runs depends on the samplesheet
 
@@ -62,14 +62,19 @@ The `datatype` column decides:
 
 The run logs the mode it picked up front (`OFFTARGET mode: paired / wgs_only / ecs_only`), and it
 stops early with a clear error if the `datatype` column is missing or has anything other than
-`ecs`/`wgs`.
+`ecs`/`wgs`. For **WGS rows** it also preflights the DRAGEN sidecars: the matched normal
+(`<base>.cram`) and somatic VCF (`<base>.hard-filtered.vcf.gz`) are derived from the tumor CRAM
+name (`<base>_tumor.cram`) and must sit beside it — if any is misnamed or missing, the run fails
+immediately with the exact file and row, instead of a confusing empty worklist or a mid-run crash.
 
 ## Running it
 
-On RIS Compute2 (SLURM + Apptainer) — the path the first real run went through:
+On RIS Compute2 (SLURM + Apptainer) — the validated path. One wrapper handles every cohort; pass
+the samplesheet and an output dir (`--help` lists the options):
 
 ```bash
-sbatch run_offtarget_aavs1_slurm.sh      # -profile ris2,apptainer; the head job submits tasks to SLURM
+sbatch run_offtarget.sh --input <samplesheet.csv> --outdir <dir> [--snapshots]
+# the head job runs here and submits the task jobs to SLURM
 ```
 
 or directly (the head job must run somewhere that can `sbatch` — a login/compute node, **not** the
@@ -82,8 +87,8 @@ nextflow run . -entry OFFTARGET -profile ris2,apptainer \
     --outdir ./results_offtarget -resume
 ```
 
-On RIS Compute1 (LSF) use `run_offtarget_aavs1.sh` instead (`bsub`, `-profile ris`). There's a
-filled-in example samplesheet at `assets/offtarget_samplesheet_template.csv`.
+On RIS Compute1 (LSF) run `nextflow run . -entry OFFTARGET -profile ris` under `bsub` instead.
+There's a filled-in example samplesheet at `assets/offtarget_samplesheet_template.csv`.
 
 You hand it one samplesheet with these columns:
 `sample,datatype,guide,edited_cram,control_cram,target_file,vcf`. A few rules:

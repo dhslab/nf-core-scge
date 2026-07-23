@@ -17,7 +17,7 @@ process HOTSPOT_TO_TABLE {
 
     script:
     """
-    hotspot_to_table.py \\
+    python ${projectDir}/bin/hotspot_to_table.py \\
         --ecs-tables ${ecs_tables} \\
         --samplesheet ${samplesheet} \\
         --edit-threshold ${params.offtarget_ecs_edit_threshold} \\

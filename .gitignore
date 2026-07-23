@@ -1,51 +1,80 @@
+# =============================================================================
+#  nf-core-scge — .gitignore
+#  Pattern-based. Root-anchored (leading /) entries are one-off local files that
+#  are intentionally kept out of git; delete or commit them deliberately.
+# =============================================================================
+
+# ---- Nextflow runtime ----
 .nextflow*
 work/
-data/
 results/
-.DS_Store
+results*/
+null/
+nxf-tmp.*
+
+# ---- Data & large / generated inputs ----
+data/
+logs/
 testing/
 testing*
-*.pyc
-.dir_bash_history
-results/
-logs/
 mastersheets/
-null/
-results*
 test_output/
-test_results/
+test_results*
 test_logs/
 test_mastersheets/
 test_null/
-test_results*
--e
-AAVS1site14_WTcas9-DNA.scge_report_ml.html
-AAVS1site14_WTcas9-DNA.scge_report_og.html
-CLAUDE.md
-DEBUGGING_REPORT.md
-"Groovy vs. Shell in Nextflow.txt"
-PIL/
-aavs1_ml_testing/
-analysis_samples.csv
-assets/NO_OFFTARGET.csv
-assets/NO_SV.tsv
-assets/NO_VCF.tsv
-assets/all_samples_mastersheet.csv
-assets/ecs_samples_mastersheet.csv
-assets/empty.txt
-assets/empty_normal_coverage.txt
-assets/empty_tumor_coverage.txt
-assets/models/crispr_model_aavs1_curated.pkl
-assets/models/crispr_model_aavs1_v3.pkl
-assets/models/crispr_model_curated.pkl
-assets/models/crispr_model_multilocus_v1.pkl
-assets/models/crispr_model_v2.pkl
-assets/models/crispr_model_v2_cv_summary.csv
-assets/models/crispr_model_v3.pkl
-assets/models/crispr_model_v3_cv_summary.csv
-assets/stub/AAVS1_site14.targets.csv
-assets/stub/aavs1site14_samplesheet.csv
-bin/add_vep2targetfile.pl.bak
+
+# ---- Python (vendored envs, caches, build metadata) ----
+__pycache__/
+*.pyc
+*.dist-info/
+*.libs/
+.pytest_cache/
+# local test venv/cache created by run_offtarget_tests.sh
+.offtarget_testenv*/
+.offtarget_testcache/
+
+# ---- Scheduler / process logs ----
+*.log
+*.err
+
+# ---- OS / editor ----
+.DS_Store
+/.dir_bash_history
+
+# ---- Local-only files: not part of the pipeline ----
+/CLAUDE.md
+/REPO_INVENTORY.md
+/DEBUGGING_REPORT.md
+/to_commit.md
+/pipeline_explanation.txt
+/Groovy vs. Shell in Nextflow.txt
+/minimal.config
+/flowchart.dot
+/extracted_indels.json
+/versions.yml
+/build.sh
+/nextflow
+/-e
+/s
+/err.txt
+/AAVS1site14_WTcas9-DNA.scge_report_ml.html
+/AAVS1site14_WTcas9-DNA.scge_report_og.html
+/analysis_samples.csv
+/mastersheet.*.csv
+/offtarget_samplesheet_aavs1.csv
+/mock_dragen_dir/
+/aavs1_ml_testing/
+/training_data/
+/run.sh
+/run_all.sh
+/run_test.sh
+/run_offtarget_aavs1.sh
+/test_syntax.nf
+/test_versions.nf
+
+# ---- Legacy CRISPR-ML scripts / models (deprecated; see REPO_INVENTORY.md) ----
+bin/*.bak
 bin/build_crispr_training_dataset.py
 bin/build_from_curated_tsv.py
 bin/build_training_from_tsv.py
@@ -58,89 +87,18 @@ bin/train_aavs1_v3_lsf.sh
 bin/train_crispr_model.py
 bin/train_multilocus_v1.py
 bin/tsv_to_vcf.py
-build.sh
-contourpy-1.3.3.dist-info/
-contourpy/
-cramjam-2.11.0.dist-info/
-cramjam/
-cycler-0.12.1.dist-info/
-cycler/
-dateutil/
-"docs/images/Screenshot 2026-07-10 at 12.07.54\342\200\257PM.png"
-"docs/images/Screenshot 2026-07-10 at 12.09.43\342\200\257PM.png"
-err.txt
-extracted_indels.json
-fastparquet-2025.12.0.dist-info/
-fastparquet/
-flowchart.dot
-fontTools/
-fonttools-4.61.1.dist-info/
-fsspec-2026.2.0.dist-info/
-fsspec/
-joblib-1.5.3.dist-info/
-joblib/
-kiwisolver-1.4.9.dist-info/
-kiwisolver/
-mastersheet.AAVS1site14.csv
-mastersheet.AAVS1site5.csv
-mastersheet.new.csv
-matplotlib-3.10.8.dist-info/
-matplotlib/
-minimal.config
-mock_dragen_dir/
-mpl_toolkits/
-nextflow
-numpy-2.4.2.dist-info/
-numpy.libs/
-numpy/
-nvidia/
-nvidia_nccl_cu12-2.29.3.dist-info/
-nxf-tmp.p0USbJ
-offtarget_samplesheet_aavs1.csv
-packaging-26.0.dist-info/
-packaging/
-pandas-3.0.1.dist-info/
-pandas/
-pillow-12.1.1.dist-info/
-pillow.libs/
-pipeline_explanation.txt
-pyarrow-23.0.1.dist-info/
-pyarrow/
-pylab.py
-pyparsing-3.3.2.dist-info/
-pyparsing/
-python_dateutil-2.9.0.post0.dist-info/
-run.sh
-run_all.sh
-run_offtarget_aavs1.sh
-run_test.sh
-s
-scikit_learn-1.8.0.dist-info/
-scikit_learn.libs/
-scipy-1.17.1.dist-info/
-scipy.libs/
-scipy/
-share/
-six-1.17.0.dist-info/
-six.py
-sklearn/
-subworkflows/nf-core/utils_nfschema_plugin/
-test_syntax.nf
-test_versions.nf
-threadpoolctl-3.6.0.dist-info/
-threadpoolctl.py
-to_commit.md
-training_data/
-training_v4.932469.err
-training_v4.932469.log
-training_v4.932660.err
-training_v4.932660.log
-versions.yml
-xgboost-3.2.0.dist-info/
-xgboost.libs/
-xgboost/
+assets/NO_*.csv
+assets/NO_*.tsv
+assets/empty*.txt
+assets/all_samples_mastersheet.csv
+assets/ecs_samples_mastersheet.csv
+assets/models/crispr_model_*.pkl
+assets/models/crispr_model_*_cv_summary.csv
+assets/stub/AAVS1_site14.targets.csv
+assets/stub/aavs1site14_samplesheet.csv
 
-# off-target test harness (run_offtarget_tests.sh)
-.offtarget_testenv*/
-results_stub/
-.offtarget_testcache/
+# ---- nf-core plugin cache ----
+subworkflows/nf-core/utils_nfschema_plugin/
+
+# ---- Large committed-doc screenshots ----
+docs/images/Screenshot*.png

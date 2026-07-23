@@ -21,7 +21,7 @@ process ECS_INDELS {
     // was the sole cause of multi-TB work-dir bloat / ENOSPC. Off unless explicitly asked.
     def unevaluable = params.offtarget_ecs_unevaluable_log ? "-u ${meta.id}.unevaluable_reads.txt" : ""
     """
-    find_edited_reads.py \\
+    python ${projectDir}/bin/find_edited_reads.py \\
         --fasta ${reference} \\
         --edited-bam ${edited_cram} \\
         --control-bam ${control_cram} \\
