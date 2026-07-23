@@ -113,6 +113,10 @@ On RIS Compute1 (LSF) run `nextflow run . -entry OFFTARGET -profile ris` under `
 `assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
 workflow does not run. Full docs: [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
 
+**Retrain the shape model** from a paired run's `training.tsv` with the separate `TRAIN` entry —
+`nextflow run . -entry TRAIN --input results_offtarget/offtarget/training.tsv --outdir results` →
+`results/train/wgs_shape_model.pkl`, then deploy via `--offtarget_shape_model`. See the docs.
+
 Add `--offtarget_snapshots true` to render an IGV-style **edited-vs-normal** read pileup for every
 LIKELY EDIT (into `<outdir>/offtarget/snapshots/`) — by-eye verification straight from the CRAM:
 

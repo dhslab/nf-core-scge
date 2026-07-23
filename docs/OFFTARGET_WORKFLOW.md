@@ -112,6 +112,38 @@ You hand it one samplesheet with these columns:
 | `offtarget_hotspot_pad` | 25 | bp window to match a worklist hit to a predicted hotspot |
 | `offtarget_snapshots` | false | render IGV-style pileup PNGs for LIKELY EDITs |
 
+## Retraining the shape model (`-entry TRAIN`)
+
+The deployed model (`offtarget_shape_model`) is a fixed asset — training is deliberately **not**
+in the OFFTARGET DAG. To fit a new one from your own cohort, use the separate `TRAIN` entry:
+
+```bash
+# 1. run OFFTARGET (paired ECS+WGS) to produce the labeled training table
+sbatch run_offtarget.sh --input paired_samplesheet.csv --outdir results
+#    -> results/offtarget/training.tsv
+
+# 2. fit a new shape model from it
+nextflow run . -entry TRAIN -profile ris2,apptainer \
+    --input results/offtarget/training.tsv --outdir results
+#    -> results/train/wgs_shape_model.pkl  +  train_metrics.json (holdout AUC/AP)
+
+# 3. deploy it
+sbatch run_offtarget.sh --input cohort.csv --outdir results2 \
+    -- --offtarget_shape_model results/train/wgs_shape_model.pkl
+```
+
+`train_shape_model.py` fits a `HistGradientBoostingClassifier` on the `MODEL_FEATURES` **present in
+the table** and records that exact list in the bundle (`{model, features, …}`); `score.py` selects
+inputs by `bundle["features"]`, so the model is a drop-in even if the table carries a subset. It
+runs in the off-target container so the pickle is written under the same scikit-learn the pipeline
+scores with (the version guard rejects loading a model pickled under a *newer* sklearn). Tune with
+`--offtarget_train_{learning_rate,max_iter,max_depth,holdout_frac,seed}`.
+
+> The full-strength model needs all seven features (`indel_frac, conc_ratio, pos_conc, pos_mad,
+> modal_len, modal_mapq, softclip_frac`); `SCORE_HOTSPOTS` now emits all of them into `training.tsv`.
+> A table generated before that change carries only three and trains a weaker model (the trainer
+> warns and reports which are missing).
+
 ## What this workflow is (and is not)
 
 - **It is** a **hotspot edit-confirmation + genome-wide screen**. At known/nominated hotspots the WGS

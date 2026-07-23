@@ -13,7 +13,8 @@ VAF) + label. This feeds the OFFLINE trainer; the deployed model stays a fixed a
 import sys, argparse
 import pandas as pd
 
-WGS_FEATURE_COLS = ["indel_frac", "conc_ratio", "spanning", "ctrl_if", "modal_len",
+WGS_FEATURE_COLS = ["indel_frac", "conc_ratio", "pos_conc", "pos_mad", "modal_len",
+                    "modal_mapq", "softclip_frac", "spanning", "ctrl_if",
                     "modal_pos", "min_mm", "score", "verdict"]
 
 

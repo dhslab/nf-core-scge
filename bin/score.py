@@ -245,7 +245,15 @@ def main():
                        indel_frac=round(feats["indel_frac"], 3),
                        modal_len=feats.get("modal_len"), modal_pos=opos,
                        ctrl_if=(round(ctrl_if, 3) if ctrl_if is not None else np.nan),
-                       ctrl_span=ctrl_span)
+                       ctrl_span=ctrl_span,
+                       # remaining MODEL_FEATURES, emitted so the training table (via
+                       # join_training_table.py) carries the full shape-model feature set
+                       # for the offline trainer (-entry TRAIN). NaN in the lowcov/NO-CRAM
+                       # branches is filled automatically by the DataFrame union.
+                       pos_conc=round(feats["pos_conc"], 4),
+                       pos_mad=round(feats["pos_mad"], 3),
+                       modal_mapq=round(feats["modal_mapq"], 1),
+                       softclip_frac=round(feats["softclip_frac"], 4))
         rows.append(rec)
 
     res = add_recurrence(pd.DataFrame(rows))

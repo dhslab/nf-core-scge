@@ -1,6 +1,8 @@
 // BUILD_TRAINING_TABLE — join WGS hotspot features ⋈ ECS truth on (guide, chrom, start).
-// Emits training.tsv (WGS features + ECS VAF + label) for the OFFLINE model trainer.
+// Emits training.tsv (WGS features + ECS VAF + label) for the offline model trainer.
 // Training is deliberately NOT in this DAG; the deployed model stays a fixed asset.
+// Retrain it with the separate `-entry TRAIN` workflow (workflows/train.nf):
+//   -entry TRAIN --input <this training.tsv>  ->  a new wgs_shape_model.pkl.
 process BUILD_TRAINING_TABLE {
     tag "cohort"
     label 'process_low'

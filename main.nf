@@ -20,6 +20,7 @@ include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_scge
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { INPUT_CHECK             } from './subworkflows/local/input_check'
 include { OFFTARGET_WORKFLOW      } from './workflows/offtarget'
+include { TRAIN_WORKFLOW          } from './workflows/train'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -66,6 +67,16 @@ workflow {
 //
 workflow OFFTARGET {
     OFFTARGET_WORKFLOW()
+}
+
+//
+// WORKFLOW: Off-Target Model Trainer (offline retrain loop).
+// Run with:  nextflow run . -entry TRAIN -profile ris2,apptainer --input training.tsv --outdir ./results
+// Fits a new wgs_shape_model.pkl from a BUILD_TRAINING_TABLE output; deploy it via
+// -entry OFFTARGET --offtarget_shape_model <new.pkl>.
+//
+workflow TRAIN {
+    TRAIN_WORKFLOW()
 }
 
 /*
