@@ -1,0 +1,99 @@
+"""Tests for bin/combine_offtarget_results.py — the per-guide off-target site combiner.
+
+Uses small synthetic Cas-OFFinder (bulge) and CRISPRme fixtures where the expected merge
+is hand-computed, plus the committed assets/stub/AAVS1_site14.targets.csv as a schema oracle.
+No pysam/CRAM/model needed — just pandas (the docker-scge-offtarget container, or any pandas env).
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+import pandas as pd
+from conftest import BIN, run
+
+REPO = Path(__file__).resolve().parent.parent
+CANONICAL_HEADER = ["Source", "DNA_Sequence", "PAM", "Chromosome", "Strand", "Start",
+                    "Bulge_Type", "Mismatch", "Bulge_Size", "On_target"]
+
+# A 23-mer (20 spacer + TGG PAM) that both tools predict at the same physical site.
+DNA = "GGGGCCACTAGGGACAGGATTGG"
+
+# Cas-OFFinder bulge output: Bulge type, crRNA, DNA, Chrom, Position, Direction, MM, Bulge Size.
+# '+' strand: adjusted Start = Position + (len(DNA) - 3) = 100 + 20 = 120.
+CASOFFINDER = "\t".join(["Bulge type", "crRNA", "DNA", "Chromosome", "Position",
+                         "Direction", "Mismatches", "Bulge Size"]) + "\n" + "\n".join([
+    "\t".join(["X", DNA, DNA, "chr1", "100", "+", "2", "0"]),   # shared site @ chr1:120
+    "\t".join(["X", DNA, DNA, "chr2", "200", "+", "0", "0"]),   # cas-only on-target @ chr2:220
+]) + "\n"
+
+# CRISPRme TSV (>=16 cols): idx 1=chrom, 2=start, 3=strand, 5=DNA, 7=PAM, 8=MM, 9=bulge, 15=bulge type.
+# '+' strand: adjusted Start = start + (len(DNA) - 4) = 101 + 19 = 120  (matches cas @ chr1:120).
+def _crisprme_row(chrom, start, strand, mm, bulge, btype):
+    cols = [""] * 16
+    cols[0] = "crRNA"; cols[1] = chrom; cols[2] = str(start); cols[3] = strand
+    cols[5] = DNA; cols[7] = "TGG"; cols[8] = str(mm); cols[9] = str(bulge); cols[15] = btype
+    return "\t".join(cols)
+
+CRISPRME = "crisprme_header\n" + "\n".join([
+    _crisprme_row("chr1", 101, "+", 2, 0, "mismatch"),         # shared site @ chr1:120
+    _crisprme_row("chr3", 300, "+", 3, 1, "RNA"),              # crisprme-only @ chr3:319
+]) + "\n"
+
+
+def _write(tmp_path, casoff=True, crisprme=True):
+    if casoff:
+        (tmp_path / "g.casoffinder.txt").write_text(CASOFFINDER)
+    if crisprme:
+        (tmp_path / "g.crisprme.tsv").write_text(CRISPRME)
+
+
+def test_combine_merges_shared_site(tmp_path):
+    _write(tmp_path)
+    run("combine_offtarget_results.py",
+        "--casoffinder", "g.casoffinder.txt", "--crisprme", "g.crisprme.tsv",
+        "-o", "out.csv", cwd=tmp_path)
+    df = pd.read_csv(tmp_path / "out.csv")
+
+    assert list(df.columns) == CANONICAL_HEADER
+    # 3 distinct physical sites: shared chr1, cas-only chr2, crisprme-only chr3
+    assert len(df) == 3
+
+    shared = df[(df["Chromosome"] == "chr1") & (df["Start"] == 120)].iloc[0]
+    assert shared["Source"] == "CasOffFinder|CrisprME"     # both tools, join order preserved
+    assert shared["Mismatch"] == 2                          # min across the two
+    assert shared["Bulge_Size"] == 0
+    assert shared["On_target"] == 0
+    assert shared["PAM"] == "TGG"
+
+    cas_only = df[df["Chromosome"] == "chr2"].iloc[0]
+    assert cas_only["Source"] == "CasOffFinder"
+    assert cas_only["Start"] == 220
+    assert cas_only["On_target"] == 1                       # X / 0 MM / 0 bulge
+
+    cme_only = df[df["Chromosome"] == "chr3"].iloc[0]
+    assert cme_only["Source"] == "CrisprME"
+    assert cme_only["Start"] == 319
+
+
+def test_single_source_ok(tmp_path):
+    """IDT-dropped reality: one source is enough; no crash on the missing others."""
+    _write(tmp_path, casoff=True, crisprme=False)
+    run("combine_offtarget_results.py",
+        "--casoffinder", "g.casoffinder.txt", "-o", "out.csv", cwd=tmp_path)
+    df = pd.read_csv(tmp_path / "out.csv")
+    assert list(df.columns) == CANONICAL_HEADER
+    assert set(df["Source"]) == {"CasOffFinder"}
+    assert len(df) == 2
+
+
+def test_requires_a_source(tmp_path):
+    """No source at all is a usage error (rc != 0)."""
+    proc = subprocess.run([sys.executable, str(BIN / "combine_offtarget_results.py"),
+                           "-o", "out.csv"], cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode != 0
+
+
+def test_schema_matches_committed_targetfile():
+    """The output header must match the committed target_file schema exactly."""
+    committed = pd.read_csv(REPO / "assets/stub/AAVS1_site14.targets.csv", nrows=0)
+    assert list(committed.columns) == CANONICAL_HEADER

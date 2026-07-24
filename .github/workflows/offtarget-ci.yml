@@ -57,8 +57,34 @@ jobs:
       - name: Stub run — ecs_only
         run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_ecs.csv --outdir out_ecs
 
+  hotspots-stub:
+    name: HOTSPOTS stub run (gRNA -> targets DAG wiring)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: "25.10.4"
+
+      # stub blocks only `touch`/`printf` their outputs, so no container/genome is needed.
+      # Point --fasta at the tiny committed fixture (the real /storage2 reference is absent on CI).
+      - name: Stub run — Cas-OFFinder only (default)
+        run: |
+          nextflow run . -entry HOTSPOTS -profile stub -stub-run \
+            --input assets/grna_samplesheet_template.csv \
+            --fasta assets/stub/tiny.fa --outdir out_hotspots
+      - name: Stub run — with CRISPRme enabled
+        run: |
+          mkdir -p crisprme_idx
+          nextflow run . -entry HOTSPOTS -profile stub -stub-run \
+            --input assets/grna_samplesheet_template.csv \
+            --fasta assets/stub/tiny.fa --run_crisprme --crisprme_index_dir crisprme_idx \
+            --outdir out_hotspots_cme
+
   glue-tests:
-    name: OFFTARGET glue-logic unit tests
+    name: OFFTARGET glue-logic + combiner unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +95,7 @@ jobs:
 
       # the glue scripts are pure-pandas; a clean checkout has no repo-root vendored dirs to shadow.
       - name: Install test deps
-        run: python -m pip install --quiet pandas matplotlib pytest
+        run: python -m pip install --quiet pandas matplotlib pytest openpyxl
 
-      - name: Run glue tests
-        run: python -m pytest -q tests/test_offtarget_glue.py
+      - name: Run glue + combiner tests
+        run: python -m pytest -q tests/test_offtarget_glue.py tests/test_combine_offtarget.py

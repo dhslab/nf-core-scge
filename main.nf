@@ -21,6 +21,7 @@ include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge
 include { VALIDATE_PARAMS         } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { OFFTARGET_WORKFLOW      } from './workflows/offtarget'
 include { TRAIN_WORKFLOW          } from './workflows/train'
+include { GENERATE_HOTSPOTS       } from './subworkflows/local/generate_hotspots'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -107,6 +108,41 @@ workflow TRAIN {
         "nextflow run ${workflow.manifest.name} -entry TRAIN -profile ris2,apptainer --input training.tsv --outdir <OUTDIR>"
     )
     TRAIN_WORKFLOW()
+}
+
+//
+// WORKFLOW: Auto-Hotspot Finder — gRNA -> predicted off-target sites (target_file).
+// Run with:  nextflow run . -entry HOTSPOTS -profile ris2,apptainer --input grna_samplesheet.csv --outdir ./results
+// Emits, per guide, <guide>.targets.csv (readable) and <guide>.targets.vcf (feed as the
+// OFFTARGET arm's per-row target_file). Cas-OFFinder by default; add --run_crisprme with a
+// prebuilt --crisprme_index_dir to also include CRISPRme.
+//
+workflow HOTSPOTS {
+    VALIDATE_PARAMS (
+        params.version,
+        params.help,
+        params.validate_params,
+        params.monochrome_logs,
+        args,
+        params.outdir,
+        "nextflow run ${workflow.manifest.name} -entry HOTSPOTS -profile ris2,apptainer --input grna_samplesheet.csv --outdir <OUTDIR>"
+    )
+
+    if (!params.input) { error "HOTSPOTS: provide --input grna_samplesheet.csv (columns: guide_id,spacer[,pam,idt])" }
+
+    ch_guides = Channel.fromPath(params.input, checkIfExists: true)
+        | splitCsv(header: true)
+        | map { row ->
+            if (!row.guide_id?.trim() || !row.spacer?.trim()) {
+                error "HOTSPOTS: every --input row needs non-empty 'guide_id' and 'spacer' (got: ${row})"
+            }
+            def pam = (row.pam?.trim()) ?: params.offtarget_pam
+            def idt = (row.idt?.trim()) ? file(row.idt.trim(), checkIfExists: true)
+                                        : file("${projectDir}/assets/NO_IDT")
+            tuple([id: row.guide_id.trim()], row.spacer.trim().toUpperCase(), pam, idt)
+        }
+
+    GENERATE_HOTSPOTS(ch_guides)
 }
 
 /*

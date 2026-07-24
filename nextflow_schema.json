@@ -194,6 +194,47 @@
                 }
             }
         },
+        "hotspot_finder_options": {
+            "title": "Auto-hotspot finder options",
+            "type": "object",
+            "fa_icon": "fas fa-crosshairs",
+            "description": "gRNA -> predicted off-target sites (-entry HOTSPOTS).",
+            "properties": {
+                "offtarget_pam": {
+                    "type": "string",
+                    "default": "NGG",
+                    "description": "SpCas9 PAM used for off-target search"
+                },
+                "offtarget_mismatches": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Max mismatches to enumerate"
+                },
+                "offtarget_bulges": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Max DNA/RNA bulge size to enumerate"
+                },
+                "casoffinder_2bit": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Prebuilt .2bit for Cas-OFFinder; null builds it from --fasta with faToTwoBit"
+                },
+                "run_crisprme": {
+                    "type": "boolean",
+                    "description": "Also run CRISPRme (needs --crisprme_index_dir); default is Cas-OFFinder only"
+                },
+                "run_idt": {
+                    "type": "boolean",
+                    "description": "Include a per-guide IDT off-target export (.xlsx via the samplesheet 'idt' column) in the combine"
+                },
+                "crisprme_index_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Prebuilt CRISPRme index directory (built offline by bin/build_crisprme_index.sh)"
+                }
+            }
+        },
         "offtarget_train_options": {
             "title": "Off-target model trainer options",
             "type": "object",
@@ -610,6 +651,9 @@
         },
         {
             "$ref": "#/definitions/offtarget_options"
+        },
+        {
+            "$ref": "#/definitions/hotspot_finder_options"
         },
         {
             "$ref": "#/definitions/offtarget_train_options"

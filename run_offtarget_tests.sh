@@ -179,16 +179,16 @@ else
 fi
 
 # ===========================================================================
-hdr "Tier 1 — glue-logic unit tests (the ECS<->WGS join)"
+hdr "Tier 1 — glue-logic unit tests (ECS<->WGS join + off-target combiner)"
 if [ "$MODE_PY" = none ]; then
-  sk "pytest tests/test_offtarget_glue.py" "no python backend (load apptainer, or INSTALL_DEPS=1)"
+  sk "pytest tests/test_offtarget_glue.py tests/test_combine_offtarget.py" "no python backend (load apptainer, or INSTALL_DEPS=1)"
 elif ! run_py -c "import pytest, pandas" >/dev/null 2>&1; then
-  sk "pytest tests/test_offtarget_glue.py" "pytest/pandas unavailable"
+  sk "pytest tests/test_offtarget_glue.py tests/test_combine_offtarget.py" "pytest/pandas unavailable"
 else
-  if run_py -m pytest -q "$REPO/tests/test_offtarget_glue.py" >/tmp/off_pytest.log 2>&1; then
-    ok "$(grep -Eo '[0-9]+ passed' /tmp/off_pytest.log | tail -1) — glue tests"
+  if run_py -m pytest -q "$REPO/tests/test_offtarget_glue.py" "$REPO/tests/test_combine_offtarget.py" >/tmp/off_pytest.log 2>&1; then
+    ok "$(grep -Eo '[0-9]+ passed' /tmp/off_pytest.log | tail -1) — glue + combiner tests"
   else
-    no "pytest glue tests (see /tmp/off_pytest.log)"; tail -n 20 /tmp/off_pytest.log | sed 's/^/      /'
+    no "pytest glue/combiner tests (see /tmp/off_pytest.log)"; tail -n 20 /tmp/off_pytest.log | sed 's/^/      /'
   fi
 fi
 
@@ -232,6 +232,18 @@ else
     sk "nextflow -stub-run" "Java 17+ not available in this env"
   else
     no "stub run (see /tmp/off_stub.log)"; tail -n 20 /tmp/off_stub.log | sed 's/^/      /'
+  fi
+
+  # HOTSPOTS entry (gRNA -> targets) — pure-shell stubs, tiny committed fixture FASTA.
+  rm -rf "$REPO/results_hotspots_stub"
+  if "$NF" run . -entry HOTSPOTS -profile stub -stub-run \
+        --input assets/grna_samplesheet_template.csv --fasta assets/stub/tiny.fa \
+        --outdir "$REPO/results_hotspots_stub" >/tmp/hotspots_stub.log 2>&1; then
+    ok "HOTSPOTS stub run completed (Cas-OFFinder -> combine -> targets.vcf)"
+  elif nf_env_broke /tmp/hotspots_stub.log; then
+    sk "HOTSPOTS -stub-run" "Java 17+ not available in this env"
+  else
+    no "HOTSPOTS stub run (see /tmp/hotspots_stub.log)"; tail -n 20 /tmp/hotspots_stub.log | sed 's/^/      /'
   fi
 fi
 
