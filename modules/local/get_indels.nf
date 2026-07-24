@@ -35,18 +35,9 @@ process GET_INDELS {
     """
 
     stub:
-    def inputs = [
-        reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: "",
-        crispr_model ? "--enable-crispr-prediction --crispr-model ${crispr_model} --crispr-threshold 0.7" : "",
-        dragen_files.findAll{ it ==~ /.*\.(cram)$/ }.max{ it.toString().length() }?.with{ "--edited-bam $it" } ?: "",
-        dragen_files.findAll{ it ==~ /.*\.(cram)$/ }.min{ it.toString().length() }?.with{ "--control-bam $it" } ?: "",
-        hotspot_file ? "--target-file ${hotspot_file}" : ""
-    ].join(' ').trim()
-    
     """
-    touch ${meta.id}.offtarget_indels.tsv
-    touch ${meta.id}.fp_filtered.txt
-    touch ${meta.id}.ml_results.txt
+    touch ${meta.id}.offtarget_analysis.tsv
+    touch ${meta.id}.offtarget_edits.vcf
 
     cat <<-END_VERSIONS > versions.yml
     ${task.process}:

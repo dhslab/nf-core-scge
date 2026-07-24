@@ -36,8 +36,8 @@ jobs:
           version: "${{ matrix.NXF_VER }}"
 
       - name: Run pipeline with test data
-        # TODO nf-core: You can customise CI pipeline run tests as required
-        # For example: adding multiple test runs with different parameters
-        # Remember that you can parallelise this by using strategy.matrix
+        # The bundled assets/stub/ inputs are truncated placeholders, not real data, so this
+        # is a DAG/wiring check via each module's stub block rather than a data test.
+        # -entry OFFTARGET and -entry TRAIN are covered separately by offtarget-ci.yml.
         run: |
-          nextflow run ${GITHUB_WORKSPACE} -profile test,docker --outdir ./results
+          nextflow run ${GITHUB_WORKSPACE} -profile test,docker -stub-run --outdir ./results

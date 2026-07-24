@@ -27,22 +27,13 @@ process GENERATE_CNA_BAF_PLOTS {
     """
 
     stub:
-    def args = task.ext.args ?: ''
-    def input = [
-        "--id ${meta.id}",
-        dragen_files.find{ it ==~ /.*\.baf\.bedgraph\.gz$/ }?.with{ "--baf $it" } ?: "",
-        dragen_files.find{ it ==~ /.*\.tn\.tsv\.gz$/ }?.with{ "--cn $it" } ?: ""
-    ].join(' ').trim()
-
     """
     touch ${meta.id}.cna_plot.png
     touch ${meta.id}.baf_plot.png
-
-    }
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         generate_cna_baf_plots: \$(generate_cna_baf_plots.R --version)
     END_VERSIONS
     """
-} 
+}

@@ -92,6 +92,57 @@ workflow PIPELINE_INITIALISATION {
 
 /*
 ========================================================================================
+    SUBWORKFLOW TO VALIDATE PARAMETERS ONLY
+========================================================================================
+*/
+
+//
+// The validation half of PIPELINE_INITIALISATION, without INPUT_CHECK.
+//
+// The named entries (-entry OFFTARGET, -entry TRAIN) take their own samplesheet shapes
+// (an ecs/wgs sheet and a training.tsv respectively), neither of which is the MGI
+// mastersheet INPUT_CHECK parses. They still need --help, version reporting and
+// schema validation, so they call this instead of PIPELINE_INITIALISATION.
+//
+workflow VALIDATE_PARAMS {
+
+    take:
+    version           // boolean: Display version and exit
+    help              // boolean: Display help text
+    validate_params   // boolean: Validate parameters against the schema at runtime
+    monochrome_logs   // boolean: Do not use coloured log outputs
+    nextflow_cli_args //   array: List of positional nextflow CLI args
+    outdir            //  string: The output directory where the results will be saved
+    workflow_command  //  string: Example command shown in the help text
+
+    main:
+
+    UTILS_NEXTFLOW_PIPELINE (
+        version,
+        true,
+        outdir,
+        workflow.profile.tokenize(',').intersect(['conda', 'mamba']).size() >= 1
+    )
+
+    pre_help_text  = nfCoreLogo(monochrome_logs)
+    post_help_text = '\n' + workflowCitation() + '\n' + dashedLine(monochrome_logs)
+
+    UTILS_NFVALIDATION_PLUGIN (
+        help,
+        workflow_command,
+        pre_help_text,
+        post_help_text,
+        validate_params,
+        "nextflow_schema.json"
+    )
+
+    UTILS_NFCORE_PIPELINE (
+        nextflow_cli_args
+    )
+}
+
+/*
+========================================================================================
     SUBWORKFLOW FOR PIPELINE COMPLETION
 ========================================================================================
 */

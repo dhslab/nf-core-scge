@@ -26,7 +26,7 @@ process BND_FROM_INDELS_TO_VCF {
 
     stub:
     """
-    touch ${meta.id}.offtarget_svs.vcf"
+    touch ${meta.id}.offtarget_svs.vcf
 
     cat <<-END_VERSIONS > versions.yml
     ${task.process}:

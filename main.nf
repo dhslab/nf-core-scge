@@ -18,7 +18,7 @@ nextflow.enable.dsl = 2
 include { SCGE                    } from './workflows/scge'
 include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_scge_pipeline'
-include { INPUT_CHECK             } from './subworkflows/local/input_check'
+include { VALIDATE_PARAMS         } from './subworkflows/local/utils_nfcore_scge_pipeline'
 include { OFFTARGET_WORKFLOW      } from './workflows/offtarget'
 include { TRAIN_WORKFLOW          } from './workflows/train'
 
@@ -36,13 +36,25 @@ workflow {
     main:
     ch_versions = Channel.empty()
 
-    INPUT_CHECK(params.input)
-        .set { ch_input }
+    //
+    // SUBWORKFLOW: Validate params against nextflow_schema.json, print the run summary,
+    // and build the input channel. This is what makes --help and parameter validation
+    // work; INPUT_CHECK is invoked inside it, so it must not also be called here.
+    //
+    PIPELINE_INITIALISATION (
+        params.version,
+        params.help,
+        params.validate_params,
+        params.monochrome_logs,
+        args,
+        params.outdir,
+        params.input
+    )
 
-    ch_versions = ch_versions.mix(ch_input.versions)
+    ch_versions = ch_versions.mix(PIPELINE_INITIALISATION.out.versions)
 
     SCGE (
-        ch_input.input
+        PIPELINE_INITIALISATION.out.input
     )
     ch_versions = ch_versions.mix(SCGE.out.versions)
 
@@ -66,6 +78,15 @@ workflow {
 // When -entry OFFTARGET is given, the default SCGE workflow above does not run.
 //
 workflow OFFTARGET {
+    VALIDATE_PARAMS (
+        params.version,
+        params.help,
+        params.validate_params,
+        params.monochrome_logs,
+        args,
+        params.outdir,
+        "nextflow run ${workflow.manifest.name} -entry OFFTARGET -profile ris2,apptainer --input offtarget_samplesheet.csv --outdir <OUTDIR>"
+    )
     OFFTARGET_WORKFLOW()
 }
 
@@ -76,6 +97,15 @@ workflow OFFTARGET {
 // -entry OFFTARGET --offtarget_shape_model <new.pkl>.
 //
 workflow TRAIN {
+    VALIDATE_PARAMS (
+        params.version,
+        params.help,
+        params.validate_params,
+        params.monochrome_logs,
+        args,
+        params.outdir,
+        "nextflow run ${workflow.manifest.name} -entry TRAIN -profile ris2,apptainer --input training.tsv --outdir <OUTDIR>"
+    )
     TRAIN_WORKFLOW()
 }
 

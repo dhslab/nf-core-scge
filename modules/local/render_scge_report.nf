@@ -86,4 +86,16 @@ process RENDER_SCGE_REPORT {
         quarto: \$(quarto --version)
     END_VERSIONS
     """
+
+    stub:
+    """
+    touch ${meta.id}.scge_report.html
+    touch indel_freq.png
+    touch off_targets.png
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        quarto: \$(quarto --version)
+    END_VERSIONS
+    """
 }
