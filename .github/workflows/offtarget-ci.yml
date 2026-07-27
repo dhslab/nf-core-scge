@@ -56,6 +56,11 @@ jobs:
         run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_wgs.csv --outdir out_wgs
       - name: Stub run — ecs_only
         run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_ecs.csv --outdir out_ecs
+      # ecs rows with a spacer but no target_file auto-generate the hotspot VCF (once per guide)
+      - name: Stub run — ecs target_file auto-wire from spacer
+        run: |
+          nextflow run . -entry OFFTARGET -profile stub -stub-run \
+            --input assets/stub/offtarget_autowire.csv --fasta assets/stub/tiny.fa --outdir out_autowire
 
   hotspots-stub:
     name: HOTSPOTS stub run (gRNA -> targets DAG wiring)

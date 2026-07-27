@@ -29,6 +29,7 @@ include { SCORE_HOTSPOTS            } from '../modules/local/score_hotspots.nf'
 include { BUILD_TRAINING_TABLE      } from '../modules/local/build_training_table.nf'
 include { RECALL_VS_VAF             } from '../modules/local/recall_vs_vaf.nf'
 include { RECONCILE_OFFTARGET_REPORT } from '../modules/local/reconcile_offtarget_report.nf'
+include { GENERATE_HOTSPOTS          } from '../subworkflows/local/generate_hotspots.nf'
 
 workflow OFFTARGET_WORKFLOW {
 
@@ -50,6 +51,32 @@ workflow OFFTARGET_WORKFLOW {
     if (n_ecs + n_wgs == 0) { error "OFFTARGET: no ecs/wgs rows in --input" }
     def mode = (n_ecs && n_wgs) ? 'paired' : (n_wgs ? 'wgs_only' : 'ecs_only')
     log.info "OFFTARGET mode: ${mode}  (${n_ecs} ecs, ${n_wgs} wgs rows)"
+
+    // ---- preflight: every ecs row needs a target_file OR a spacer (to auto-generate one via
+    // GENERATE_HOTSPOTS). Count the auto-generate rows synchronously here so the hotspot
+    // subworkflow — whose PREP_CASOFFINDER_REF runs once regardless of guide count — is only
+    // invoked when a row actually needs it (never on a fully target_file-provided sheet).
+    def n_ecs_auto = 0
+    if (n_ecs > 0) {
+        def sfi = hdr.indexOf('spacer')
+        def tfi = hdr.indexOf('target_file')
+        def si2 = hdr.indexOf('sample')
+        def eprob = []
+        rows.drop(1).each { line ->
+            def cols = line.split(',', -1)
+            if ((cols[dti] ?: '').trim().toLowerCase() != 'ecs') return
+            def sample = si2 >= 0 ? (cols[si2] ?: '').trim() : '?'
+            def tf = tfi >= 0 ? (cols[tfi] ?: '').trim() : ''
+            def sp = sfi >= 0 ? (cols[sfi] ?: '').trim() : ''
+            if (!tf && !sp) {
+                eprob << "row '${sample}': ecs row needs a 'target_file' or a 'spacer' (to auto-generate one)"
+            } else if (!tf && sp) {
+                n_ecs_auto++
+            }
+        }
+        if (eprob) { error "OFFTARGET: ecs preflight failed:\n  " + eprob.join('\n  ') }
+        if (n_ecs_auto > 0) { log.info "OFFTARGET: auto-generating hotspots for ${n_ecs_auto} ecs row(s) from their spacer" }
+    }
 
     // ---- preflight: WGS rows depend on DRAGEN sidecar files derived from the tumor CRAM name
     // by convention (bin/worklist_from_vcf.py, bin/score.py): the matched normal '<base>.cram'
@@ -95,10 +122,37 @@ workflow OFFTARGET_WORKFLOW {
     // ---- ECS arm: truth at hotspots ----
     ch_ecs_truth_files = Channel.empty()
     if (n_ecs > 0) {
-        ch_ecs_in = ch_rows.ecs.map { row ->
-            tuple([id: row.sample, guide: row.guide],
-                  row.edited_cram, row.control_cram, row.target_file)
+        // Rows that already point at a target_file VCF use it directly.
+        ch_ecs_provided = ch_rows.ecs
+            .filter { row -> row.target_file?.trim() }
+            .map { row -> tuple([id: row.sample, guide: row.guide],
+                                row.edited_cram, row.control_cram, row.target_file) }
+
+        if (n_ecs_auto > 0) {
+            // Rows with a spacer but no target_file: auto-generate the hotspot VCF once per
+            // guide, then broadcast it to every ecs replicate of that guide.
+            ch_ecs_auto = ch_rows.ecs.filter { row -> !row.target_file?.trim() && row.spacer?.trim() }
+
+            ch_guides = ch_ecs_auto
+                .map { row -> tuple(row.guide, row.spacer.trim().toUpperCase(),
+                                    (row.pam?.trim() ?: params.offtarget_pam)) }
+                .unique()
+                .map { guide, spacer, pam -> tuple([id: guide], spacer, pam,
+                                                    file("${projectDir}/assets/NO_IDT")) }
+
+            GENERATE_HOTSPOTS(ch_guides)
+
+            ch_ecs_auto_in = ch_ecs_auto
+                .map { row -> tuple(row.guide, [id: row.sample, guide: row.guide],
+                                    row.edited_cram, row.control_cram) }
+                .combine(GENERATE_HOTSPOTS.out.vcf.map { meta, vcf -> tuple(meta.id, vcf) }, by: 0)
+                .map { guide, meta, ed, ctl, vcf -> tuple(meta, ed, ctl, vcf) }
+
+            ch_ecs_in = ch_ecs_provided.mix(ch_ecs_auto_in)
+        } else {
+            ch_ecs_in = ch_ecs_provided
         }
+
         ECS_INDELS(ch_ecs_in, params.fasta)
         ch_ecs_truth_files = ECS_INDELS.out.indels_file.map { meta, tsv -> tsv }
     }

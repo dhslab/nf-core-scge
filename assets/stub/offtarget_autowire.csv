@@ -1,0 +1,3 @@
+sample,datatype,guide,edited_cram,control_cram,target_file,vcf,spacer,pam
+AAVS1_ecs_1,ecs,AAVS1_site14,/abs/AAVS1_edited_1.ecs.cram,/abs/AAVS1_control.ecs.cram,,,GGGGCCACTAGGGACAGGAT,NGG
+AAVS1_ecs_2,ecs,AAVS1_site14,/abs/AAVS1_edited_2.ecs.cram,/abs/AAVS1_control.ecs.cram,,,GGGGCCACTAGGGACAGGAT,NGG

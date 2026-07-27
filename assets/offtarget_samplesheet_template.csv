@@ -1,4 +1,4 @@
-sample,datatype,guide,edited_cram,control_cram,target_file,vcf
-PLCB2_ecs_1,ecs,PLCB2_KO,/abs/path/PLCB2_edited_1.ecs.cram,/abs/path/PLCB2_control.ecs.cram,/abs/path/PLCB2.targets.vcf,
-PLCB2_ecs_2,ecs,PLCB2_KO,/abs/path/PLCB2_edited_2.ecs.cram,/abs/path/PLCB2_control.ecs.cram,/abs/path/PLCB2.targets.vcf,
-PLCB2_wgs_1,wgs,PLCB2_KO,/abs/path/PLCB2_1_tumor.cram,/abs/path/PLCB2_1.cram,,/abs/path/PLCB2_1.hard-filtered.vcf.gz
+sample,datatype,guide,edited_cram,control_cram,target_file,vcf,spacer,pam
+PLCB2_ecs_1,ecs,PLCB2_KO,/abs/path/PLCB2_edited_1.ecs.cram,/abs/path/PLCB2_control.ecs.cram,/abs/path/PLCB2.targets.vcf,,,
+PLCB2_ecs_2,ecs,PLCB2_KO,/abs/path/PLCB2_edited_2.ecs.cram,/abs/path/PLCB2_control.ecs.cram,/abs/path/PLCB2.targets.vcf,,,
+PLCB2_wgs_1,wgs,PLCB2_KO,/abs/path/PLCB2_1_tumor.cram,/abs/path/PLCB2_1.cram,,/abs/path/PLCB2_1.hard-filtered.vcf.gz,,

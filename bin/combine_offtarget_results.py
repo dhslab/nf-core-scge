@@ -59,27 +59,28 @@ def parse_idt(path):
 
 
 def parse_casoffinder(path):
-    """Cas-OFFinder *bulge* output (tab-sep, header) -> rows in the canonical schema.
+    """Cas-OFFinder v3 native bulge output (tab-sep, '#' header lines) -> canonical rows.
 
-    Columns: Bulge type, crRNA, DNA, Chromosome, Position, Direction, Mismatches, Bulge Size.
+    Columns (v3): Id, Bulge Type, crRNA, DNA, Chromosome, Location, Direction, Mismatches, Bulge Size.
+    Cas-OFFinder >=3.0 does DNA/RNA bulges natively (no separate wrapper) and prepends an `Id`
+    column vs the old 2.4 / cas-offinder-bulge layout; its header/comment lines start with '#'.
     """
     rows = []
     with open(path) as fh:
-        fh.readline()                           # header
         for line in fh:
-            if not line.strip():
+            if not line.strip() or line.startswith("#"):
                 continue
             c = line.rstrip("\n").split("\t")
-            bulge_type = c[0]
-            dna = c[2]
+            bulge_type = c[1]
+            dna = c[3]
             dna_only = dna[0:len(dna) - 4]
             pam = dna[len(dna) - 3:len(dna)]
-            chrom = c[3]
-            position = int(c[4])
-            direction = c[5]
+            chrom = c[4]
+            position = int(c[5])
+            direction = c[6]
             adjusted = str(position + (len(dna) - 3)) if direction == "+" else str(position + 4)
-            mismatches = c[6]
-            bulge_size = c[7]
+            mismatches = c[7]
+            bulge_size = c[8]
             on_target = 1 if (bulge_type == "X" and mismatches == "0" and bulge_size == "0") else 0
             rows.append(["CasOffFinder", dna_only, pam, chrom, direction, adjusted,
                          bulge_type, mismatches, bulge_size, on_target])

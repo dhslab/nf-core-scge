@@ -3,12 +3,12 @@
 # Cas-OFFinder (CPU/OpenCL) + the cas-offinder-bulge wrapper (DNA/RNA bulge enumeration,
 # whose output columns the pipeline's combine_offtarget_results.py parses) + UCSC
 # faToTwoBit (so PREP_CASOFFINDER_REF can build the .2bit from params.fasta in the same
-# image). Build and push, then it satisfies `container` in prep_casoffinder_ref.nf and
-# casoffinder.nf:
+# image). Satisfies `container` in prep_casoffinder_ref.nf and casoffinder.nf.
 #
-#   docker build -t ghcr.io/dhslab/docker-casoffinder-bulge:$(date +%y%m%d) \
-#       containers/casoffinder-bulge
-#   docker push  ghcr.io/dhslab/docker-casoffinder-bulge:$(date +%y%m%d)
+# To publish: copy this directory into the lab image repo (dhslab/dhslab-docker-images) as
+# `docker-casoffinder-bulge/` and push to main. The repo's push_docker.yaml auto-builds any
+# changed `**/Dockerfile` and pushes it to ghcr.io/dhslab/<dir> with :latest + :YYMMDD tags,
+# so the directory name must stay `docker-casoffinder-bulge` to match the image the modules pin.
 #
 # CPU-only: cas-offinder runs on the 'C' (CPU) OpenCL device via pocl, so no GPU is needed
 # on the SLURM nodes.
@@ -18,8 +18,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates wget unzip git g++ cmake make \
         opencl-headers ocl-icd-opencl-dev pocl-opencl-icd \
-        python3 python3-pip \
+        python3 python3-pip python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
+# cas-offinder-bulge ships a `#!/usr/bin/python` shebang; python-is-python3 provides
+# /usr/bin/python -> python3 so the wrapper runs (its body is Python-3 clean).
 
 # --- Cas-OFFinder (3.0.0b3) built against pocl for CPU execution -----------------
 ARG CASOFFINDER_VERSION=3.0.0b3
