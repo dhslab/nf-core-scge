@@ -153,11 +153,27 @@ def main():
                    label=f"target recall {args.target_recall:.0%}")
         ax.set_xscale("symlog", linthresh=0.005)
         ax.set_xlabel("ECS error-corrected VAF (lower bin edge)")
-        ax.set_ylabel(f"WGS recall (score ≥ {args.hi})")
+        # NOT "score >= hi": detection is the reported verdict, which includes
+        # high-evidence rescues below that score. And the ratio is over EVALUABLE sites.
+        ax.set_ylabel("WGS recall (LIKELY EDIT / evaluable)")
         ax.set_ylim(-0.02, 1.02)
+        # The figure travels further than the CSV (slides, papers), so it has to carry
+        # its own denominator definition too.
         ax.set_title("WGS-only recovery of ECS-confirmed edits vs VAF")
+        fig.text(0.5, 0.005,
+                 f"denominator = {len(pos)} credible ECS edits "
+                 f"(VAF ≥ {args.min_ecs_vaf:g}, ≥ {args.min_ecs_reads} ECS indel reads); "
+                 f"{n_excluded} sub-threshold ECS calls excluded as assay noise",
+                 ha="center", fontsize=7, color="#4a5568")
         for _, r in g.iterrows():
-            ax.annotate(f"n={r['n']}", (r["vaf_bin"].left, r["recall"]),
+            # Annotate the EVALUABLE count — the denominator this point was actually
+            # computed from. Labelling the credible total instead reads as "n/n detected"
+            # and hides the depth floor (e.g. a bin of 4 credible edits with 2 uncovered
+            # plots at recall 1.0 off 2 sites, not 4).
+            lab = f"n={int(r['n_evaluable'])}"
+            if r["n_unevaluable"]:
+                lab += f" (+{int(r['n_unevaluable'])} uncov.)"
+            ax.annotate(lab, (r["vaf_bin"].left, r["recall"]),
                         textcoords="offset points", xytext=(0, 6), fontsize=8, ha="center")
         ax.legend()
         fig.tight_layout()
