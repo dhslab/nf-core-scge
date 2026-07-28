@@ -4,6 +4,12 @@
 #  are intentionally kept out of git; delete or commit them deliberately.
 # =============================================================================
 
+# ---- Agent / tooling scratch ----
+# Claude Code keeps per-repo settings AND full worktree checkouts under .claude/
+# (each with its own .nextflow logs and work dirs) — hundreds of MB that must never
+# be swept into a commit by `git add -A`.
+.claude/
+
 # ---- Nextflow runtime ----
 .nextflow*
 work/
