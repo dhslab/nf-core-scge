@@ -99,8 +99,11 @@ jobs:
           python-version: "3.11"
 
       # the glue scripts are pure-pandas; a clean checkout has no repo-root vendored dirs to shadow.
+      # scikit-learn is needed by bin/offtarget_metrics.py (PR-AUC / ROC-AUC); the
+      # off-target container pins 1.8.0, but here any recent version is fine since
+      # nothing unpickles a model in these tests.
       - name: Install test deps
-        run: python -m pip install --quiet pandas matplotlib pytest openpyxl
+        run: python -m pip install --quiet pandas matplotlib pytest openpyxl scikit-learn
 
       - name: Run glue + combiner tests
         run: python -m pytest -q tests/test_offtarget_glue.py tests/test_combine_offtarget.py
