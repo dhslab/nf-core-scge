@@ -21,6 +21,9 @@ process WGS_WORKLIST {
     script:
     def homology = params.offtarget_homology_table ? "--homology-table '${params.offtarget_homology_table}'" : ""
     def snaps    = params.offtarget_snapshots ? "--snapshot-dir snapshots" : ""
+    def rescue   = params.offtarget_rescue
+        ? "--rescue-min-ifrac ${params.offtarget_rescue_min_ifrac} --rescue-min-conc ${params.offtarget_rescue_min_conc} --rescue-min-span ${params.offtarget_rescue_min_span}"
+        : "--no-rescue"
     """
     python ${projectDir}/bin/worklist_from_vcf.py \\
         --cram-list ${cram_map} \\
@@ -29,7 +32,7 @@ process WGS_WORKLIST {
         --min-af ${params.offtarget_min_af} \\
         --min-span ${params.offtarget_min_span} \\
         --top ${params.offtarget_top} \\
-        ${homology} ${snaps} \\
+        ${homology} ${snaps} ${rescue} \\
         --out wgs_offtarget_worklist_genomewide.csv
 
     cat <<-END_VERSIONS > versions.yml

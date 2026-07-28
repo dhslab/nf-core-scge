@@ -169,7 +169,10 @@ done
 if [ -z "$NF" ]; then
   sk "nextflow -preview" "no nextflow / java"
 else
-  if "$NF" run . -entry OFFTARGET -profile ris --input "$SS" -preview >/tmp/off_preview.log 2>&1; then
+  # --outdir is a REQUIRED param: without it schema validation fails and this tier
+  # reported a red herring rather than a genuine compile error.
+  if "$NF" run . -entry OFFTARGET -profile ris --input "$SS" --outdir /tmp/off_preview_out \
+       -preview >/tmp/off_preview.log 2>&1; then
     ok "nextflow compiles OFFTARGET entry (-preview, ris profile)"
   elif nf_env_broke /tmp/off_preview.log; then
     sk "nextflow -preview" "Java 17+ not available in this env"

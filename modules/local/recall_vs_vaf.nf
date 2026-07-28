@@ -20,6 +20,8 @@ process RECALL_VS_VAF {
         --training ${training} \\
         --hi ${params.offtarget_hi_score} \\
         --target-recall ${params.offtarget_target_recall} \\
+        --min-ecs-vaf ${params.offtarget_min_ecs_vaf} \\
+        --min-ecs-reads ${params.offtarget_min_ecs_reads} \\
         --out-metrics recall_vs_vaf.csv \\
         --out-curve recall_vs_vaf.png
 

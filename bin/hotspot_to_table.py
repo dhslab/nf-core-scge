@@ -60,14 +60,21 @@ def main():
         t = pd.read_csv(f, sep="\t")
         t["guide"] = guide
         t["ecs_if"] = pd.to_numeric(t["indel_fraction"], errors="coerce").fillna(0.0)
+        # Read support, carried through so downstream can separate a real low-VAF edit
+        # from ECS noise. A VAF alone cannot: at ~5,000x, 3 stray indel reads and a
+        # genuine 0.5% edit both look "low", but only one has read support behind it.
+        t["ecs_indel_reads"] = pd.to_numeric(t.get("indel_reads"), errors="coerce").fillna(0)
+        t["ecs_total_reads"] = pd.to_numeric(t.get("total_reads"), errors="coerce").fillna(0)
         tables.append(t)
     if not tables:
         sys.exit("no ECS tables matched samplesheet ecs samples")
     ecs = pd.concat(tables, ignore_index=True)
 
     # ECS truth per (guide, site): take the strongest ECS evidence across replicates
-    truth = (ecs.groupby(["guide"] + HOTSPOT_COLS, as_index=False, dropna=False)["ecs_if"]
-                .max())
+    truth = (ecs.groupby(["guide"] + HOTSPOT_COLS, as_index=False, dropna=False)
+                .agg(ecs_if=("ecs_if", "max"),
+                     ecs_indel_reads=("ecs_indel_reads", "max"),
+                     ecs_total_reads=("ecs_total_reads", "max")))
     truth["ecs_is_edit"] = (truth["ecs_if"] > args.edit_threshold).astype(int)
     truth.to_csv(args.out_truth, index=False)
 

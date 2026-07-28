@@ -12,11 +12,15 @@ Pipeline (matches issue_011 design):
     pileup shape, apply the depth-augmented shape ranker -> P(edit)-like score.
 
 Verdicts:
-  LIKELY EDIT           score >= HI, clonal
+  LIKELY EDIT           score >= HI, clonal  — OR the high-evidence rescue (below)
   POSSIBLE — review     MID <= score < HI
   ARTIFACT (shape)      score < MID  (scattered / low-MAPQ / not clonal)
   INSUFFICIENT COVERAGE < min-span spanning reads (cannot call — NOT artifact)
   NO CRAM               sample has no CRAM in the list
+
+The `call_basis` column records WHY a LIKELY EDIT was called: "model" (the learned
+shape ranker cleared HI) or "high-evidence" (the rescue rule below fired). Everything
+else is "".
 
 This RANKS candidate sites to review; it is not an off-target recall estimate
 (that needs GUIDE-seq/CIRCLE-seq). On WGS, low-VAF off-targets can sit below the
@@ -122,6 +126,31 @@ def add_recurrence(res):
 # CRAM at the OBSERVED modal indel position — exactly the check a human does in IGV.
 NORMAL_MAX_IF = 0.03      # control indel_frac above this => germline/artifact, not edit
 MIN_EDIT_RATIO = 3.0      # edited must exceed control by this ratio
+
+# ── high-evidence rescue (the recall floor) ────────────────────────────────────
+# The learned shape ranker is a RANKER, not a detector: it is trained to sort review
+# queues and it demotes some unambiguous edits (measured: 5 of 52 manual-review-
+# confirmed CART edits scored 0.27-0.50 despite indel_frac 0.25-1.00, ctrl_if 0.00 and
+# 130-244 spanning reads). Those are not close calls — a human reviewing that pileup in
+# IGV calls them instantly. So a site carrying unambiguous somatic indel evidence is
+# called regardless of what the model thinks:
+#   indel_frac >= RESCUE_MIN_IFRAC   a substantial fraction of reads carry the indel
+#   conc_ratio >= RESCUE_MIN_CONC    they agree on ONE position (clonal, not scattered)
+#   spanning   >= RESCUE_MIN_SPAN    enough depth for those fractions to mean anything
+# The rescue runs AFTER the low-MAPQ and matched-normal gates, so it can never
+# resurrect a germline variant or a repeat pile-up — it only overrides the *model
+# score*, never the evidence-based vetoes.
+# Cost, measured across both real cohorts: +5 calls in 99,308 CART rows (all 5 are the
+# confirmed edits above; zero other rows promoted) and +1 in 5,088 AAVS1 rows.
+RESCUE_MIN_IFRAC = 0.15
+RESCUE_MIN_CONC = 0.5
+RESCUE_MIN_SPAN = 20
+# Positional concordance required to call a site "clonal" on the model path. A site can
+# clear HI and still fail this when several indel alleles share one cut site — genuine
+# multi-allelic editing — so strong depth/burden evidence substitutes for it (see
+# verdict()). Measured cost of that substitution: 1 extra call in 96,327 CART rows (a
+# confirmed edit) and 0 in 4,933 AAVS1 rows.
+CLONAL_MIN = 0.5
 # NOTE: modal_len is NOT gated. A 1bp indel is the MOST common Cas9 outcome (the
 # confirmed PLCB2 off-target is 1bp) — length is reported as an annotation only.
 # The matched-normal recompute is the real edit-vs-artifact arbiter here.
@@ -156,20 +185,39 @@ def control_check(normal_path, chrom, pos, ref, min_span=4, bam_cache=None):
     return float(f["indel_frac"]), int(f["spanning"])
 
 
-def verdict(score, feats, ctrl_if=None):
+def verdict(score, feats, ctrl_if=None, rescue=None):
+    """Returns (verdict, score, call_basis).
+
+    `rescue` is a dict of the high-evidence thresholds (min_ifrac/min_conc/min_span),
+    or None to disable the rescue and score purely on the model.
+    """
     if feats is None or feats.get("lowcov"):
-        return "INSUFFICIENT COVERAGE", np.nan
+        return "INSUFFICIENT COVERAGE", np.nan, ""
     if feats["modal_mapq"] < 20 and feats["indel_frac"] > 0:
-        return "ARTIFACT (low-MAPQ repeat)", score
+        return "ARTIFACT (low-MAPQ repeat)", score, ""
     # normal-subtraction: present in matched control => germline/artifact
     if ctrl_if is not None:
         if ctrl_if >= NORMAL_MAX_IF or feats["indel_frac"] < MIN_EDIT_RATIO * ctrl_if:
-            return "GERMLINE/ARTIFACT (in normal)", score
-    if score >= HI and feats["conc_ratio"] >= 0.5:
-        return "LIKELY EDIT", score
+            return "GERMLINE/ARTIFACT (in normal)", score, ""
+    # Depth + allele burden: enough reads to judge, and a real share of them edited.
+    strong = rescue is not None and (feats["indel_frac"] >= rescue["min_ifrac"]
+                                     and feats["spanning"] >= rescue["min_span"])
+    clonal = feats["conc_ratio"] >= CLONAL_MIN
+    if score >= HI:
+        if clonal:
+            return "LIKELY EDIT", score, "model"
+        # The model is confident but the reads do not share ONE breakpoint. That is what
+        # multi-allelic Cas9 editing looks like (several indel alleles at one cut site),
+        # so clonality is not required when the depth/burden evidence is strong.
+        if strong:
+            return "LIKELY EDIT", score, "high-evidence"
+    # high-evidence rescue: unambiguous somatic indel the ranker under-scored. Gated
+    # behind the two vetoes above, so this can only override the model, not the evidence.
+    if strong and feats["conc_ratio"] >= rescue["min_conc"]:
+        return "LIKELY EDIT", score, "high-evidence"
     if score >= MID:
-        return "POSSIBLE — review", score
-    return "ARTIFACT (shape)", score
+        return "POSSIBLE — review", score, ""
+    return "ARTIFACT (shape)", score, ""
 
 
 def main():
@@ -190,6 +238,15 @@ def main():
                          "min_mm kept as a ranking annotation only")
     ap.add_argument("--no-normal-check", action="store_true",
                     help="skip the matched-normal indel recompute (edited-vs-control)")
+    ap.add_argument("--no-rescue", action="store_true",
+                    help="disable the high-evidence rescue; call LIKELY EDIT on the model "
+                         "score alone (reproduces pre-rescue behaviour)")
+    ap.add_argument("--rescue-min-ifrac", type=float, default=RESCUE_MIN_IFRAC,
+                    help="rescue: minimum indel fraction in the edited sample")
+    ap.add_argument("--rescue-min-conc", type=float, default=RESCUE_MIN_CONC,
+                    help="rescue: minimum positional concordance (clonality)")
+    ap.add_argument("--rescue-min-span", type=int, default=RESCUE_MIN_SPAN,
+                    help="rescue: minimum spanning reads")
     ap.add_argument("--snapshot-dir",
                     help="render an IGV-style pileup PNG for each surviving LIKELY-EDIT "
                          "candidate (edited vs matched normal) into this dir")
@@ -199,6 +256,9 @@ def main():
                     help="report where known edits (_truth) land")
     args = ap.parse_args()
 
+    rescue = None if args.no_rescue else {"min_ifrac": args.rescue_min_ifrac,
+                                          "min_conc": args.rescue_min_conc,
+                                          "min_span": args.rescue_min_span}
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
     check_sklearn_version(model, name=os.path.basename(args.model))
@@ -210,6 +270,9 @@ def main():
     print(f"Stage-1: {len(df)} rows -> {len(cand)} candidates "
           f"({gate}, if>{args.min_ifrac}, control<{args.max_control}"
           f"{', off-target only' if not args.include_ontarget else ''})", flush=True)
+    print(f"high-evidence rescue: " + ("DISABLED (model score only)" if rescue is None else
+          f"indel_frac>={rescue['min_ifrac']}, conc_ratio>={rescue['min_conc']}, "
+          f"spanning>={rescue['min_span']} (after the normal/MAPQ vetoes)"), flush=True)
 
     bam_cache, normal_cache, rows = {}, {}, []
     for _, r in cand.iterrows():
@@ -226,8 +289,9 @@ def main():
         feats = None if rr is None else features_from_records(
             rr[0], min_span=args.min_span, return_lowcov=True)
         if feats is None or feats.get("lowcov"):
-            v, sc = verdict(0.0, feats)
-            rec.update(score=np.nan, verdict=v, spanning=(feats or {}).get("spanning", 0),
+            v, sc, basis = verdict(0.0, feats, rescue=rescue)
+            rec.update(score=np.nan, verdict=v, call_basis=basis,
+                       spanning=(feats or {}).get("spanning", 0),
                        conc_ratio=np.nan, indel_frac=np.nan, modal_len=np.nan,
                        modal_pos=np.nan, ctrl_if=np.nan)
         else:
@@ -239,8 +303,8 @@ def main():
                 ctrl_if, ctrl_span = control_check(normal_cram_path(crams[s]),
                                                    r["chrom"], opos, args.ref,
                                                    bam_cache=normal_cache)
-            v, sc = verdict(sc, feats, ctrl_if)
-            rec.update(score=sc, verdict=v, spanning=feats["spanning"],
+            v, sc, basis = verdict(sc, feats, ctrl_if, rescue=rescue)
+            rec.update(score=sc, verdict=v, call_basis=basis, spanning=feats["spanning"],
                        conc_ratio=round(feats["conc_ratio"], 3),
                        indel_frac=round(feats["indel_frac"], 3),
                        modal_len=feats.get("modal_len"), modal_pos=opos,
@@ -265,7 +329,8 @@ def main():
     res.insert(0, "rank", res.index + 1)
 
     cols = ["rank", "priority", "sample", "chrom", "start", "min_mm", "indel_frac",
-            "ctrl_if", "modal_len", "conc_ratio", "score", "verdict", "n_guides_at_site"]
+            "ctrl_if", "modal_len", "conc_ratio", "score", "verdict", "call_basis",
+            "n_guides_at_site"]
     cols = [c for c in cols if c in res.columns]
     if res["truth"].any():
         cols.append("truth")
@@ -274,6 +339,10 @@ def main():
         print(res[cols].head(args.top).to_string(index=False))
     print("\ntiers: " + res["priority"].value_counts().reindex(
         ["A-review-first", "B-review", "C-recurrent-artifact", "D-artifact"]).dropna().to_string())
+    if "call_basis" in res.columns:
+        n_resc = int((res["call_basis"] == "high-evidence").sum())
+        n_model = int((res["call_basis"] == "model").sum())
+        print(f"LIKELY EDIT by basis: model={n_model}, high-evidence rescue={n_resc}")
 
     if args.out:
         res.to_csv(args.out, index=False)

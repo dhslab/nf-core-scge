@@ -1,15 +1,24 @@
-// CRISPRME — enumerate a guide's off-target sites (mismatches + bulges, optionally
-// variant-aware) against a PREBUILT CRISPRme index. Emits the CRISPRme targets TSV that
-// bin/combine_offtarget_results.py parses. Off by default (params.run_crisprme); the index
-// is a heavy one-time offline asset built by bin/build_crisprme_index.sh — this module
-// only consumes it (params.crisprme_index_dir), never builds it.
+// CRISPRME — enumerate a guide's off-target sites (mismatches + DNA/RNA bulges) against a
+// PREBUILT CRISPRme/CRISPRitz index. Emits the CRISPRme integrated-results TSV that
+// bin/combine_offtarget_results.py parses. Off by default (params.run_crisprme); the index is a
+// heavy one-time offline asset built by bin/build_crisprme_index.sh — this module only consumes it.
 //
-// NOTE: the exact complete-search argument layout must be validated against the built
-// index before the first real run (this is the fast-follow to the Cas-OFFinder path).
+// The index dir (params.crisprme_index_dir) must contain, as built by build_crisprme_index.sh:
+//   Genome/                              per-chromosome unzipped FASTAs
+//   genome_library/<PAM>_<bMax>_Genome/  the TST index (bMax must equal bDNA+bRNA of the search)
+//   <len>bp-<PAM>-<nuclease>.txt          the PAM file (its name encodes the nuclease)
+// CRISPRme looks for genome_library relative to the CWD, so we symlink the staged index into the
+// task work dir before running complete-search — that reuses the prebuilt index instead of
+// rebuilding it (verified: prebuilt .bin files are left untouched).
 process CRISPRME {
     tag "${meta.id}"
     label 'process_high'
-    container "docker.io/pinellolab/crisprme:latest"
+    // Lab wrapper over pinellolab/crisprme that adds procps (`ps`) — Nextflow's task wrapper needs
+    // it under -euo pipefail. See containers/docker-crisprme/Dockerfile. Build/push before enabling.
+    container "ghcr.io/dhslab/docker-crisprme:latest"
+    // CRISPRme writes scratch files (e.g. vuoto.txt) into its own read-only install dir under
+    // Apptainer; an ephemeral writable overlay lets those succeed without persisting anything.
+    containerOptions '--writable-tmpfs'
 
     input:
     tuple val(meta), val(spacer), val(pam)
@@ -23,21 +32,32 @@ process CRISPRME {
     def mm  = params.offtarget_mismatches
     def bul = params.offtarget_bulges
     """
-    # PAM file + guide file expected by crisprme complete-search
-    printf '%s%s %d\\n' "\$(printf 'N%.0s' \$(seq 1 ${spacer.length()}))" "${pam}" ${pam.length()} > pam.txt
+    # CRISPRme ships in a conda env its entrypoint activates; Nextflow bypasses the entrypoint,
+    # so put its tools on PATH.
+    export PATH=/opt/conda/bin:\$PATH
+
+    # Expose the prebuilt index in the CWD so complete-search reuses it (it resolves
+    # genome_library relative to the working directory) instead of rebuilding.
+    ln -s ${index_dir}/Genome Genome
+    ln -s ${index_dir}/genome_library genome_library
+    PAMFILE=\$(basename \$(ls ${index_dir}/*bp-*-*.txt | head -1))
+    cp ${index_dir}/\$PAMFILE .
+
+    # guide file: spacer padded with N over the PAM positions (CRISPRme's crRNA format)
     printf '%s%s\\n' "${spacer}" "\$(printf 'N%.0s' \$(seq 1 ${pam.length()}))" > guide.txt
 
     crisprme.py complete-search \\
-        --genome ${index_dir}/Genome \\
-        --thread ${task.cpus} \\
-        --bmax ${bul} \\
-        --mm ${mm} \\
-        --pam pam.txt \\
+        --genome Genome \\
+        --pam \$PAMFILE \\
         --guide guide.txt \\
-        --output ${meta.id}_crisprme
+        --mm ${mm} \\
+        --bDNA ${bul} \\
+        --bRNA ${bul} \\
+        --output ${meta.id}_crisprme \\
+        --thread ${task.cpus}
 
-    # complete-search writes its best-hits table into the output dir; expose the canonical name
-    cp \$(find ${meta.id}_crisprme -name '*.best.txt' | head -1) ${meta.id}.crisprme.tsv
+    # the parseable target table is the integrated-results TSV (schema consumed by the combiner)
+    cp Results/${meta.id}_crisprme/*_integrated_results.tsv ${meta.id}.crisprme.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -47,7 +67,7 @@ process CRISPRME {
 
     stub:
     """
-    printf 'crisprme_header\\n' > ${meta.id}.crisprme.tsv
+    printf 'Spacer+PAM\\tChromosome\\tStart\\tStrand\\tx\\tDNA\\tx\\tPAM\\tMismatches\\tBulges\\tx\\tx\\tx\\tx\\tx\\tBulge_type\\n' > ${meta.id}.crisprme.tsv
     touch versions.yml
     """
 }

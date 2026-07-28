@@ -15,7 +15,7 @@ import pandas as pd
 
 WGS_FEATURE_COLS = ["indel_frac", "conc_ratio", "pos_conc", "pos_mad", "modal_len",
                     "modal_mapq", "softclip_frac", "spanning", "ctrl_if",
-                    "modal_pos", "min_mm", "score", "verdict"]
+                    "modal_pos", "min_mm", "score", "verdict", "call_basis"]
 
 
 def main():
@@ -45,8 +45,11 @@ def main():
         d["chrom"] = d["chrom"].astype(str)
         d["start"] = pd.to_numeric(d["start"], errors="coerce").astype("Int64")
 
-    merged = wgs.merge(truth[["guide", "chrom", "start", "ecs_if", "ecs_is_edit", "is_target"]],
-                       on=["guide", "chrom", "start"], how="inner")
+    truth_cols = ["guide", "chrom", "start", "ecs_if", "ecs_is_edit", "is_target"]
+    # read support is optional (older ecs_hotspot_truth.csv predates it) but is what
+    # lets recall_vs_vaf.py keep ECS noise out of its denominator
+    truth_cols += [c for c in ("ecs_indel_reads", "ecs_total_reads") if c in truth.columns]
+    merged = wgs.merge(truth[truth_cols], on=["guide", "chrom", "start"], how="inner")
 
     # Training label = a SOMATIC edit: ECS saw an indel AND it is absent from the matched WGS
     # normal. ECS alone can't exclude germline here — its control is a different individual, so

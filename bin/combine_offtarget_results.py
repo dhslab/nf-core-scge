@@ -88,14 +88,18 @@ def parse_casoffinder(path):
 
 
 def parse_crisprme(path):
-    """CRISPRme targets/best-hits TSV (header) -> rows in the canonical schema.
+    """CRISPRme (>=2.1) *_integrated_results.tsv (one header line) -> canonical rows.
 
-    Uses columns: crRNA[0], Chromosome[1], Start[2], Strand[3], DNA[5], PAM[7],
-    Mismatches[8], Bulge_Size[9], Bulge_Type[15].
+    complete-search writes this loose in Results/<output>/. Columns used: Spacer+PAM[0],
+    Chromosome[1], Start_coordinate[2], Strand[3], Aligned_protospacer+PAM_REF[5], PAM[7],
+    Mismatches[8], Bulges[9], Bulge_type[15]. Cas-OFFinder and CRISPRme report a site's
+    coordinate up to ~2 bp apart (bulge handling differs), so the same physical site may not
+    merge to one row across tools — harmless, since the downstream targets VCF windows each
+    site by +/- hotspot_window_size and merges overlapping intervals.
     """
     rows = []
     with open(path) as fh:
-        fh.readline()                           # header
+        fh.readline()                           # header (single line, no leading '#')
         for line in fh:
             if not line.strip():
                 continue

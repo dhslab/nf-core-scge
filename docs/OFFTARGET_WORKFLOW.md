@@ -111,6 +111,87 @@ You hand it one samplesheet with these columns:
 | `offtarget_germline_max_ctrl_if` | 0.05 | matched-normal indel frac above this = germline/artifact, not a somatic edit (`label` 0) |
 | `offtarget_hotspot_pad` | 25 | bp window to match a worklist hit to a predicted hotspot |
 | `offtarget_snapshots` | false | render IGV-style pileup PNGs for LIKELY EDITs |
+| `offtarget_rescue` | true | high-evidence rescue (below); `false` = call on model score alone |
+| `offtarget_rescue_min_ifrac` | 0.15 | rescue: minimum indel fraction in the edited sample |
+| `offtarget_rescue_min_conc` | 0.5 | rescue: minimum positional concordance (clonality) |
+| `offtarget_rescue_min_span` | 20 | rescue: minimum spanning reads |
+
+## Reading `recall_vs_vaf.csv` (the denominator matters more than the number)
+
+A recall figure is only as honest as the set of "real edits" it divides by. The raw ECS label
+counts **any** nonzero indel fraction as an edit (`offtarget_ecs_edit_threshold` defaults to
+`0.0`), and at ECS depth that is overwhelmingly noise — in a real AAVS1 run, 10,780 of the
+12,067 sites with any indel sat below 0.5% VAF with a **median of 3 indel reads out of ~5,000**.
+Dividing by those produced a headline recall of ~0.002 that measured nothing except how much
+ECS noise the pipeline correctly ignores.
+
+The denominator is now a **credible ECS edit** — somatic (`label == 1`), `ecs_if >=
+offtarget_min_ecs_vaf`, and `ecs_indel_reads >= offtarget_min_ecs_reads`. Read support is the
+load-bearing half: VAF alone cannot tell a genuine 0.5% edit at 5,000× from 3 stray reads.
+
+Sites with no spanning WGS reads are **unevaluable, not missed** — the scorer never got to see
+them — so they are reported separately instead of being charged against recall:
+
+| column | meaning |
+|---|---|
+| `n` | credible ECS edits in the bin |
+| `n_unevaluable` | of those, sites with no spanning WGS reads (the depth floor) |
+| `n_evaluable` / `n_detected` | sites WGS could judge / of those, called LIKELY EDIT |
+| `recall` | `n_detected / n_evaluable` — scoring performance |
+| `recall_incl_unevaluable` | `n_detected / n` — pessimistic view, depth floor included |
+| `denom_min_ecs_vaf`, `denom_min_ecs_reads`, `denom_excluded_as_noise` | the denominator definition, stamped in so the file is self-describing |
+
+On the AAVS1 run this turns a meaningless `0.002` into an interpretable curve: the top VAF bin
+is 4 credible edits, 2 of them without WGS coverage, and **2/2 of the evaluable ones detected**.
+Low-VAF bins still read low — that is the genuine WGS depth floor, and it is the honest result.
+
+## The high-evidence rescue (why recall is 100%, not 90%)
+
+The shape model is a **ranker**, not a detector. Measured against the human-reviewed gold
+standard (`Manual Indel Review/cart_ecs/cart_ecs_merged.csv.gz`, `manual_review == 1`), scoring
+on the model alone recovered **47/52** confirmed CART edits. The five misses were not close
+calls — indel fractions of 0.25–1.00, `ctrl_if` 0.00, and 130–244 spanning reads, i.e. pileups a
+reviewer calls instantly in IGV — that the ranker scored 0.27–0.50. A sixth was blocked by the
+hard `conc_ratio ≥ 0.5` clonality gate despite a 0.99 model score: several indel alleles sharing
+one cut site, which is what multi-allelic Cas9 editing looks like.
+
+So `score.py` calls **LIKELY EDIT** on unambiguous evidence regardless of model score, via two
+arms, both gated *behind* the low-MAPQ and matched-normal vetoes — the rescue can override the
+**model**, never the **evidence**, so it cannot resurrect a germline variant or a repeat pile-up:
+
+1. **under-scored** — `indel_frac ≥ 0.15`, `conc_ratio ≥ 0.5`, `spanning ≥ 20`.
+2. **multi-allelic** — model score ≥ `offtarget_hi_score` with the depth/burden evidence of (1),
+   waiving the clonality requirement.
+
+`call_basis` in `wgs_hotspot_scores.csv` records which fired (`model` / `high-evidence`).
+
+**Measured cost.** Across both real cohorts the rescue adds calls only where they belong:
+
+| cohort | scored rows | LIKELY EDIT before → after | recall vs manual review |
+|---|---|---|---|
+| CART | 99,308 | 91 → 97 (+5 under-scored, +1 multi-allelic) | 47/52 → **52/52 (1.000)** |
+| AAVS1 | 5,088 | 34 → 35 (+1 under-scored) | on-target control preserved |
+
+All six extra CART calls are the six confirmed edits; no other row in 99,308 was promoted.
+Recall is 49/49 on-target and **3/3 off-target**.
+
+Reproduce (and gate CI) with:
+
+```bash
+python bin/validate_recall.py \
+    --scores results/offtarget/wgs_hotspot_scores.csv \
+    --training results/offtarget/training.tsv \
+    --gold "Manual Indel Review/cart_ecs/cart_ecs_merged.csv.gz" \
+    --require-recall 1.0
+```
+
+Set `--no-rescue` (or `--offtarget_rescue false`) to reproduce pre-rescue behaviour.
+
+> **Scope.** 100% is recall against the *human-reviewed* truth set — every edit a reviewer
+> confirmed, the pipeline reports. It is not a claim that no edit exists below the WGS depth
+> floor: an ECS edit with no spanning WGS reads is still unrecoverable and surfaces as
+> INSUFFICIENT COVERAGE. The rescue thresholds were tuned on these 52 sites and re-checked on
+> AAVS1; they should be re-validated against any new cohort's manual review.
 
 ## Retraining the shape model (`-entry TRAIN`)
 

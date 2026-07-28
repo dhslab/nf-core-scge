@@ -191,6 +191,39 @@
                     "type": "integer",
                     "default": 25,
                     "description": "Window (bp) for matching a worklist candidate to a predicted hotspot"
+                },
+                "offtarget_rescue": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Call LIKELY EDIT on unambiguous somatic indel evidence even when the shape model under-scores it",
+                    "help_text": "The shape model is a ranker, not a detector, and demotes some clear edits. The rescue runs AFTER the low-MAPQ and matched-normal vetoes, so it can only override the model score, never the evidence. Set false to call on the model score alone. See docs/OFFTARGET_WORKFLOW.md."
+                },
+                "offtarget_rescue_min_ifrac": {
+                    "type": "number",
+                    "default": 0.15,
+                    "description": "Rescue: minimum indel fraction in the edited sample"
+                },
+                "offtarget_rescue_min_conc": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "Rescue: minimum positional concordance (clonality) of the indel reads"
+                },
+                "offtarget_rescue_min_span": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Rescue: minimum spanning reads required before the evidence counts"
+                },
+                "offtarget_min_ecs_vaf": {
+                    "type": "number",
+                    "default": 0.005,
+                    "description": "Recall denominator: ECS VAF floor below which a call is assay noise rather than a real edit",
+                    "help_text": "The raw ECS label counts any nonzero indel fraction as an edit, which at ECS depth is overwhelmingly noise and makes the recall curve meaningless. Set 0 to keep every ECS call."
+                },
+                "offtarget_min_ecs_reads": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Recall denominator: ECS indel reads required to believe a site is a real edit",
+                    "help_text": "VAF alone cannot separate a genuine low-VAF edit at high depth from a few stray reads; read support can. Set 0 to disable."
                 }
             }
         },

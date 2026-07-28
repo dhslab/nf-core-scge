@@ -29,6 +29,7 @@ process SCORE_HOTSPOTS {
         --min-ifrac -1 \\
         --max-control 2 \\
         --min-span ${params.offtarget_min_span} \\
+        ${params.offtarget_rescue ? "--rescue-min-ifrac ${params.offtarget_rescue_min_ifrac} --rescue-min-conc ${params.offtarget_rescue_min_conc} --rescue-min-span ${params.offtarget_rescue_min_span}" : '--no-rescue'} \\
         --out wgs_hotspot_scores.csv
 
     cat <<-END_VERSIONS > versions.yml

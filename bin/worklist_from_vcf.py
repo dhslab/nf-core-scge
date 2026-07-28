@@ -102,10 +102,20 @@ def main():
     ap.add_argument("--include-weak", action="store_true",
                     help="also include weak_evidence-filtered indels (depth-floor tail)")
     ap.add_argument("--no-normal-check", action="store_true")
+    # High-evidence rescue — same contract as score.py, so the genome-wide discovery arm
+    # and the hotspot arm agree on what counts as a call. See score.py for the rationale.
+    ap.add_argument("--no-rescue", action="store_true",
+                    help="disable the high-evidence rescue; call on the model score alone")
+    ap.add_argument("--rescue-min-ifrac", type=float, default=S.RESCUE_MIN_IFRAC)
+    ap.add_argument("--rescue-min-conc", type=float, default=S.RESCUE_MIN_CONC)
+    ap.add_argument("--rescue-min-span", type=int, default=S.RESCUE_MIN_SPAN)
     ap.add_argument("--snapshot-dir")
     ap.add_argument("--top", type=int, default=50)
     ap.add_argument("--out", default="wgs_offtarget_worklist_genomewide.csv")
     args = ap.parse_args()
+    rescue = None if args.no_rescue else {"min_ifrac": args.rescue_min_ifrac,
+                                          "min_conc": args.rescue_min_conc,
+                                          "min_span": args.rescue_min_span}
 
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
@@ -154,8 +164,9 @@ def main():
                      "alt": ",".join(rec.alts or []), "dragen_af": round(float(af), 3),
                      "min_mm": mm, "is_target": tgt, "hom_dist": dist, "truth": False}
             if feats is None or feats.get("lowcov"):
-                vd, _ = S.verdict(0.0, feats)
-                rec_d.update(score=np.nan, verdict=vd, spanning=(feats or {}).get("spanning", 0),
+                vd, _, basis = S.verdict(0.0, feats, rescue=rescue)
+                rec_d.update(score=np.nan, verdict=vd, call_basis=basis,
+                             spanning=(feats or {}).get("spanning", 0),
                              conc_ratio=np.nan, indel_frac=np.nan, modal_len=np.nan,
                              modal_pos=np.nan, ctrl_if=np.nan)
             else:
@@ -164,8 +175,8 @@ def main():
                 ctrl_if = None
                 if not args.no_normal_check:
                     ctrl_if, _ = S.control_check(npath, chrom, opos, args.ref, bam_cache=ncache)
-                vd, psc = S.verdict(psc, feats, ctrl_if)
-                rec_d.update(score=psc, verdict=vd, spanning=feats["spanning"],
+                vd, psc, basis = S.verdict(psc, feats, ctrl_if, rescue=rescue)
+                rec_d.update(score=psc, verdict=vd, call_basis=basis, spanning=feats["spanning"],
                              conc_ratio=round(feats["conc_ratio"], 3),
                              indel_frac=round(feats["indel_frac"], 3),
                              modal_len=feats.get("modal_len"), modal_pos=opos,

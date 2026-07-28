@@ -56,13 +56,43 @@ def test_recall_vs_vaf(workspace):
     proc = run("recall_vs_vaf.py", "--training", "training.tsv", "--hi", "0.60",
                "--target-recall", "0.80", cwd=workspace)
 
-    # overall: 1 of 2 ECS-positive sites recovered (chr12 yes @0.15, chr7 no @0.008)
-    assert "overall WGS recall of ECS-confirmed edits (score>=0.6): 0.50" in proc.stdout
+    # overall: 1 of 2 credible ECS edits recovered (chr12 yes @0.15, chr7 no @0.008).
+    # Both clear the denominator gates (3000x depth -> 450 and 24 indel reads).
+    assert "overall WGS recall of credible ECS edits: 0.50" in proc.stdout
+    assert "2 EVALUABLE sites" in proc.stdout
     m = pd.read_csv(workspace / "recall_vs_vaf.csv")
     recalls = dict(zip(m["vaf_bin"], m["recall"]))
     assert recalls["[0.005, 0.01)"] == 0.0                 # below the depth floor
     assert recalls["[0.1, 0.2)"] == 1.0                    # above it
     assert (workspace / "recall_vs_vaf.png").exists()
+
+    # the denominator must be stamped into the file so it can't be read out of context
+    for col in ("n_unevaluable", "n_evaluable", "recall_incl_unevaluable",
+                "denom_min_ecs_vaf", "denom_min_ecs_reads", "denom_excluded_as_noise"):
+        assert col in m.columns, f"{col} missing from recall_vs_vaf.csv"
+    assert (m["denom_min_ecs_vaf"] == 0.005).all()
+    assert (m["denom_min_ecs_reads"] == 5).all()
+    # chr1 (VAF 0, no read support) must be excluded as noise, never counted as a miss
+    assert (m["denom_excluded_as_noise"] >= 0).all()
+    assert "[0.0, 0.005)" not in recalls
+
+
+def test_recall_denominator_excludes_ecs_noise(workspace):
+    """A high-VAF ECS call with almost no read support is assay noise, not a missed edit:
+    raising --min-ecs-reads above its support must DROP it from the denominator rather
+    than scoring it as a recall failure."""
+    run("hotspot_to_table.py",
+        "--ecs-tables", "PLCB2_ecs_1.offtarget_analysis.tsv", "PLCB2_ecs_2.offtarget_analysis.tsv",
+        "--samplesheet", "samplesheet.csv", cwd=workspace)
+    run("join_training_table.py", "--wgs-scores", "wgs_hotspot_scores.csv",
+        "--truth", "ecs_hotspot_truth.csv", "--samplesheet", "samplesheet.csv", cwd=workspace)
+
+    # chr7 has 24 indel reads; require 100 and it must leave the denominator entirely
+    proc = run("recall_vs_vaf.py", "--training", "training.tsv", "--min-ecs-reads", "100",
+               cwd=workspace)
+    m = pd.read_csv(workspace / "recall_vs_vaf.csv")
+    assert "[0.005, 0.01)" not in set(m["vaf_bin"])        # chr7 gone, not scored as a miss
+    assert "overall WGS recall of credible ECS edits: 1.00" in proc.stdout
 
 
 def test_reconcile_report(workspace):
@@ -101,3 +131,35 @@ def test_join_empty_on_coord_mismatch(workspace):
 
     assert proc.returncode != 0                            # both arms had rows -> hard fail
     assert "ERROR" in proc.stderr and "empty join" in proc.stderr
+
+
+# ── verdict() call-arity contract ──────────────────────────────────────────────
+# score.verdict() returns a 3-tuple (verdict, score, call_basis). worklist_from_vcf.py
+# imports it as S.verdict and unpacks it too, so changing the arity in one file silently
+# breaks the other — it did, and only surfaced mid-run on the cluster because the failing
+# branch needs a real CRAM. This walks the AST of every caller so a future arity change
+# fails here instead of an hour into a cohort run.
+def test_verdict_callers_unpack_three_values():
+    import ast
+
+    offenders = []
+    for path in sorted(BIN.glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            call = node.value
+            if not isinstance(call, ast.Call):
+                continue
+            fn = call.func
+            name = (fn.attr if isinstance(fn, ast.Attribute)
+                    else fn.id if isinstance(fn, ast.Name) else None)
+            if name != "verdict":
+                continue
+            for tgt in node.targets:
+                if not isinstance(tgt, ast.Tuple):
+                    offenders.append(f"{path.name}:{node.lineno} not a tuple unpack")
+                elif len(tgt.elts) != 3:
+                    offenders.append(f"{path.name}:{node.lineno} unpacks {len(tgt.elts)}, want 3")
+
+    assert not offenders, "verdict() arity mismatch: " + "; ".join(offenders)
