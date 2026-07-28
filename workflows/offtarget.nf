@@ -9,7 +9,8 @@
        └─ wgs rows ─► WGS_WORKLIST ─► PON_OFFTARGET_FILTER ─► genome-wide homology-free worklist
                           │
        paired: HOTSPOT_TO_TABLE ─► SCORE_HOTSPOTS ─► BUILD_TRAINING_TABLE ─► training.tsv
-                                                     └► RECALL_VS_VAF ─► recall_vs_vaf.{csv,png}
+                                                     ├► RECALL_VS_VAF ─► recall_vs_vaf.{csv,png}
+                                                     └► OFFTARGET_METRICS ─► offtarget_metrics.{json,txt}
        all   : RECONCILE_OFFTARGET_REPORT ─► offtarget_report.csv  (is_hotspot / ecs_confirmed)
 
     Notes for the first real run:
@@ -28,6 +29,7 @@ include { HOTSPOT_TO_TABLE          } from '../modules/local/hotspot_to_table.nf
 include { SCORE_HOTSPOTS            } from '../modules/local/score_hotspots.nf'
 include { BUILD_TRAINING_TABLE      } from '../modules/local/build_training_table.nf'
 include { RECALL_VS_VAF             } from '../modules/local/recall_vs_vaf.nf'
+include { OFFTARGET_METRICS         } from '../modules/local/offtarget_metrics.nf'
 include { RECONCILE_OFFTARGET_REPORT } from '../modules/local/reconcile_offtarget_report.nf'
 include { GENERATE_HOTSPOTS          } from '../subworkflows/local/generate_hotspots.nf'
 
@@ -177,6 +179,10 @@ workflow OFFTARGET_WORKFLOW {
                        file(params.offtarget_shape_model), params.fasta)
         BUILD_TRAINING_TABLE(SCORE_HOTSPOTS.out.scores, HOTSPOT_TO_TABLE.out.truth, ch_ss)
         RECALL_VS_VAF(BUILD_TRAINING_TABLE.out.training)
+        // PR-AUC / F2 / F5 against the ECS label (training.tsv has a real two-class
+        // label). Recall vs the human review stays with validate_recall.py and stays
+        // recall-only — that table has no confirmed negatives to divide by.
+        OFFTARGET_METRICS(BUILD_TRAINING_TABLE.out.training)
         ch_truth = HOTSPOT_TO_TABLE.out.truth
     }
 
