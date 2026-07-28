@@ -21,6 +21,20 @@ Usage
   validate_recall.py --scores  results/offtarget/wgs_hotspot_scores.csv \
                      --gold   "Manual Indel Review/cart_ecs/cart_ecs_merged.csv.gz"
 
+Why there is no precision / F-beta here
+---------------------------------------
+Deliberate, and not an oversight. This table has confirmed POSITIVES only: 55 rows with
+manual_review == '1', one '1?', and ~80,440 NaN — and NaN means NOT REVIEWED, not
+reviewed-and-rejected. With no confirmed negatives there is no false-positive count, so
+precision, F1 and F-beta are simply not defined against it. Computing them anyway (by
+filling NaN with 0) would score every genuine discovery the reviewers never got to as a
+false positive and produce a confidently wrong number.
+
+Precision-bearing metrics therefore live in `bin/offtarget_metrics.py`, which uses the
+ECS label in training.tsv — a real two-class label — and says so on its own face. If a
+curated negative set ever exists, add it here as an explicit `--negatives` source; until
+then this script stays recall-only.
+
 Joins on (guide, chrom, start). The gold table keys samples by their review-sheet name
 (`CART_NS0011-ABTB1`); the pipeline keys them by CRAM sample (`ABTB1-KO-DNA`). Both
 carry the guide, so the guide is the join key and `--guide-alias` patches the handful of
@@ -155,6 +169,11 @@ def main():
         print(f"  on-target  : {int(on['called'].sum())}/{len(on)}")
     if len(off):
         print(f"  off-target : {int(off['called'].sum())}/{len(off)}")
+    # Say the limitation out loud, every run. Anyone reading a bare recall number is one
+    # short step from asking "and the precision?" — the answer has to travel with it.
+    print("  (recall only: this table has no confirmed negatives — NaN means UNREVIEWED,")
+    print("   not rejected, so precision/F-beta are undefined here. For PR-AUC, precision")
+    print("   and F2/F5 against the ECS label, see offtarget_metrics.{json,txt}.)")
 
     miss = site[~site["called"]]
     if len(miss):

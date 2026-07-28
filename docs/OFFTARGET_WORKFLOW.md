@@ -29,12 +29,16 @@ Everything lands in `<outdir>/offtarget/`.
   This is the ground truth.
 - **`recall_vs_vaf.csv` / `.png`** — how often the WGS catches an ECS-confirmed edit, split by VAF.
   Read it as: above this VAF, believe the WGS calls; below it, don't.
+- **`offtarget_metrics.json` / `.txt`** — PR-AUC and recall-weighted F-beta (F2, F5) for the WGS
+  shape score, plus precision/recall at the reported operating point. `.txt` is the one-screen
+  human read; `.json` is the machine-readable copy. **Read the denominator section first** —
+  the precision in here is against the ECS label, *not* against human review.
 - **`training.tsv`** — one row per hotspot lining up the WGS features against the ECS answer, with a
   `label` marking genuine *somatic* edits: ECS shows an edit **and** it's absent from the matched WGS
   normal (germline/recurrent sites are demoted, so they don't get called edits). Only used to retrain
   the model offline; ignore it on a normal run.
 
-The last two only show up when you give it both ECS and WGS.
+The last three only show up when you give it both ECS and WGS.
 
 ### Verification snapshots (optional)
 
@@ -173,6 +177,8 @@ You hand it one samplesheet with these columns:
 | `offtarget_rescue_min_ifrac` | 0.15 | rescue: minimum indel fraction in the edited sample |
 | `offtarget_rescue_min_conc` | 0.5 | rescue: minimum positional concordance (clonality) |
 | `offtarget_rescue_min_span` | 20 | rescue: minimum spanning reads |
+| `offtarget_metrics_betas` | `2,5` | F-beta weights for `offtarget_metrics.{json,txt}` |
+| `offtarget_metrics_negatives` | `ecs_negative` | PR-AUC negative set; `all_label0` also counts germline-demoted ECS edits |
 
 ## Reading `recall_vs_vaf.csv` (the denominator matters more than the number)
 
@@ -202,6 +208,81 @@ them — so they are reported separately instead of being charged against recall
 On the AAVS1 run this turns a meaningless `0.002` into an interpretable curve: the top VAF bin
 is 4 credible edits, 2 of them without WGS coverage, and **2/2 of the evaluable ones detected**.
 Low-VAF bins still read low — that is the genuine WGS depth floor, and it is the honest result.
+
+## Reading `offtarget_metrics.txt` (PR-AUC and F2/F5)
+
+A recall-first diagnostic is judged on PR-AUC and recall-weighted F-beta, not on ROC-AUC. At the
+positive prevalence this assay works at, ROC-AUC is dominated by the true-negative mass and reads
+flatteringly high; PR-AUC has no such property. It is still reported, just not as the headline.
+
+```
+F_beta = (1 + beta^2) * P * R / (beta^2 * P + R)
+```
+
+beta weights recall `beta^2`× more than precision (β=2 → 4×, β=5 → 25×). F_beta is **monotone in
+beta** — it rises with beta when recall > precision and falls when precision > recall — so F1 is
+always an *endpoint* of {F1, F2, F5}, never the middle value. F1 in the middle means the beta
+wiring is inverted.
+
+### You cannot compute precision from the manual review
+
+The human-reviewed table (`cart_ecs_merged.csv.gz`) has **55** rows with `manual_review == '1'`,
+one `'1?'`, and **80,440 NaN**. `NaN` means *not reviewed* — not reviewed-and-rejected. There are
+no confirmed negatives in it, so precision against it is not defined. Filling those NaNs with 0
+would count every genuine discovery the reviewers never got to as a false positive and produce a
+confidently wrong number. That is why `validate_recall.py` reports **recall only**, and it stays
+that way.
+
+So there are **two denominators**, kept strictly apart and both stamped into every output:
+
+| | denominator | what it supports | where |
+|---|---|---|---|
+| 1 | ECS label in `training.tsv` (a real two-class label) | PR-AUC, precision, F-beta | `offtarget_metrics.{json,txt}` |
+| 2 | human manual review (positives only) | **recall only** — the gold standard | `bin/validate_recall.py` |
+
+The positive set uses the same credibility gates as the recall curve (`ecs_if >=
+offtarget_min_ecs_vaf`, `ecs_indel_reads >= offtarget_min_ecs_reads`); without them the positives
+are re-polluted with sub-0.5%-VAF ECS noise and every metric becomes meaningless. `label == 1`
+rows that fail those gates are **ambiguous, not negative** — ECS saw something below the
+credibility floor — so they are excluded and counted, for exactly the same reason the unreviewed
+manual-review rows are. Rows with no score (`INSUFFICIENT COVERAGE` / `NO CRAM`) are excluded from
+the ranking metrics and the exclusion count is reported; they are never filled with 0.
+
+`label == 0` is likewise two populations: genuine ECS-negatives, and ECS edits **demoted because
+the indel is in the matched normal**. The germline-demoted rows carry a real indel, so the shape
+ranker correctly scores them high — germline rejection is a separate downstream gate, and none of
+them are called `LIKELY EDIT`. Including them in the *ranking* denominator charges the ranker with
+a job it does not do, so `offtarget_metrics_negatives` defaults to `ecs_negative`. The alternative
+is always printed as a labelled sensitivity block, so the choice is visible rather than buried.
+
+### What the AAVS1 cohort actually shows
+
+```
+n_pos / n_neg : 631 / 299     prevalence 0.679
+PR-AUC        : 0.655  (0.96x prevalence)
+operating pt  : TP 21  FP 5  FN 610  TN 294
+                precision 0.808   recall 0.033   F1 0.064   F2 0.041   F5 0.035
+```
+
+PR-AUC **below** prevalence normally means a useless ranker or a bug. Here it is neither, and the
+by-VAF-floor table in the same file shows why — 427 of the 631 credible positives sit in the
+0.5–1% VAF bin, which WGS at ~30× genuinely cannot see:
+
+| ECS VAF floor | n_pos | prevalence | PR-AUC | lift | ROC-AUC |
+|---|---|---|---|---|---|
+| ≥ 0.005 | 631 | 0.678 | 0.655 | 0.96× | 0.439 |
+| ≥ 0.01 | 204 | 0.406 | 0.456 | 1.12× | 0.488 |
+| ≥ 0.02 | 58 | 0.162 | 0.305 | 1.87× | 0.622 |
+| ≥ 0.05 | 14 | 0.045 | 0.290 | **6.49×** | 0.931 |
+| ≥ 0.10 | 9 | 0.029 | 0.257 | **8.81×** | 0.939 |
+
+The ranker is strongly informative exactly where WGS can see (≥5% VAF: 6.5× lift, ROC 0.93) and
+uninformative at the depth floor. That is the same conclusion the recall curve reaches — recall
+`0.033` over 631 evaluable sites here reconciles exactly with `recall_vs_vaf.csv` — stated in
+precision/recall terms. A **flat** lift at every VAF floor would be the real alarm.
+
+Precision `0.808` is against the ECS label. It is **not** a claim about precision versus human
+review, and the file says so on its own face.
 
 ## The high-evidence rescue (why recall is 100%, not 90%)
 

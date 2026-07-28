@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import pandas as pd
 from conftest import BIN, run
 
@@ -97,6 +98,15 @@ def test_requires_a_source(tmp_path):
 
 
 def test_schema_matches_committed_targetfile():
-    """The output header must match the committed target_file schema exactly."""
-    committed = pd.read_csv(REPO / "assets/stub/AAVS1_site14.targets.csv", nrows=0)
+    """The output header must match the committed target_file schema exactly.
+
+    Despite the name, assets/stub/AAVS1_site14.targets.csv is gitignored (.gitignore),
+    so it exists only in a working checkout that has generated it — never in a fresh
+    clone or on CI. Skip rather than fail there: a red job that can never go green on CI
+    trains people to ignore the whole run.
+    """
+    target = REPO / "assets/stub/AAVS1_site14.targets.csv"
+    if not target.exists():
+        pytest.skip(f"{target.name} is gitignored and absent from this checkout")
+    committed = pd.read_csv(target, nrows=0)
     assert list(committed.columns) == CANONICAL_HEADER

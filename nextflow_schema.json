@@ -229,6 +229,22 @@
                     "default": 5,
                     "description": "Recall denominator: ECS indel reads required to believe a site is a real edit",
                     "help_text": "VAF alone cannot separate a genuine low-VAF edit at high depth from a few stray reads; read support can. Set 0 to disable."
+                },
+                "offtarget_metrics_betas": {
+                    "type": "string",
+                    "default": "2,5",
+                    "description": "Comma-separated F-beta weights for the clinical metrics report",
+                    "help_text": "F_beta weights recall beta^2 times more than precision (beta=2 -> 4x, beta=5 -> 25x). F_beta is monotone in beta, so F1 is always an endpoint of the reported set, never the middle value."
+                },
+                "offtarget_metrics_negatives": {
+                    "type": "string",
+                    "default": "ecs_negative",
+                    "enum": [
+                        "ecs_negative",
+                        "all_label0"
+                    ],
+                    "description": "Negative set for PR-AUC: ECS-negative hotspots only, or all label==0 rows",
+                    "help_text": "label==0 is two populations: genuine ECS-negatives (ecs_is_edit==0) and ECS edits demoted because the indel is in the matched normal. The germline-demoted rows carry a real indel, so the shape ranker correctly scores them high and germline rejection is a separate downstream gate; including them charges the ranker with a job it does not do. Either way the alternative is reported as a labelled sensitivity block."
                 }
             }
         },
