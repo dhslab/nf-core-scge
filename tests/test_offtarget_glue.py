@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 import pandas as pd
+import pytest
 from conftest import BIN, run
 
 
@@ -163,3 +164,153 @@ def test_verdict_callers_unpack_three_values():
                     offenders.append(f"{path.name}:{node.lineno} unpacks {len(tgt.elts)}, want 3")
 
     assert not offenders, "verdict() arity mismatch: " + "; ".join(offenders)
+
+
+# ── offtarget_metrics.py: PR-AUC / F-beta on a hand-built frame ────────────────
+# Every expected value below is computable with a calculator, so a regression shows up
+# as a wrong number rather than a plausible-looking one.
+#
+#   11 credible positives (ecs_if >= 0.005, ecs_indel_reads >= 5), one of which has NO
+#      score (INSUFFICIENT COVERAGE) and is excluded from the ranking metrics
+#    5 ECS-negatives (label 0, ecs_is_edit 0)
+#    2 germline-demoted rows (label 0, ecs_is_edit 1) -> excluded from the DEFAULT
+#      negative set; the shape ranker is not the germline filter
+#    3 sub-credibility label==1 rows -> AMBIGUOUS, excluded, never counted as negatives
+#
+# Of the 10 scored positives, 4 are called LIKELY EDIT; 1 of the 5 negatives is.
+#   precision = 4/5  = 0.8      recall = 4/10 = 0.4
+#   F1 = 2(.8)(.4)/(.8+.4)            = 0.5333...
+#   F2 = 5(.8)(.4)/(4(.8)+.4)         = 1.6/3.6  = 0.4444...
+#   F5 = 26(.8)(.4)/(25(.8)+.4)       = 8.32/20.4 = 0.40784...
+#   recall_incl_unevaluable = 4/11    = 0.36363...
+# Scores separate the two classes perfectly, so PR-AUC and ROC-AUC are exactly 1.0.
+METRIC_COLS = ["sample", "guide", "chrom", "start", "score", "verdict",
+               "ecs_if", "ecs_is_edit", "ecs_indel_reads", "label"]
+
+_EDIT = "LIKELY EDIT"
+_ART = "ARTIFACT (shape)"
+
+
+def _metrics_frame():
+    rows = []
+    pos_scores = [0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45]
+    for i, sc in enumerate(pos_scores):
+        rows.append(("s1", "G", f"chr{i + 1}", 1000 + i, sc,
+                     _EDIT if i < 4 else _ART, 0.20, 1, 50, 1))
+    # 11th credible positive: no WGS coverage -> no score, out of the ranking metrics
+    rows.append(("s1", "G", "chrU", 9000, float("nan"), "INSUFFICIENT COVERAGE",
+                 0.20, 1, 50, 1))
+    neg_scores = [0.40, 0.30, 0.20, 0.10, 0.05]
+    for i, sc in enumerate(neg_scores):
+        rows.append(("s1", "G", f"chrN{i}", 2000 + i, sc,
+                     _EDIT if i == 0 else _ART, 0.0, 0, 0, 0))
+    for i in range(2):                       # germline-demoted: real indel, in normal
+        rows.append(("s1", "G", f"chrG{i}", 3000 + i, 0.95,
+                     "GERMLINE/ARTIFACT (in normal)", 0.30, 1, 90, 0))
+    for i in range(3):                       # sub-credibility ECS signal -> ambiguous
+        rows.append(("s1", "G", f"chrA{i}", 4000 + i, 0.10, _ART, 0.001, 1, 2, 1))
+    return pd.DataFrame(rows, columns=METRIC_COLS)
+
+
+def _run_metrics(tmp_path, df, *extra):
+    df.to_csv(tmp_path / "training.tsv", sep="\t", index=False)
+    proc = run("offtarget_metrics.py", "--training", "training.tsv",
+               "--out-json", "m.json", "--out-txt", "m.txt", *extra, cwd=tmp_path)
+    import json
+    return json.loads((tmp_path / "m.json").read_text()), (tmp_path / "m.txt").read_text(), proc
+
+
+def test_offtarget_metrics_exact_values(tmp_path):
+    out, txt, _ = _run_metrics(tmp_path, _metrics_frame())
+    m, op = out["metrics"], out["metrics"]["operating_point"]
+
+    # denominator composition
+    assert (m["n_pos"], m["n_neg"]) == (10, 5)          # NaN-score positive not ranked
+    assert m["n_excluded_no_score"] == 1
+    assert m["n_excluded_no_score_pos"] == 1
+    assert out["counts"]["n_positives_credible"] == 11
+    assert out["counts"]["n_ambiguous"] == 3            # excluded, NOT negatives
+    assert out["counts"]["n_germline_demoted_excluded"] == 2
+
+    # perfect ranking -> PR-AUC and ROC-AUC are exactly 1
+    assert m["pr_auc"] == pytest.approx(1.0)
+    assert m["roc_auc"] == pytest.approx(1.0)
+    assert m["prevalence"] == pytest.approx(10 / 15)
+
+    # operating point, hand-computed
+    assert (op["tp"], op["fp"], op["fn"], op["tn"]) == (4, 1, 6, 4)
+    assert op["precision"] == pytest.approx(0.8)
+    assert op["recall"] == pytest.approx(0.4)
+    assert op["f1"] == pytest.approx(2 * 0.8 * 0.4 / (0.8 + 0.4))
+    assert op["f2"] == pytest.approx(1.6 / 3.6)
+    assert op["f5"] == pytest.approx(8.32 / 20.4)
+    assert op["recall_incl_unevaluable"] == pytest.approx(4 / 11)
+
+    # F_beta is monotone in beta: with precision > recall it DECREASES as beta rises, so
+    # F1 is an endpoint. F1 sitting in the middle means the beta wiring is inverted.
+    assert op["f1"] > op["f2"] > op["f5"]
+
+    # both denominators must be named in the human-readable report
+    assert "manual review" in txt.lower()
+    assert "UNREVIEWED" in txt
+    assert "NOT vs human review" in txt
+
+
+def test_offtarget_metrics_fbeta_favours_recall(tmp_path):
+    """Mirror image: when recall > precision, F_beta RISES with beta."""
+    df = _metrics_frame()
+    # call every scored positive plus all 5 negatives -> P = 10/15, R = 10/10
+    df["verdict"] = df["verdict"].where(df["verdict"] == "INSUFFICIENT COVERAGE", _EDIT)
+    # drop the 3 sub-credibility rows only (the ECS-negatives also have a low ecs_if,
+    # so filtering on ecs_if alone would silently take the negatives with them)
+    df = df[~((df["label"] == 1) & (df["ecs_indel_reads"] < 5))]
+    out, _txt, _ = _run_metrics(tmp_path, df, "--negatives", "all_label0")
+    op = out["metrics"]["operating_point"]
+    assert op["recall"] == pytest.approx(1.0)
+    assert op["precision"] == pytest.approx(10 / 17)    # 5 ECS-neg + 2 germline as FP
+    assert op["f1"] < op["f2"] < op["f5"]
+
+
+def test_offtarget_metrics_negative_set_switch(tmp_path):
+    """The germline-demoted rows are excluded by default and included on request; the
+    alternative is always reported as a labelled sensitivity block either way."""
+    default, _t, _ = _run_metrics(tmp_path, _metrics_frame())
+    strict, _t2, _ = _run_metrics(tmp_path, _metrics_frame(), "--negatives", "all_label0")
+    assert default["metrics"]["n_neg"] == 5
+    assert strict["metrics"]["n_neg"] == 7
+    assert any("all label==0" in s["definition"] for s in default["sensitivity"])
+
+
+def test_offtarget_metrics_ambiguous_never_silently_negative(tmp_path):
+    """Sub-credibility label==1 rows are the training-table analogue of the unreviewed
+    manual-review rows: excluded by default, counted as negatives only on request."""
+    default, _t, _ = _run_metrics(tmp_path, _metrics_frame())
+    forced, _t2, _ = _run_metrics(tmp_path, _metrics_frame(), "--ambiguous-as-negative")
+    assert default["metrics"]["n_neg"] == 5
+    assert forced["metrics"]["n_neg"] == 8              # + the 3 ambiguous rows
+    assert forced["counts"]["n_ambiguous"] == 0
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda d: d[d["label"] == 1], "single-class"),          # no negatives at all
+    (lambda d: d.assign(ecs_if=0.0, ecs_indel_reads=0), "single-class"),  # no credible pos
+])
+def test_offtarget_metrics_degenerate_exits_zero(tmp_path, mutate, expect):
+    """A run with no credible positives is a legitimate result, not an error: the file
+    still has to be published, with nulls and an explanatory note."""
+    out, txt, proc = _run_metrics(tmp_path, mutate(_metrics_frame()))
+    assert proc.returncode == 0
+    assert out["metrics"] is None
+    assert expect in out["note"]
+    assert "manual review" in txt.lower()                # denominators still documented
+
+
+def test_offtarget_metrics_all_nan_scores_exits_zero(tmp_path):
+    """All-NaN scores must not be filled with 0 — that would fabricate confident
+    negatives. Ranking metrics go null, the exclusion count is reported."""
+    df = _metrics_frame()
+    df["score"] = float("nan")
+    out, _txt, proc = _run_metrics(tmp_path, df)
+    assert proc.returncode == 0
+    assert out["metrics"]["pr_auc"] is None
+    assert out["metrics"]["n_excluded_no_score"] == 16   # 11 pos + 5 neg
