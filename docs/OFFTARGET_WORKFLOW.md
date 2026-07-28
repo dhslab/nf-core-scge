@@ -51,6 +51,63 @@ no IGV needed. Off by default (`offtarget_snapshots = false`) because it renders
 pile up at the cut site; right (unedited normal) — clean. Pass `--snapshots` to `run_offtarget.sh`
 to turn this on, so the confirmed off-targets (PLCB2, CNNM3) get the same tumor/normal packet.*
 
+### Read-level tags for IGV (optional)
+
+`<id>.offtarget_analysis.tsv` gives you `indel_fraction = 0.42` and leaves you to work out by eye
+which reads made up the 0.42. Add `--offtarget_tagged_bam true` and the ECS caller also writes
+`<id>.tagged.bam` (+ `.bai`), in which **every read carries an `XC` string tag naming how the caller
+classified it** — so the pileup shows you its reasoning directly.
+
+In IGV: load the BAM → right-click the track → **Color alignments by** → **tag** → type `XC`.
+
+| tag | meaning |
+|---|---|
+| `Edited_Deletion_<N>bp` | deletion of N bp called from the CIGAR or a split alignment |
+| `Edited_Insertion_<N>bp` | insertion of N bp |
+| `Edited_Duplication_<N>bp` | tandem duplication from a split alignment |
+| `Edited_BND_<chrom>` | breakend — the read's other end maps to `<chrom>` (e.g. the transgene contig) |
+| `Edited_SoftClip` | event recovered by realigning a soft clip |
+| `Unedited_WT` | spans the target cleanly, no event — this is the denominator |
+| `Skipped_Duplicate` / `_LowMapQ` / `_Mismatches` / `_Secondary` / `_Supplementary` / `_Unmapped` | excluded by a read filter, shown so you can see *why* it isn't counted |
+| `Skipped_Unevaluable` | a classifier ran but found nothing near enough to a PAM to call |
+| `Skipped_NoSpan` | inside the padded window but doesn't span the target and carries no event |
+
+Each alignment appears **exactly once**, so the depth IGV shows is real. Where a read falls in two
+overlapping target windows and gets classified differently, the most specific call wins — the table
+above is in precedence order, top to bottom.
+
+**Don't expect the tag counts to equal the TSV columns** — they count different things, and the BAM
+is the more literal of the two:
+
+- tags are per **alignment record**, while `indel_reads` is per **fragment** (the caller collapses
+  R1/R2 by read name) and is taken *after* the site-level filters. So `Edited_*` records run higher
+  than `indel_reads` — roughly 2× where both mates cover the cut site. On the AAVS1 site14
+  on-target that is 17,396 `Edited_*` records against `indel_reads` = 10,821.
+- the BAM covers the whole padded window, so it also holds reads that never entered `total_reads`.
+  Across the AAVS1 site14 panel that is 65% `Unedited_WT`, 35% `Skipped_*` and 0.7% `Edited_*`; at
+  a *1 bp* target specifically, the ±150 bp pad means most records are `Skipped_NoSpan` (69% at the
+  on-target). They are kept deliberately — a pileup cropped to reads spanning a single base is
+  unreadable in IGV.
+
+Use the tags to see *which* reads drove a call and why; use the TSV for the number.
+
+**Off by default, and worth keeping that way for routine runs.** Output is restricted to the target
+windows (target ±150 bp) rather than the whole CRAM, but it still scales with target count and
+depth. Measured on one AAVS1 site14 ECS sample (1,149 target intervals → 1,145 merged windows,
+~11,000× at the on-target):
+
+| | without | with `--offtarget_tagged_bam` |
+|---|---|---|
+| output | — | **800 MB** `.bam` + 1.5 MB `.bai`, 21.8 M reads |
+| peak RSS | 1.4 GB | **6.3 GB** (the tag map is held until the write pass) |
+| wall clock | ~30 min | ~46 min |
+
+`ECS_INDELS` is given 24 GB instead of 8 GB when the flag is set, so enabling it does not OOM the
+truth arm. Still check the size on one sample before turning it on across a cohort — and note the
+debug log this pipeline learned that lesson from, `offtarget_ecs_unevaluable_log`, reached
+0.1–1 TB/sample and filled the work directory. Restricting the run with `--regions` keeps both
+numbers small when you only want to review a handful of loci.
+
 ## What runs depends on the samplesheet
 
 The `datatype` column decides:
@@ -111,6 +168,7 @@ You hand it one samplesheet with these columns:
 | `offtarget_germline_max_ctrl_if` | 0.05 | matched-normal indel frac above this = germline/artifact, not a somatic edit (`label` 0) |
 | `offtarget_hotspot_pad` | 25 | bp window to match a worklist hit to a predicted hotspot |
 | `offtarget_snapshots` | false | render IGV-style pileup PNGs for LIKELY EDITs |
+| `offtarget_tagged_bam` | false | emit `<id>.tagged.bam` with per-read `XC` tags for IGV review (above) |
 | `offtarget_rescue` | true | high-evidence rescue (below); `false` = call on model score alone |
 | `offtarget_rescue_min_ifrac` | 0.15 | rescue: minimum indel fraction in the edited sample |
 | `offtarget_rescue_min_conc` | 0.5 | rescue: minimum positional concordance (clonality) |

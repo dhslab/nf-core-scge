@@ -80,3 +80,174 @@ def workspace(tmp_path):
     ], columns=["rank", "sample", "chrom", "start", "alt", "dragen_af", "score", "verdict_pon"]
     ).to_csv(d / "worklist_pon.csv", index=False)
     return d
+
+
+# ---------------------------------------------------------------------------
+# Synthetic aligned-read workspace for find_edited_reads.py
+#
+# The glue fixtures above are pure tables; the read-level tagging path needs
+# real alignments. This builds the smallest workspace that reproduces the two
+# things that make tagging non-trivial:
+#
+#   * two targets 200 bp apart -- far enough that pyranges clusters them
+#     separately (slack = --target-window = 150), close enough that their
+#     +/-150 fetch windows overlap, so some reads are visited twice;
+#   * a read pair sitting in that overlap which one target calls Unedited_WT
+#     and the other cannot evaluate, i.e. the tag-conflict case.
+# ---------------------------------------------------------------------------
+
+ECS_CHROM = "chr1"
+ECS_CONTIG_LEN = 3000
+ECS_TARGET_A = 1001        # 1-based; the edited site
+ECS_TARGET_B = 1201        # 1-based; a quiet site
+ECS_DEL_LEN = 5
+ECS_N_EDIT = 12            # read pairs carrying the deletion
+ECS_N_WT = 8               # read pairs spanning target A cleanly
+ECS_N_DUP = 2              # duplicate-flagged pairs
+ECS_N_LOWMAPQ = 2          # MAPQ below the default floor of 20
+ECS_N_MISMATCH = 2         # NM above the default ceiling of 4
+ECS_N_OVERLAP = 6          # pairs inside the window overlap, spanning neither target
+ECS_N_SPAN_B = 3           # pairs in the overlap that DO span target B (conflict case)
+
+
+def _write_ecs_fasta(path):
+    import random
+    random.seed(7)
+    seq = "".join(random.choice("ACGT") for _ in range(ECS_CONTIG_LEN))
+    with open(path, "w") as fh:
+        fh.write(f">{ECS_CHROM}\n")
+        for i in range(0, ECS_CONTIG_LEN, 60):
+            fh.write(seq[i:i + 60] + "\n")
+    import pysam
+    pysam.faidx(str(path))
+    return pysam.FastaFile(str(path))
+
+
+def _ecs_pair(fasta, name, r1_start, r1_cigar, r2_start, mapq=60, dup=False,
+              r1_nm=0, r2_nm=0):
+    """One properly-paired FR pair (R1 forward, R2 reverse) with real sequence."""
+    import pysam
+
+    def qseq(start, cigar):
+        out, ref = [], start
+        for op, ln in cigar:
+            if op == 0:                       # M
+                out.append(fasta.fetch(ECS_CHROM, ref, ref + ln)); ref += ln
+            elif op == 2:                     # D
+                ref += ln
+            elif op == 1:                     # I
+                out.append("A" * ln)
+            elif op == 4:                     # S
+                out.append("T" * ln)
+        return "".join(out)
+
+    span = r2_start + 100 - r1_start
+    reads = []
+    for is_read1, start, cigar, mate_start, nm in (
+            (True, r1_start, r1_cigar, r2_start, r1_nm),
+            (False, r2_start, [(0, 100)], r1_start, r2_nm)):
+        a = pysam.AlignedSegment()
+        a.query_name = name
+        a.query_sequence = qseq(start, cigar)
+        a.reference_id = 0
+        a.reference_start = start
+        a.mapping_quality = mapq
+        a.cigar = cigar
+        a.next_reference_id = 0
+        a.next_reference_start = mate_start
+        a.template_length = span if is_read1 else -span
+        a.query_qualities = pysam.qualitystring_to_array("I" * len(a.query_sequence))
+        a.is_paired = True
+        a.is_proper_pair = True
+        a.is_read1 = is_read1
+        a.is_read2 = not is_read1
+        a.is_reverse = not is_read1
+        a.mate_is_reverse = is_read1
+        a.is_duplicate = dup
+        a.set_tag("NM", nm, value_type="i")
+        a.set_tag("MC", "100M", value_type="Z")
+        reads.append(a)
+    return reads
+
+
+def _build_ecs_cram(fasta, fasta_path, out_bam, reads):
+    import pysam
+    header = {"HD": {"VN": "1.6", "SO": "coordinate"},
+              "SQ": [{"SN": ECS_CHROM, "LN": ECS_CONTIG_LEN}]}
+    reads.sort(key=lambda r: r.reference_start)
+    tmp = str(out_bam) + ".tmp.bam"
+    with pysam.AlignmentFile(tmp, "wb", header=header) as out:
+        for r in reads:
+            out.write(r)
+    pysam.sort("-o", str(out_bam), tmp)
+    Path(tmp).unlink()
+    pysam.index(str(out_bam))
+    # production opens its inputs as CRAM, so hand the caller a CRAM
+    cram = str(out_bam)[:-4] + ".cram"
+    with pysam.AlignmentFile(str(out_bam)) as src, \
+            pysam.AlignmentFile(cram, "wc", template=src,
+                                reference_filename=str(fasta_path)) as out:
+        for r in src:
+            out.write(r)
+    pysam.index(cram)
+    return cram
+
+
+@pytest.fixture
+def ecs_reads_workspace(tmp_path):
+    """Synthetic reference + targets VCF + edited/control CRAMs for the ECS caller.
+
+    Returns a dict of paths plus the read counts the tags should reconcile with.
+    """
+    pysam = pytest.importorskip("pysam")
+    d = tmp_path
+    fasta_path = d / "ref.fa"
+    fasta = _write_ecs_fasta(fasta_path)
+
+    header = pysam.VariantHeader()
+    header.contigs.add(ECS_CHROM, length=ECS_CONTIG_LEN)
+    targets = d / "targets.vcf"
+    with pysam.VariantFile(str(targets), "w", header=header) as vout:
+        for pos in (ECS_TARGET_A, ECS_TARGET_B):
+            rec = vout.new_record()
+            rec.chrom = ECS_CHROM
+            rec.pos = pos
+            rec.id = "."
+            rec.ref = fasta.fetch(ECS_CHROM, pos - 1, pos)
+            rec.alts = ("N",)
+            rec.filter.add("PASS")
+            vout.write(rec)
+
+    del_cigar = [(0, 60), (2, ECS_DEL_LEN), (0, 40)]
+    edited = []
+    for i in range(ECS_N_EDIT):
+        edited += _ecs_pair(fasta, f"edit{i}", 940, del_cigar, 1180, r1_nm=ECS_DEL_LEN)
+    for i in range(ECS_N_WT):
+        edited += _ecs_pair(fasta, f"wt{i}", 940, [(0, 100)], 1180)
+    for i in range(ECS_N_DUP):
+        edited += _ecs_pair(fasta, f"dup{i}", 940, [(0, 100)], 1180, dup=True)
+    for i in range(ECS_N_LOWMAPQ):
+        edited += _ecs_pair(fasta, f"lowq{i}", 940, [(0, 100)], 1180, mapq=3)
+    for i in range(ECS_N_MISMATCH):
+        edited += _ecs_pair(fasta, f"mm{i}", 940, [(0, 100)], 1180, r1_nm=6, r2_nm=6)
+    for i in range(ECS_N_OVERLAP):
+        edited += _ecs_pair(fasta, f"both{i}", 1080, [(0, 100)], 1220)
+    # R1 lands in both padded windows: target A cannot evaluate it, target B
+    # calls it reference. Unedited_WT must win, and it must be written once.
+    for i in range(ECS_N_SPAN_B):
+        edited += _ecs_pair(fasta, f"spanb{i}", 1150, [(0, 100)], 1220)
+
+    control = []
+    for i in range(ECS_N_EDIT + ECS_N_WT):
+        control += _ecs_pair(fasta, f"ctl{i}", 940, [(0, 100)], 1180)
+
+    return {
+        "dir": d,
+        "fasta": fasta_path,
+        "targets": targets,
+        "edited": _build_ecs_cram(fasta, fasta_path, d / "edited.bam", edited),
+        "control": _build_ecs_cram(fasta, fasta_path, d / "control.bam", control),
+        "n_edit_reads": ECS_N_EDIT,
+        "del_len": ECS_DEL_LEN,
+        "total_records": len(edited),
+    }

@@ -13,6 +13,7 @@ process ECS_INDELS {
     output:
     tuple val(meta), path("${meta.id}.offtarget_analysis.tsv"), emit: indels_file
     tuple val(meta), path("${meta.id}.offtarget_edits.vcf"),    emit: indels_vcf
+    tuple val(meta), path("${meta.id}.tagged.bam*"), optional: true, emit: tagged_bam
     path "versions.yml", emit: versions
 
     script:
@@ -20,6 +21,10 @@ process ECS_INDELS {
     // output and is not consumed downstream, yet it grows to ~0.1-1 TB per sample and
     // was the sole cause of multi-TB work-dir bloat / ENOSPC. Off unless explicitly asked.
     def unevaluable = params.offtarget_ecs_unevaluable_log ? "-u ${meta.id}.unevaluable_reads.txt" : ""
+    // Review aid, not a pipeline input: a BAM of the target windows in which every read
+    // carries an XC tag naming the per-read call, for colouring the pileup in IGV. Window-
+    // restricted, but it still scales with target count -- off unless explicitly asked.
+    def tagged_bam = params.offtarget_tagged_bam ? "--tagged-bam-out ${meta.id}.tagged.bam" : ""
     """
     python ${projectDir}/bin/find_edited_reads.py \\
         --fasta ${reference} \\
@@ -27,6 +32,7 @@ process ECS_INDELS {
         --control-bam ${control_cram} \\
         --target-file ${target_file} \\
         ${unevaluable} \\
+        ${tagged_bam} \\
         --vcf-out ${meta.id}.offtarget_edits.vcf \\
         -o ${meta.id}.offtarget_analysis.tsv
 
@@ -37,5 +43,6 @@ process ECS_INDELS {
     """
 
     stub:
-    "touch ${meta.id}.offtarget_analysis.tsv ${meta.id}.offtarget_edits.vcf versions.yml"
+    def tagged_bam = params.offtarget_tagged_bam ? "${meta.id}.tagged.bam ${meta.id}.tagged.bam.bai" : ""
+    "touch ${meta.id}.offtarget_analysis.tsv ${meta.id}.offtarget_edits.vcf ${tagged_bam} versions.yml"
 }

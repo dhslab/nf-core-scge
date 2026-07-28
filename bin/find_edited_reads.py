@@ -2,7 +2,7 @@
 
 from __future__ import division
 import edlib
-import argparse, re, string, csv, sys
+import argparse, re, string, csv, os, sys
 import scipy.stats as stats
 import joblib
 import pandas as pd
@@ -1182,8 +1182,15 @@ def calculate_distance_to_closest_pam(position, targets_df, chrom):
     distances = np.abs(targets_df['Start'] - position)
     return distances.min() if len(distances) > 0 else -1
 
-def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta, is_on_target=0, control_bam=None, threshold=0.80):
-    
+def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta, is_on_target=0, control_bam=None, threshold=0.80, read_probs=None):
+    """Score reads at one locus with the CRISPR model.
+
+    Returns (reads at or above threshold, mean probability as a percentage). If
+    ``read_probs`` is a dict it is additionally filled with per-read
+    probabilities keyed by read_tag_key(), keeping the highest score seen for a
+    record across overlapping loci -- used to emit the optional XP BAM tag.
+    """
+
     reads = []
     for read in bam_file.fetch(chrom, start, end):
         if read.is_unmapped or read.is_duplicate:
@@ -1293,9 +1300,16 @@ def predict_reads_at_position(bam_file, chrom, start, end, pampos, model, fasta,
     # Get model predictions
     preds = model.predict_proba(features_df)[:, 1]
     
+    if read_probs is not None:
+        for read, prob in zip(reads, preds):
+            key = read_tag_key(read)
+            prob = float(prob)
+            if prob > read_probs.get(key, -1.0):
+                read_probs[key] = prob
+
     # Calculate results
     avg_probability = float(preds.mean() * 100)
-    
+
     return int((preds >= threshold).sum()), avg_probability
 
 def merge_dicts_to_tuples(data):
@@ -1482,6 +1496,227 @@ def write_vcf_output(df, outfile_name, vcf_header=None, sample_name="EDITED"):
 
 
 # ============================================================================
+# SECTION 2b: READ-LEVEL TAGS (optional, for IGV review)
+# ============================================================================
+#
+# The per-target read loop in main() already decides, for every read it sees,
+# whether that read supports an edit -- and then throws the decision away, so a
+# reviewer only ever sees the aggregated indel_fraction. These helpers keep the
+# per-read verdict so it can be written back out as a string BAM tag that IGV
+# can colour by (Color alignments by -> tag -> XC).
+#
+# Two properties of the read loop shape this code:
+#
+#   1. The loop fetches per target with a +/- target_window pad and
+#      multiple_iterators=True, so overlapping targets make it visit the *same*
+#      alignment record more than once. Writing from inside the loop would emit
+#      that record repeatedly, which IGV renders as inflated depth. So tags are
+#      only accumulated during the loop; the BAM is written in a second pass
+#      that visits each record exactly once (see write_tagged_bam).
+#
+#   2. query_name is not a unique key -- it collides between mates of a pair and
+#      between the primary and supplementary records of one fragment. The key is
+#      (query_name, flag, reference_start).
+
+# Tag precedence, most specific first. When the same record is classified
+# differently at two overlapping targets, the lowest-index prefix wins: real edit
+# evidence beats a plain reference call, which beats a read a classifier looked at
+# but could not place, which beats a read that simply sat in the padding. Matching
+# is by prefix and first-match, so the specific Skipped_ entries must precede the
+# generic one.
+TAG_PRECEDENCE = (
+    'Edited_BND',
+    'Edited_Deletion',
+    'Edited_Insertion',
+    'Edited_Duplication',
+    'Edited_Complex',
+    'Edited_SoftClip',
+    'Unedited_WT',
+    'Skipped_Unevaluable',
+    'Skipped_NoSpan',
+    'Skipped_',
+)
+
+# The tag assumed for any record not present in the tag map. This is the single
+# biggest category by far -- at a 1 bp target the +/-150 bp fetch pad means most
+# records neither span the target nor carry an event (69% of records at the AAVS1
+# on-target) -- so leaving it implicit rather than storing it cuts the tag map to
+# roughly a third of its size on a real panel. It is safe to leave implicit only
+# because it is *last* in TAG_PRECEDENCE among the tags a read can also receive
+# elsewhere: anything else recorded for the same read outranks it anyway.
+DEFAULT_TAG = 'Skipped_NoSpan'
+
+
+def read_tag_rank(tag):
+    """Precedence rank of a tag string; lower wins. Unknown tags rank last."""
+    for i, prefix in enumerate(TAG_PRECEDENCE):
+        if tag.startswith(prefix):
+            return i
+    return len(TAG_PRECEDENCE)
+
+
+def read_tag_key(read):
+    """Unique key for one alignment record.
+
+    query_name alone is not unique: read1/read2 of a pair share it, as do the
+    primary and supplementary records of a split read. Including the flag and
+    the start position makes the key identify exactly one record.
+    """
+    return (read.query_name, read.flag, read.reference_start)
+
+
+def classify_read_tag(vcf_dict, source):
+    """Map one per-read classification onto an IGV-colourable tag string.
+
+    ``source`` is the branch of the read loop that produced ``vcf_dict``:
+    'CIGAR', 'SA', 'SOFTCLIP' or 'REF'.
+    """
+    if vcf_dict is None:
+        return 'Skipped_Unevaluable'
+
+    alttype = vcf_dict.get('alttype')
+
+    if alttype == 'REF':
+        return 'Unedited_WT'
+
+    # A breakend is named by its partner contig -- that is what the reviewer is
+    # looking for (e.g. a junction into the transgene contig).
+    if alttype == 'BND':
+        return 'Edited_BND_{}'.format(vcf_dict.get('chrom2') or 'NA')
+
+    # Soft-clip-derived calls are realignments rather than direct observations,
+    # so they are reported by mechanism and not by an implied exact size.
+    if source == 'SOFTCLIP':
+        return 'Edited_SoftClip'
+
+    ref = vcf_dict.get('ref') or ''
+    alt = vcf_dict.get('alt') or ''
+
+    # Symbolic alleles (<DEL>, <DUP>, <INS>) carry no length; fall back to the
+    # reference span between the two breakpoints.
+    if alt.startswith('<') or ref.startswith('<'):
+        try:
+            size = abs(int(vcf_dict['pos2']) - int(vcf_dict['pos']))
+        except (KeyError, TypeError, ValueError):
+            size = 0
+    else:
+        size = abs(len(ref) - len(alt))
+
+    if alttype == 'DEL':
+        return 'Edited_Deletion_{}bp'.format(size)
+    if alttype == 'INS':
+        return 'Edited_Insertion_{}bp'.format(size)
+    if alttype == 'DUP':
+        return 'Edited_Duplication_{}bp'.format(size)
+
+    return 'Edited_Complex'
+
+
+def record_read_tag(read_tags, read, tag):
+    """Keep the highest-precedence tag seen for this record across all targets."""
+    key = read_tag_key(read)
+    previous = read_tags.get(key)
+    if previous is None or read_tag_rank(tag) < read_tag_rank(previous):
+        read_tags[key] = tag
+
+
+def merge_windows(windows):
+    """Collapse (chrom, start, end) windows into disjoint, sorted intervals.
+
+    Padded target windows overlap each other; fetching them as-is would visit
+    some records twice. Merging first keeps the second pass close to a single
+    linear sweep and makes the output naturally near-coordinate-order.
+    """
+    by_chrom = defaultdict(list)
+    for chrom, start, end in windows:
+        by_chrom[chrom].append((max(0, int(start)), int(end)))
+
+    merged = []
+    for chrom in sorted(by_chrom):
+        current_start, current_end = None, None
+        for start, end in sorted(by_chrom[chrom]):
+            if current_end is not None and start <= current_end:
+                current_end = max(current_end, end)
+                continue
+            if current_end is not None:
+                merged.append((chrom, current_start, current_end))
+            current_start, current_end = start, end
+        if current_end is not None:
+            merged.append((chrom, current_start, current_end))
+
+    return merged
+
+
+def write_tagged_bam(source_bamfile, out_path, windows, read_tags, tag_name,
+                     probabilities=None, prob_tag='XP', verbose=False):
+    """Second pass: emit a sorted, indexed BAM of the target windows, tagged.
+
+    Restricted to the target windows on purpose. Tagging whole CRAMs would be
+    enormous, and the windows are all IGV needs to show the reviewer why a site
+    was called. Returns the number of records written.
+    """
+    merged = merge_windows(windows)
+    if not merged:
+        print("No target windows were processed; not writing a tagged BAM.", file=sys.stderr)
+        return 0
+
+    if out_path.endswith('.bam'):
+        final_path = out_path
+    else:
+        final_path = out_path + '.bam'
+    unsorted_path = final_path[:-4] + '.unsorted.bam'
+
+    written = 0
+    # Merged windows are disjoint and ascending, so the only record that can be
+    # fetched twice is one that runs past the end of a window into the next.
+    # Carrying just those keys (key -> reference_end) is enough to write each
+    # record exactly once, and costs far less than remembering every key written.
+    carry = {}
+    current_chrom = None
+
+    out_bam = pysam.AlignmentFile(unsorted_path, 'wb', template=source_bamfile)
+    try:
+        for chrom, start, end in merged:
+            if chrom != current_chrom:
+                carry.clear()
+                current_chrom = chrom
+            elif carry:
+                # anything ending at or before this window cannot re-appear
+                carry = {k: e for k, e in carry.items() if e > start}
+
+            for read in source_bamfile.fetch(chrom, start, end, multiple_iterators=True):
+                key = read_tag_key(read)
+                if key in carry:
+                    # already emitted from the previous window -- writing it again
+                    # would show up in IGV as doubled depth
+                    continue
+
+                read.set_tag(tag_name, read_tags.get(key, DEFAULT_TAG), value_type='Z')
+                if probabilities is not None and key in probabilities:
+                    read.set_tag(prob_tag, float(probabilities[key]), value_type='f')
+                out_bam.write(read)
+                written += 1
+
+                read_end = read.reference_end
+                if read_end is not None and read_end > end:
+                    carry[key] = read_end
+    finally:
+        out_bam.close()
+
+    # Windows are visited in target order, which is not guaranteed to be
+    # coordinate order, and IGV needs coordinate-sorted + indexed input.
+    pysam.sort('-o', final_path, unsorted_path)
+    pysam.index(final_path)
+    os.remove(unsorted_path)
+
+    if verbose:
+        print(f"Wrote {written} tagged reads over {len(merged)} merged windows to {final_path}",
+              file=sys.stderr)
+
+    return written
+
+
+# ============================================================================
 # SECTION 3: MAIN FUNCTION
 # ============================================================================
 
@@ -1515,6 +1750,16 @@ def main():
     parser.add_argument('-o','--outfile',type=str,help='Output file (optional)')
     parser.add_argument('-u','--unevaluable-reads-logfile',type=str,help='File with information on reads that were not evaluable.')
     parser.add_argument('-V','--vcf-out',type=str,help="VCF output file with all passing events.")
+    parser.add_argument('--tagged-bam-out',type=str,default=None,
+                        help=('Write a coordinate-sorted, indexed BAM in which every read carries a string tag '
+                              'recording how this script classified it (Edited_Deletion_5bp, Unedited_WT, ...), '
+                              'for review in IGV via Color alignments by -> tag. Off by default. Output is '
+                              'restricted to the target windows only (target +/- --target-window), not the whole '
+                              'genome: expect roughly (number of targets) x (2 x window + read length) x depth '
+                              'bytes, i.e. a few hundred MB for a typical deep ECS panel, but it scales with your '
+                              'target count -- check the size before enabling it across a cohort.'))
+    parser.add_argument('--tagged-bam-tag',type=str,default='XC',
+                        help='Two-character tag name to write the per-read classification into (default: XC)')
     parser.add_argument('-v','--verbose',action='store_true',help='Print verbose output')
     # add vv option for debugging
     parser.add_argument('-vv','--debug',action='store_true',help='Print debug output')
@@ -1665,9 +1910,16 @@ def main():
     region_list = [parse_region_string(region) for region in args.regions.split(',')] if args.regions else None
 
     total_intervals = len(mergedBedDf)
-    
+
     # This stores all indel records to print as a VCF at the end.
     all_indel_records = []
+
+    # Optional read-level tagging (see SECTION 2b). Tags are only accumulated
+    # here; the BAM is written afterwards in a second pass, because this loop
+    # visits overlapping targets and would otherwise emit duplicate records.
+    read_tags = {} if args.tagged_bam_out else None
+    read_probs = {} if (args.tagged_bam_out and args.enable_crispr_prediction) else None
+    tagged_windows = []
 
     # Use enumerate(..., start=1) to keep track of the current loop index
     for i, (_, row) in enumerate(mergedBedDf.iterrows(), 1):
@@ -1707,16 +1959,36 @@ def main():
         if args.verbose:
             print(f"\tGetting reads that align within window of {row['Chromosome']}:{row['Start']}-{row['End']}", file=sys.stderr)
 
-        # get reads that align within a defined region containing the merged target interval
-        for read in edited_bamfile.fetch(row['Chromosome'], max(0, row['Start']-args.target_window), row['End']+args.target_window, multiple_iterators = True):
+        window_start = max(0, row['Start'] - args.target_window)
+        window_end = row['End'] + args.target_window
+        if read_tags is not None:
+            tagged_windows.append((row['Chromosome'], window_start, window_end))
 
-            # skip if not primary alignment or a duplicate or poor mapping quality
-            if (read.is_mapped is False or
-                read.is_duplicate is True or
-                read.is_secondary is True or
-                read.is_supplementary is True or
-                read.mapping_quality < args.min_mapqual or 
-                count_mismatches_fast(read) > args.max_read_mismatches):
+        # get reads that align within a defined region containing the merged target interval
+        for read in edited_bamfile.fetch(row['Chromosome'], window_start, window_end, multiple_iterators = True):
+
+            # skip if not primary alignment or a duplicate or poor mapping quality.
+            # Same predicates and same short-circuit order as a single boolean
+            # chain; split out so a skipped read can say which filter caught it.
+            skip_reason = None
+            if read.is_mapped is False:
+                skip_reason = 'Skipped_Unmapped'
+            elif read.is_duplicate is True:
+                skip_reason = 'Skipped_Duplicate'
+            elif read.is_secondary is True:
+                skip_reason = 'Skipped_Secondary'
+            elif read.is_supplementary is True:
+                skip_reason = 'Skipped_Supplementary'
+            elif read.mapping_quality < args.min_mapqual:
+                skip_reason = 'Skipped_LowMapQ'
+            elif count_mismatches_fast(read) > args.max_read_mismatches:
+                skip_reason = 'Skipped_Mismatches'
+
+            if skip_reason is not None:
+                # tag it rather than dropping it, so a reviewer sees that the
+                # read was excluded on purpose instead of just missing
+                if read_tags is not None:
+                    record_read_tag(read_tags, read, skip_reason)
                 continue
 
             # Determine whether the read pair has the proper orientation, that is: ---> <---
@@ -1734,9 +2006,12 @@ def main():
 
             # dict to store mutation info in VCF record format
             vcf_dict = None
+            # which classifier produced vcf_dict; only used for read-level tags
+            vcf_source = None
 
             # if cigar has any D/I operations
             if any(op in (1, 2) for op, _ in cigar) and proper_paired_read:
+                vcf_source = 'CIGAR'
 
                 if args.verbose:
                     print(f"\tAnalyzing cigars in {read.query_name} from {row['Chromosome']}:{row['Start']-args.target_window}-{row['End']+args.target_window}", file=sys.stderr)
@@ -1744,16 +2019,20 @@ def main():
                 vcf_dict = get_cigar_indel_vcf(read, refFasta, row['Pos'], target_index)
 
                 # if no indel is found or its too far away from the closest PAM position
-                if (vcf_dict is None or 
+                if (vcf_dict is None or
                     vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance):
                     # print abbreviated read info (name, cigar, mapping info, sequence) to unevaluable read log
                     if unevaluable_read_log:
                         print(f"{str(read)}\t{vcf_dict}", file=unevaluable_read_log)
 
+                    if read_tags is not None:
+                        record_read_tag(read_tags, read, 'Skipped_Unevaluable')
+
                     continue
 
             # read has supplementary alignments
-            elif read.has_tag('SA'):            
+            elif read.has_tag('SA'):
+                vcf_source = 'SA'
 
                 if args.verbose:
                     print(f"\tAnalyzing SA in {read.query_name}, {read.get_tag('SA') if read.has_tag('SA') else 'None'} from {row['Chromosome']}:{row['Start']-args.target_window}-{row['End']+args.target_window}", file=sys.stderr)
@@ -1769,8 +2048,11 @@ def main():
                     if unevaluable_read_log:
                         print(f"{str(read)}\t{vcf_dict}", file=unevaluable_read_log)
 
+                    if read_tags is not None:
+                        record_read_tag(read_tags, read, 'Skipped_Unevaluable')
+
                     continue
-                
+
                 # if SA is an indel then it should be bounded by the read pair ends. If not then continue.
                 if (vcf_dict['alttype'] in ['DEL','DUP','INS'] and proper_paired_read and
                     (min([vcf_dict['pos'],vcf_dict['pos2']]) < min([read.reference_start,read.next_reference_start]) or
@@ -1780,8 +2062,11 @@ def main():
                         if unevaluable_read_log:
                             print(f"{str(read)}\t{vcf_dict}", file=unevaluable_read_log)
 
+                        if read_tags is not None:
+                            record_read_tag(read_tags, read, 'Skipped_Unevaluable')
+
                         continue
-                
+
                 # if SA is a BND, check to see if the other end is in the target list
                 if (vcf_dict['alttype']=='BND' and 
                     (read.mapping_quality < args.min_bnd_mapqual or vcf_dict['info']['SAMAPQ'] < args.min_bnd_mapqual and 
@@ -1791,28 +2076,36 @@ def main():
                         if unevaluable_read_log:
                             print(f"{str(read)}\t{vcf_dict}", file=unevaluable_read_log)
 
+                        if read_tags is not None:
+                            record_read_tag(read_tags, read, 'Skipped_Unevaluable')
+
                         continue
 
             # read has softclips
             elif cigar[0][0] >= 4 and cigar[0][1] >= args.min_softclip_length or \
                     cigar[-1][0] >= 4 and cigar[-1][1] >= args.min_softclip_length:
+                vcf_source = 'SOFTCLIP'
 
                 if args.verbose:
                     print(f"\tAnalyzing softclips in {read.query_name}, {read.cigarstring}, from {row['Chromosome']}:{row['Start']-args.target_window}-{row['End']+args.target_window}", file=sys.stderr)
 
                 vcf_dict = get_softclip_indel_vcf(read, refFasta, row['Pos'], args.mutation_search_window, args.min_softclip_length)
 
-                if (vcf_dict is None or 
-                    (vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance)): 
+                if (vcf_dict is None or
+                    (vcf_dict['distance'] > args.max_mutation_distance and vcf_dict['distance2'] > args.max_mutation_distance)):
 
                     # print abbreviated read info (name, cigar, mapping info, sequence) to unevaluable read log
                     if unevaluable_read_log:
                         print(f"{str(read)}\t{vcf_dict}", file=unevaluable_read_log)
 
+                    if read_tags is not None:
+                        record_read_tag(read_tags, read, 'Skipped_Unevaluable')
+
                     continue
 
-            # read spans start and end and has no softclips    
+            # read spans start and end and has no softclips
             elif read.reference_start < row['End'] and read.reference_end > row['Start'] and cigar[0][0] == 0 and cigar[-1][0] == 0:
+                vcf_source = 'REF'
 
                 if args.verbose:
                     print(f"\tThis read is reference {read.query_name}, {read.cigarstring}, from {row['Chromosome']}:{row['Start']-args.target_window}-{row['End']+args.target_window}", file=sys.stderr)
@@ -1834,8 +2127,19 @@ def main():
 
             # If read doesnt meet any of the criteria then skip it.
             else:
+                # Sits in the padded window but carries no event and does not span
+                # the target, so it is evidence for neither call. This is the bulk
+                # of the records in a window, and it is exactly DEFAULT_TAG -- so
+                # it is deliberately NOT recorded, which keeps the tag map small
+                # enough to survive a full panel. See DEFAULT_TAG.
                 continue
-            
+
+            # Record the per-read verdict *before* the alleles below are truncated
+            # for display, since the truncation overwrites alt with a length label
+            # and would make the indel size in the tag meaningless.
+            if read_tags is not None:
+                record_read_tag(read_tags, read, classify_read_tag(vcf_dict, vcf_source))
+
             # truncate ref or alt allele for readbility in Excel, etc.
             if len(vcf_dict['ref']) > 20:
                 vcf_dict['alt'] = f"DEL{len(vcf_dict['ref'])-1}"
@@ -1972,7 +2276,8 @@ def main():
             
             crispr_predicted_reads, crispr_prediction_probability = predict_reads_at_position(
                 edited_bamfile, row['Chromosome'], row['Start'], row['End'], positions, 
-                crispr_model, refFasta, is_on_target=ontarget, control_bam=control_bamfile, threshold=args.crispr_threshold
+                crispr_model, refFasta, is_on_target=ontarget, control_bam=control_bamfile, threshold=args.crispr_threshold,
+                read_probs=read_probs
             )
             crispr_prediction_fraction = round(crispr_predicted_reads/total_reads, 4) if total_reads > 0 else 0.0
             
@@ -2009,6 +2314,13 @@ def main():
             output_fields.extend([crispr_predicted_reads, crispr_prediction_fraction, round(crispr_prediction_probability, 1)])
 
         print("\t".join([str(field) for field in output_fields]), file=fp, flush=True)
+
+    # Second pass: write the read-level tagged BAM, if requested. This has to be
+    # a separate sweep -- the loop above revisits the same records at overlapping
+    # targets, so writing there would emit duplicates and inflate IGV depth.
+    if read_tags is not None:
+        write_tagged_bam(edited_bamfile, args.tagged_bam_out, tagged_windows, read_tags,
+                         args.tagged_bam_tag, probabilities=read_probs, verbose=True)
 
     # Write VCF output if requested.
     if args.vcf_out:

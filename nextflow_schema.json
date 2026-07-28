@@ -166,6 +166,11 @@
                     "help_text": "Off by default. This log reaches roughly 0.1-1 TB per sample and was the sole cause of work-directory ENOSPC failures; enable only when debugging read evaluation.",
                     "hidden": true
                 },
+                "offtarget_tagged_bam": {
+                    "type": "boolean",
+                    "description": "Emit a per-read tagged BAM from the ECS caller for review in IGV",
+                    "help_text": "Off by default. Writes <id>.tagged.bam(.bai) in which every read carries an XC string tag naming how the caller classified it (Edited_Deletion_5bp, Unedited_WT, Skipped_LowMapQ, ...), so a reviewer can load it in IGV and use Color alignments by -> tag -> XC. Output is restricted to the target windows (target +/- 150 bp), not the whole genome, but it still scales with target count and depth: one AAVS1 site14 ECS sample (1149 targets, ~11000x) produced a 800 MB BAM of 21.8 M reads and pushed ECS_INDELS from 1.4 GB to 6.3 GB peak RSS, so the process is given 24 GB instead of 8 GB while this is set. Check the size on one sample before enabling it across a cohort. See docs/OFFTARGET_WORKFLOW.md."
+                },
                 "offtarget_ecs_edit_threshold": {
                     "type": "number",
                     "default": 0.0,

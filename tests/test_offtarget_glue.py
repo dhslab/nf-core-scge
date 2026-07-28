@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 import pandas as pd
+import pytest
 from conftest import BIN, run
 
 
@@ -163,3 +164,148 @@ def test_verdict_callers_unpack_three_values():
                     offenders.append(f"{path.name}:{node.lineno} unpacks {len(tgt.elts)}, want 3")
 
     assert not offenders, "verdict() arity mismatch: " + "; ".join(offenders)
+
+
+# --------------------------------------------------------------------------
+# find_edited_reads.py --tagged-bam-out (read-level tags for IGV review)
+#
+# The caller visits the same alignment record once per overlapping target, so
+# the risk here is a BAM with duplicate records, which IGV silently renders as
+# doubled depth. These run the real caller on the synthetic CRAM workspace.
+# --------------------------------------------------------------------------
+import collections
+
+import conftest as C
+
+
+def _load_find_edited_reads():
+    """Import bin/find_edited_reads.py as a module (it is a script, not a package)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("find_edited_reads",
+                                                  BIN / "find_edited_reads.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_caller(ws, *extra):
+    run("find_edited_reads.py",
+        "--fasta", ws["fasta"], "--edited-bam", ws["edited"],
+        "--control-bam", ws["control"], "--target-file", ws["targets"],
+        "-o", ws["dir"] / "out.tsv", *extra, cwd=ws["dir"])
+    return pd.read_csv(ws["dir"] / "out.tsv", sep="\t")
+
+
+def test_tagged_bam_off_by_default(ecs_reads_workspace):
+    ws = ecs_reads_workspace
+    tsv = _run_caller(ws)
+    assert tsv["indel_reads"].sum() == ws["n_edit_reads"]
+    # the feature is opt-in: nothing extra on disk unless asked for
+    assert not list(ws["dir"].glob("*.tagged.bam*"))
+
+
+def test_tagged_bam_tags_every_read_exactly_once(ecs_reads_workspace):
+    pysam = pytest.importorskip("pysam")
+    ws = ecs_reads_workspace
+    out = ws["dir"] / "tagged.bam"
+    tsv = _run_caller(ws, "--tagged-bam-out", out)
+
+    assert out.exists() and (ws["dir"] / "tagged.bam.bai").exists()
+
+    keys, tags, positions = [], collections.Counter(), []
+    spanb_read1 = []
+    with pysam.AlignmentFile(str(out)) as bam:
+        assert bam.header.to_dict()["HD"]["SO"] == "coordinate"
+        for read in bam:
+            assert read.has_tag("XC"), f"{read.query_name} has no XC tag"
+            keys.append((read.query_name, read.flag, read.reference_start))
+            tags[read.get_tag("XC")] += 1
+            positions.append(read.reference_start)
+            if read.query_name.startswith("spanb") and read.is_read1:
+                spanb_read1.append(read.get_tag("XC"))
+
+    # (a) one record per alignment: the whole point of the second pass
+    duplicated = [k for k, n in collections.Counter(keys).items() if n > 1]
+    assert not duplicated, f"duplicate records in tagged BAM: {duplicated[:5]}"
+    assert len(keys) == ws["total_records"]
+
+    # (b) coordinate-sorted, so IGV will load it
+    assert positions == sorted(positions)
+
+    # (c) tag counts reconcile with the TSV. Tags are per alignment record while
+    #     indel_reads is per fragment (the caller collapses mates by read name), so
+    #     these are only equal because just R1 carries the deletion in this fixture.
+    #     On real data the record count runs ~2x the TSV number.
+    edit_tag = f"Edited_Deletion_{ws['del_len']}bp"
+    assert tags[edit_tag] == ws["n_edit_reads"] == tsv["indel_reads"].sum()
+
+    # (d) skipped reads are visibly skipped, not silently absent
+    assert tags["Skipped_Duplicate"] == 2 * C.ECS_N_DUP
+    assert tags["Skipped_LowMapQ"] == 2 * C.ECS_N_LOWMAPQ
+    assert tags["Skipped_Mismatches"] == 2 * C.ECS_N_MISMATCH
+    # reads sitting in the +/-150 bp pad that span neither target: the implicit
+    # default, never stored in the tag map (see DEFAULT_TAG)
+    assert tags["Skipped_NoSpan"] == 2 * C.ECS_N_OVERLAP + C.ECS_N_SPAN_B
+
+    # (e) conflict resolution: these reads fall in both padded windows, where one
+    #     target cannot evaluate them and the other calls them reference
+    assert spanb_read1 == ["Unedited_WT"] * C.ECS_N_SPAN_B
+
+
+def test_tagged_bam_honours_custom_tag_name(ecs_reads_workspace):
+    pysam = pytest.importorskip("pysam")
+    ws = ecs_reads_workspace
+    out = ws["dir"] / "tagged.bam"
+    _run_caller(ws, "--tagged-bam-out", out, "--tagged-bam-tag", "YC")
+    with pysam.AlignmentFile(str(out)) as bam:
+        read = next(iter(bam))
+    assert read.has_tag("YC") and not read.has_tag("XC")
+
+
+def test_read_tag_precedence_is_order_independent():
+    """A read seen at two overlapping targets keeps the most specific call."""
+    m = _load_find_edited_reads()
+
+    ordered = ["Edited_BND_chr19", "Edited_Deletion_5bp", "Edited_SoftClip",
+               "Unedited_WT", "Skipped_NoSpan", "Skipped_LowMapQ"]
+    ranks = [m.read_tag_rank(t) for t in ordered]
+    assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)
+
+    class FakeRead:
+        query_name, flag, reference_start = "r1", 99, 100
+
+    for first, second in ((("Unedited_WT"), "Edited_Deletion_5bp"),
+                          ("Edited_Deletion_5bp", "Unedited_WT"),
+                          ("Skipped_NoSpan", "Unedited_WT")):
+        tags = {}
+        m.record_read_tag(tags, FakeRead(), first)
+        m.record_read_tag(tags, FakeRead(), second)
+        winner = min([first, second], key=m.read_tag_rank)
+        assert tags[("r1", 99, 100)] == winner
+
+
+def test_classify_read_tag_vocabulary():
+    m = _load_find_edited_reads()
+    assert m.classify_read_tag(None, "CIGAR") == "Skipped_Unevaluable"
+    assert m.classify_read_tag({"alttype": "REF"}, "REF") == "Unedited_WT"
+    assert m.classify_read_tag(
+        {"alttype": "BND", "chrom2": "PLVM_CD19_CARv4_cd34"}, "SA"
+    ) == "Edited_BND_PLVM_CD19_CARv4_cd34"
+    assert m.classify_read_tag(
+        {"alttype": "DEL", "ref": "ATTTTT", "alt": "A"}, "CIGAR") == "Edited_Deletion_5bp"
+    assert m.classify_read_tag(
+        {"alttype": "INS", "ref": "A", "alt": "ACCC"}, "CIGAR") == "Edited_Insertion_3bp"
+    # symbolic alleles carry no length, so fall back to the breakpoint span
+    assert m.classify_read_tag(
+        {"alttype": "DUP", "ref": "A", "alt": "<DUP>", "pos": 100, "pos2": 112},
+        "SA") == "Edited_Duplication_12bp"
+    # soft-clip calls are realignments, reported by mechanism not implied size
+    assert m.classify_read_tag(
+        {"alttype": "DEL", "ref": "ATTTTT", "alt": "A"}, "SOFTCLIP") == "Edited_SoftClip"
+
+
+def test_merge_windows_collapses_overlapping_targets():
+    m = _load_find_edited_reads()
+    merged = m.merge_windows([("chr1", 850, 1151), ("chr1", 1050, 1351),
+                              ("chr1", 5000, 5300), ("chr2", 10, 300)])
+    assert merged == [("chr1", 850, 1351), ("chr1", 5000, 5300), ("chr2", 10, 300)]
