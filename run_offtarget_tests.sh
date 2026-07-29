@@ -8,6 +8,7 @@
 #   Tier 1  glue unit tests  pytest tests/test_offtarget_glue.py (the ECS<->WGS join)
 #   Tier 2  model contract   wgs_shape_model.pkl loads + sklearn version guard
 #   Tier 3  stub end-to-end  nextflow -profile stub -stub-run (DAG wiring, no CRAMs)
+#   Tier 4  nf-test          real process bodies in the real container, KB fixtures
 #
 # Tiers 1 & 2 run INSIDE the pipeline's own container (Apptainer), so they use
 # the exact pinned deps the pipeline runs — python 3.11, scikit-learn 1.8.0
@@ -251,6 +252,40 @@ else
 fi
 
 # ===========================================================================
+hdr "Tier 4 — nf-test (REAL process bodies in the real container)"
+# The gap this closes: every Nextflow tier above runs with -stub-run, whose process
+# bodies only `touch` their outputs. A module can therefore pass a flag that
+# bin/*.py does not accept and stay green through all of Tier 3. nf-test runs the
+# actual command on the KB-sized fixtures in tests/fixtures/, so the module <-> script
+# contract is executed for real. Costs ~1 min; no cohort data required.
+NFTEST="${NFTEST:-}"
+[ -z "$NFTEST" ] && NFTEST="$(command -v nf-test 2>/dev/null || true)"
+[ -z "$NFTEST" ] && [ -x "$REPO/nf-test" ] && NFTEST="$REPO/nf-test"
+if [ -z "$NF" ]; then
+  sk "nf-test" "no nextflow / java"
+elif [ -z "$NFTEST" ]; then
+  sk "nf-test" "nf-test not installed (curl -fsSL https://code.askimed.com/install/nf-test | bash, or set NFTEST=/path/to/nf-test)"
+elif [ "$MODE_PY" != "container" ]; then
+  # nf-test executes the process bodies, which declare a container. Without a runtime
+  # there is nothing to execute them in, and a venv cannot stand in.
+  sk "nf-test" "needs a container runtime (apptainer/singularity)"
+else
+  # Point Nextflow's image cache at the SIF this harness already pulled, so Tier 4
+  # never re-downloads 300 MB, and bind /storage2 so projectDir is visible inside.
+  if PATH="$(dirname "$NF"):$PATH" \
+     NXF_APPTAINER_CACHEDIR="$CACHE" NXF_SINGULARITY_CACHEDIR="$CACHE" \
+     APPTAINER_BIND=/storage2 SINGULARITY_BIND=/storage2 NXF_ANSI_LOG=false \
+     "$NFTEST" test --profile stub,apptainer >/tmp/off_nftest.log 2>&1; then
+    NT_N="$(grep -c 'PASSED' /tmp/off_nftest.log 2>/dev/null || echo '?')"
+    ok "nf-test: $NT_N tests passed (metrics module + ECS caller, real execution)"
+  elif nf_env_broke /tmp/off_nftest.log; then
+    sk "nf-test" "Java 17+ not available in this env"
+  else
+    no "nf-test (see /tmp/off_nftest.log)"; tail -n 25 /tmp/off_nftest.log | sed 's/^/      /'
+  fi
+fi
+
+# ===========================================================================
 hdr "SUMMARY"
 printf '  %sPASS %d%s   %sFAIL %d%s   %sSKIP %d%s\n' \
   "$c_g" "$pass" "$c_0" "$c_r" "$fail" "$c_0" "$c_y" "$skip" "$c_0"
@@ -258,7 +293,7 @@ if [ "$fail" -gt 0 ]; then printf '  failed: %s\n' "${FAILED_NAMES[*]}"; fi
 cat <<EOF
 
   Not covered here (needs a real cohort — run from a compute node):
-    Tier 4  real AAVS1 acceptance run:  sbatch run_offtarget.sh --input offtarget_samplesheet_aavs1.csv --outdir results_offtarget_aavs1
+    Tier 5  real AAVS1 acceptance run:  sbatch run_offtarget.sh --input offtarget_samplesheet_aavs1.csv --outdir results_offtarget_aavs1
             then check results_offtarget_aavs1/offtarget/ for:
               training.tsv         non-empty, labels {0,1}   (empty => join broke)
               offtarget_report.csv AAVS1 on-target: is_hotspot=1 & ecs_confirmed=1

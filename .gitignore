@@ -10,6 +10,14 @@
 # be swept into a commit by `git add -A`.
 .claude/
 
+# ---- nf-test ----
+# nf-test writes a per-test scratch .nf file into the REPO ROOT (one per test id) and
+# keeps its work dir in .nf-test/. Both are build artifacts of a test run, and there
+# are ~100 of the scratch files after a full suite.
+.nf-test/
+.nf-test-*.nf
+.nf-test.log
+
 # ---- Nextflow runtime ----
 .nextflow*
 work/

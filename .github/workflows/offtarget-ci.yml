@@ -2,6 +2,11 @@ name: offtarget CI
 # Exercises the -entry OFFTARGET workflow that the default nf-core CI does not cover:
 #   1. stub run  — DAG wiring for all three modes (paired / wgs_only / ecs_only)
 #   2. glue tests — the ECS<->WGS join logic (tests/test_offtarget_glue.py)
+#   3. nf-test    — REAL process bodies in the real container, on KB-sized fixtures
+#
+# (1) and (3) are complementary and neither replaces the other: a stub run only `touch`es
+# outputs, so it proves the DAG connects but executes no line of bin/*.py; nf-test runs the
+# actual command, so it catches a module passing a flag the script does not accept.
 on:
   push:
     branches:
@@ -15,6 +20,7 @@ on:
       - "bin/**"
       - "tests/**"
       - "conf/stub.config"
+      - "nf-test.config"
       - "assets/offtarget_samplesheet_template.csv"
       - ".github/workflows/offtarget-ci.yml"
 
@@ -107,3 +113,36 @@ jobs:
 
       - name: Run glue + combiner tests
         run: python -m pytest -q tests/test_offtarget_glue.py tests/test_combine_offtarget.py
+
+  nf-test:
+    name: nf-test (real process bodies, real container)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: "25.10.4"
+
+      # Installed straight from the vendor rather than via an action, so this step does
+      # not depend on a third-party action's input schema. The trailing argument pins
+      # the version; drop it to track latest (not recommended for a reproducible CI).
+      - name: Install nf-test
+        run: |
+          curl -fsSL https://code.askimed.com/install/nf-test | bash -s 0.9.5
+          sudo mv nf-test /usr/local/bin/
+          nf-test version
+
+      # ghcr.io/dhslab/docker-scge-offtarget is publicly readable, so no login is needed.
+      # Pull it up front: a first-use pull inside a process makes a timeout look like a
+      # test failure, and the image is shared by every test here.
+      - name: Pre-pull the off-target container
+        run: docker pull ghcr.io/dhslab/docker-scge-offtarget:260710
+
+      # Fixtures are ~6 KB (tests/fixtures/), so this is a couple of minutes on a 2-CPU
+      # runner. `stub` supplies the params profile — it nulls the /storage2 DRAGEN paths
+      # that workflows/scge.nf validates at parse time — while `docker` supplies the
+      # engine. Neither implies -stub-run; the process bodies really execute.
+      - name: Run nf-test
+        run: nf-test test --profile stub,docker --verbose

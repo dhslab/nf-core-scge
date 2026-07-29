@@ -17,6 +17,10 @@ worklist, and the **WGS-only model** (green) that joins WGS features to ECS trut
 [`offtarget_metro.mmd`](offtarget_metro.mmd) (rendered with [nf-metro](https://github.com/seqeralabs/nf-metro);
 an interactive pan/zoom version is at [`images/offtarget_metro.html`](images/offtarget_metro.html)).*
 
+> **New here, or want to see it run?** [`OFFTARGET_DEMO.md`](OFFTARGET_DEMO.md) is a 5-minute hands-on tour on a 5.5 KB
+> synthetic genome — no cohort data, no cluster allocation. It shows the caller finding
+> an edit, the IGV read tags, and the PR-AUC/F2 report, with the real output of each.
+
 ## What you get
 
 Everything lands in `<outdir>/offtarget/`.
