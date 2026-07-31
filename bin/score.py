@@ -33,7 +33,8 @@ import pysam
 import joblib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import read_records, features_from_records, parse_target_info, MODEL_FEATURES, check_sklearn_version
+from features import (read_records, features_from_records, parse_target_info, MODEL_FEATURES,
+                      check_sklearn_version, repeat_context)
 
 REPO = "/storage2/fs1/dspencer/Active/clinseq/projects/scge"
 CRAM_LIST = f"{REPO}/cram_list.txt"
@@ -238,6 +239,11 @@ def main():
                          "min_mm kept as a ranking annotation only")
     ap.add_argument("--no-normal-check", action="store_true",
                     help="skip the matched-normal indel recompute (edited-vs-control)")
+    ap.add_argument("--max-cut-dist", type=float, default=None,
+                    help="demote LIKELY EDIT calls whose observed indel sits further than this "
+                         "many bp from the predicted cut site (default: off). 10 is a good "
+                         "starting point: on AAVS1 it dropped 23 of 28 false positives without "
+                         "losing either curated edit.")
     ap.add_argument("--no-rescue", action="store_true",
                     help="disable the high-evidence rescue; call LIKELY EDIT on the model "
                          "score alone (reproduces pre-rescue behaviour)")
@@ -247,6 +253,11 @@ def main():
                     help="rescue: minimum positional concordance (clonality)")
     ap.add_argument("--rescue-min-span", type=int, default=RESCUE_MIN_SPAN,
                     help="rescue: minimum spanning reads")
+    ap.add_argument("--tagged-bam-dir",
+                    help="write one per-sample, window-restricted BAM whose reads carry an XC "
+                         "tag naming the per-read call, for colouring the pileup in IGV. Same "
+                         "tag vocabulary as the ECS arm. Windows cover the LIKELY EDIT sites "
+                         "only, so this stays small.")
     ap.add_argument("--snapshot-dir",
                     help="render an IGV-style pileup PNG for each surviving LIKELY-EDIT "
                          "candidate (edited vs matched normal) into this dir")
@@ -261,6 +272,8 @@ def main():
                                           "min_span": args.rescue_min_span}
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
+    # one handle reused for every site; repeat_context reads a ~50bp window per call
+    ref_fa = pysam.FastaFile(args.ref)
     check_sklearn_version(model, name=os.path.basename(args.model))
     crams = cram_index(args.cram_list)
     df = load_table(args.table, args.sample, args.sheet)
@@ -286,18 +299,25 @@ def main():
         if s not in bam_cache:
             bam_cache[s] = pysam.AlignmentFile(crams[s], "rc", reference_filename=args.ref)
         rr = read_records(bam_cache[s], str(r["chrom"]), int(r["start"]), int(r["end"]))
+        # cut_pos is the PREDICTED cut (the hotspot coordinate), so features_from_records
+        # can emit cut_dist against the OBSERVED modal indel position.
         feats = None if rr is None else features_from_records(
-            rr[0], min_span=args.min_span, return_lowcov=True)
+            rr[0], min_span=args.min_span, return_lowcov=True, cut_pos=int(r["start"]))
         if feats is None or feats.get("lowcov"):
             v, sc, basis = verdict(0.0, feats, rescue=rescue)
             rec.update(score=np.nan, verdict=v, call_basis=basis,
                        spanning=(feats or {}).get("spanning", 0),
                        conc_ratio=np.nan, indel_frac=np.nan, modal_len=np.nan,
-                       modal_pos=np.nan, ctrl_if=np.nan)
+                       modal_pos=np.nan, ctrl_if=np.nan, cut_dist=np.nan,
+                       homopolymer_len=np.nan, repeat_frac=np.nan)
         else:
-            sc = float(model.predict_proba(pd.DataFrame([{k: feats[k] for k in feat_names}]))[0, 1])
-            # normal-subtraction at the OBSERVED indel position (automates IGV review)
+            # The observed indel position is needed BEFORE scoring, because the reference
+            # context features are measured there and are model inputs.
             opos = feats.get("modal_pos") or int(r["start"])
+            # merge into feats (not just into the output row): feat_names comes from the
+            # model bundle, so a model trained with these features looks them up here.
+            feats.update(repeat_context(ref_fa, r["chrom"], opos))
+            sc = float(model.predict_proba(pd.DataFrame([{k: feats[k] for k in feat_names}]))[0, 1])
             ctrl_if, ctrl_span = (None, 0)
             if not args.no_normal_check:
                 ctrl_if, ctrl_span = control_check(normal_cram_path(crams[s]),
@@ -308,6 +328,13 @@ def main():
                        conc_ratio=round(feats["conc_ratio"], 3),
                        indel_frac=round(feats["indel_frac"], 3),
                        modal_len=feats.get("modal_len"), modal_pos=opos,
+                       # cut_dist now comes from features_from_records so the model input and
+                       # the reported column can never disagree. NaN when no indel was seen.
+                       cut_dist=feats.get("cut_dist"),
+                       # reference-context features, already merged into feats above so the
+                       # model input and the reported column cannot diverge
+                       homopolymer_len=feats.get("homopolymer_len"),
+                       repeat_frac=feats.get("repeat_frac"),
                        ctrl_if=(round(ctrl_if, 3) if ctrl_if is not None else np.nan),
                        ctrl_span=ctrl_span,
                        # remaining MODEL_FEATURES, emitted so the training table (via
@@ -321,6 +348,16 @@ def main():
         rows.append(rec)
 
     res = add_recurrence(pd.DataFrame(rows))
+    # Optional cut-site gate, OFF by default so no existing run changes silently. This is a
+    # DEMOTION, not a deletion: the row, its score and its features all stay in the table, so
+    # a reviewer can still see what was set aside and why.
+    if args.max_cut_dist is not None and "cut_dist" in res.columns:
+        far = (res["verdict"].astype(str).str.contains("LIKELY EDIT", na=False)
+               & (res["cut_dist"] > args.max_cut_dist))
+        res.loc[far, "call_basis"] = f"demoted: cut_dist > {args.max_cut_dist:g}"
+        res.loc[far, "verdict"] = "ARTIFACT (far from cut)"
+        print(f"cut-site gate <= {args.max_cut_dist:g}bp: demoted {int(far.sum())} "
+              f"LIKELY EDIT call(s) whose indel sits far from the predicted cut")
     # tier first (A>B>C>D), then score within tier
     torder = {"A-review-first": 0, "B-review": 1, "C-recurrent-artifact": 2, "D-artifact": 3}
     res["_o"] = res["priority"].map(torder).fillna(3)
@@ -347,6 +384,30 @@ def main():
     if args.out:
         res.to_csv(args.out, index=False)
         print(f"\nwrote {args.out} ({len(res)} scored)")
+
+    # Per-read XC-tagged BAMs for the WGS arm, so a reviewer can interrogate the pileup in IGV
+    # rather than only look at a rendered PNG. Windows cover the called sites only.
+    if args.tagged_bam_dir:
+        from wgs_tag_reads import tag_wgs_bam
+        os.makedirs(args.tagged_bam_dir, exist_ok=True)
+        called = res[res["verdict"].astype(str).str.contains("LIKELY EDIT", na=False)]
+        if called.empty:
+            print("\nno LIKELY EDIT calls; no WGS tagged BAM written")
+        for s_name, grp in called.groupby("sample"):
+            if s_name not in bam_cache:
+                if s_name not in crams:
+                    continue
+                bam_cache[s_name] = pysam.AlignmentFile(crams[s_name], "rc",
+                                                        reference_filename=args.ref)
+            # tag at the OBSERVED indel position where we have one: that is where the reviewer
+            # needs to look, and it can sit tens of bp from the predicted cut (see cut_dist).
+            sites = [(row["chrom"],
+                      int(row["modal_pos"]) if pd.notna(row.get("modal_pos"))
+                      else int(row["start"]))
+                     for _, row in grp.iterrows()]
+            out_bam = os.path.join(args.tagged_bam_dir, f"{s_name}.wgs_tagged.bam")
+            n = tag_wgs_bam(bam_cache[s_name], sites, out_bam)
+            print(f"  WGS tagged BAM: {n} reads over {len(sites)} called site(s) -> {out_bam}")
 
     # auto-render IGV-style edited-vs-normal snapshots for surviving LIKELY EDITs
     if args.snapshot_dir:

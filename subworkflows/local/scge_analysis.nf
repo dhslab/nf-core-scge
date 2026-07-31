@@ -12,6 +12,8 @@ include { ANNOTATE_CNV_VARIANTS         } from '../../modules/local/annotate_cnv
 include { VEP_TO_TSV as CNV_TO_TSV      } from '../../modules/local/vep_to_tsv'
 include { ANNOTATE_OFFTARGETS           } from '../../modules/local/annotate_offtargets.nf'
 include { GET_INDELS                    } from '../../modules/local/get_indels.nf'
+include { REVIEW_FILTER                 } from '../../modules/local/review_filter.nf'
+include { PON_SCORE; BUILD_PON         } from '../../modules/local/pon_score.nf'
 include { GET_TRANSGENE_JUNCTIONS       } from '../../modules/local/get_transgene_junctions.nf'
 include { TRANSGENE_TO_VCF              } from '../../modules/local/transgene_to_vcf'
 include { ANNOTATE_TRANSGENE_JUNCTIONS } from '../../modules/local/annotate_transgene_junctions.nf'
@@ -135,6 +137,62 @@ workflow SCGE_ANALYSIS {
 
     ch_report_inputs = ch_report_inputs.mix(GET_INDELS.out.indels_file)
     ch_versions = ch_versions.mix(GET_INDELS.out.versions)
+
+    // Collapse the per-sample call tables into one short review queue. Every sample is staged
+    // into a SINGLE call on purpose: the cross-guide fallback for rule 4 can only see recurrence
+    // across whatever is passed together, so a per-sample invocation would silently disable it.
+    // With a panel of normals supplied this does not matter -- the PoN needs no guide context
+    // and is what makes the filter work for a single-guide submission.
+    if (params.review_filter) {
+        ch_no_file = Channel.fromPath("${projectDir}/assets/NO_FILE")
+
+        if (params.review_auto_pon) {
+            // Build the panel of normals from THIS run's own unedited controls, scored against
+            // THIS run's own target files. A PoN is a list of positions, so one built for a
+            // different guide covers none of a new guide's Cas-OFFinder sites and filters
+            // nothing; building it here gives 100% coverage for any guide, including a brand
+            // new one, with no extra sequencing.
+            //
+            // Deduplicated on (control CRAM, target file): a cohort typically shares one
+            // unedited control across many guides, and scoring it once per guide panel is
+            // enough. Without this, 21 CAR-T samples sharing one control would score it 21x.
+            ch_pon_input = ch_dragen_files
+                .join(ANNOTATE_OFFTARGETS.out.targetfile)
+                .map{ meta, dragenfiles, targetfile ->
+                    def ctrl = dragenfiles.findAll{ it ==~ /.*\.(cram)$/ }
+                                          .min{ it.toString().length() }
+                    [ "${ctrl?.getName()}|${targetfile?.getName()}".toString(),
+                      meta, dragenfiles, targetfile ]
+                }
+                .unique{ it[0] }
+                .map{ key, meta, dragenfiles, targetfile ->
+                    [ meta + [id: "${meta.id}_pon".toString()], dragenfiles, targetfile ]
+                }
+
+            PON_SCORE(ch_pon_input, ch_fasta_reference)
+            ch_versions = ch_versions.mix(PON_SCORE.out.versions)
+
+            BUILD_PON(
+                PON_SCORE.out.scored.map{ meta, tsv -> tsv }.collect(),
+                params.offtarget_pon
+                    ? Channel.fromPath(params.offtarget_pon, checkIfExists: true)
+                    : ch_no_file
+            )
+            ch_versions = ch_versions.mix(BUILD_PON.out.versions)
+            ch_offtarget_pon = BUILD_PON.out.pon
+        }
+        else {
+            ch_offtarget_pon = params.offtarget_pon
+                ? Channel.fromPath(params.offtarget_pon, checkIfExists: true)
+                : ch_no_file
+        }
+
+        REVIEW_FILTER(
+            GET_INDELS.out.indels_file.map{ meta, tsv -> tsv }.collect(),
+            ch_offtarget_pon
+        )
+        ch_versions = ch_versions.mix(REVIEW_FILTER.out.versions)
+    }
 
     BND_FROM_INDELS_TO_VCF (
         GET_INDELS.out.indels_file

@@ -2211,11 +2211,21 @@ def main():
             indelcounts['Positions'] = pd.NA
             indelcounts['Distance'] = pd.NA
 
-        # Apply filters
+        # Apply filters. These are independent row masks, so the order does not change which
+        # events survive -- but max_in_control is applied last on purpose, see below.
         indelcounts = indelcounts[(indelcounts['counts'] >= args.min_coverage) | (indelcounts['ref']=='.')]
-        indelcounts = indelcounts[(indelcounts['control_alt_counts'] <= args.max_in_control) | (indelcounts['ref']=='.')]
         indelcounts = indelcounts[(indelcounts['Distance'] <= args.max_mutation_distance) | (indelcounts['ref']=='.')]
-        indelcounts = indelcounts[~indelcounts['alt'].str.contains('N')]            
+        indelcounts = indelcounts[~indelcounts['alt'].str.contains('N')]
+
+        # Summarise control support BEFORE max_in_control removes the very events that carry it.
+        # That filter exists to drop control-supported events from calling, but the reported
+        # control columns must still describe what the control actually held -- summing after it
+        # writes control_indel_reads = 0 for every site at the default -x 0, which silently
+        # disables any downstream germline filtering that relies on the column.
+        control_alt_observed = int(indelcounts['control_alt_counts'].sum()) if len(indelcounts) > 0 else 0
+        control_tot_observed = int(indelcounts['control_total_counts'].mean()) if len(indelcounts) > 0 else 0
+
+        indelcounts = indelcounts[(indelcounts['control_alt_counts'] <= args.max_in_control) | (indelcounts['ref']=='.')]
 
         # Process indel results
         total_reads, indel_reads, control_total_reads, control_indel_reads = 0, 0, 0, 0
@@ -2225,8 +2235,8 @@ def main():
 
         total_reads = sum(indelcounts['counts']) if len(indelcounts) > 0 else 0
         indel_reads = sum(indelcounts[indelcounts['alttype']!='REF']['counts']) if len(indelcounts) > 0 else 0
-        control_indel_reads = int(indelcounts['control_alt_counts'].sum()) if len(indelcounts) > 0 else 0
-        control_total_reads = int(indelcounts['control_total_counts'].mean()) if len(indelcounts) > 0 else 0
+        control_indel_reads = control_alt_observed
+        control_total_reads = control_tot_observed
 
         # combine info from multiple reads for this position
         indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)

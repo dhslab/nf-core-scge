@@ -117,12 +117,21 @@ def _subsample(records, downsample_to, rng):
 
 # ── records -> count-free feature dict ────────────────────────────────────────
 def features_from_records(records, min_span=MIN_SPAN, downsample_to=None,
-                          rng=None, return_lowcov=False):
+                          rng=None, return_lowcov=False, cut_pos=None):
     """Compute count-free features from read records (optionally downsampled).
 
     Returns a dict, or None (or {'spanning','lowcov':True} if return_lowcov) when
     spanning coverage < min_span. `spanning` is included for GATING only — do not
     feed it to a model.
+
+    `cut_pos` is the PREDICTED cut site (the hotspot coordinate). When given, the
+    returned dict carries `cut_dist` = |modal_pos - cut_pos|: the "is the indel near
+    the PAM?" check that a human reviewer does first and that this feature set had no
+    equivalent for. Cas9 cuts ~3 bp from the PAM, so a genuine edit sits within a few
+    bp; measured on 146 human-confirmed CART edit rows the median is 1 bp and 98.6%
+    are within 20 bp, while sites called at curated-negative AAVS1 loci run to a median
+    of 24 bp. NaN when there is no indel to measure — NOT 0, because 0 would claim the
+    indel sits exactly on the cut. HistGradientBoostingClassifier handles NaN natively.
     """
     if downsample_to is not None:
         records = _subsample(records, downsample_to, rng or random.Random(0))
@@ -145,10 +154,12 @@ def features_from_records(records, min_span=MIN_SPAN, downsample_to=None,
         modal_len = int(Counter(length[near].tolist()).most_common(1)[0][0])
         modal_mapq = float(np.median(mapq[near]))
         modal_pos = int(center)                               # OBSERVED indel ref pos
+        cut_dist = (abs(modal_pos - int(cut_pos)) if cut_pos is not None else np.nan)
     else:
         conc_ratio = pos_conc = pos_mad = modal_mapq = 0.0
         modal_len = 0
         modal_pos = None
+        cut_dist = np.nan          # no indel observed: distance is undefined, not zero
 
     sc_all = [p for r in records for p in r["softclip"]]
     sc_modal = (Counter(sc_all).most_common(1)[0][1] / spanning) if sc_all else 0.0
@@ -164,12 +175,84 @@ def features_from_records(records, min_span=MIN_SPAN, downsample_to=None,
         modal_mapq=modal_mapq,           # repeat => low MAPQ ✓
         softclip_frac=sc_modal,          # fraction ✓
         modal_pos=modal_pos,             # OBSERVED indel ref pos (for control recompute/snapshot)
+        cut_dist=cut_dist,               # bp from observed indel to PREDICTED cut ✓ (NaN if none)
     )
+
+
+# ── reference sequence context (the "is it in a repeat?" review rule) ─────────
+# The first thing a reviewer checks in IGV is whether the site sits in or beside a
+# repetitive region: indels there are overwhelmingly alignment artifacts rather than
+# CRISPR edits, because a polymerase slipping in a homopolymer and an aligner placing
+# a read ambiguously in a tandem repeat both manufacture indel-looking evidence.
+#
+# The feature set had no direct measure of this — only `modal_mapq`, which is an
+# indirect proxy (repeats mismap, so MAPQ falls) and misses short homopolymers and
+# STRs entirely, since those still map uniquely at high MAPQ. These two features read
+# the reference directly and need no external annotation track.
+REPEAT_WIN = 25          # bp each side of the site to characterise
+MAX_STR_UNIT = 4         # look for tandem repeats of unit length 1..4
+
+
+def homopolymer_run(seq, centre_idx):
+    """Longest single-base run overlapping or adjacent to `centre_idx`."""
+    if not seq:
+        return 0
+    best = 0
+    i = 0
+    n = len(seq)
+    while i < n:
+        j = i
+        while j + 1 < n and seq[j + 1] == seq[i]:
+            j += 1
+        # only runs that touch the site of interest matter; a homopolymer 20 bp away
+        # does not explain an indel here
+        if i - 1 <= centre_idx <= j + 1:
+            best = max(best, j - i + 1)
+        i = j + 1
+    return best
+
+
+def repeat_context(fasta, chrom, pos, win=REPEAT_WIN, max_unit=MAX_STR_UNIT):
+    """Reference-sequence repeat features around a site.
+
+    `fasta` is an open pysam.FastaFile; `pos` a 0-based reference position.
+    Returns {'homopolymer_len', 'repeat_frac'}; zeros if the sequence cannot be read
+    (unplaced contig, off the end) so a missing reference never fabricates signal.
+    """
+    try:
+        lo = max(0, int(pos) - win)
+        seq = fasta.fetch(str(chrom), lo, int(pos) + win + 1).upper()
+    except (ValueError, KeyError, IndexError):
+        return {"homopolymer_len": 0, "repeat_frac": 0.0}
+    if not seq:
+        return {"homopolymer_len": 0, "repeat_frac": 0.0}
+
+    centre = int(pos) - lo
+    hp = homopolymer_run(seq, centre)
+
+    # fraction of the window inside a tandem repeat of unit length 1..max_unit with at
+    # least two consecutive copies. Union across unit sizes, so nested repeats are not
+    # double counted.
+    covered = bytearray(len(seq))
+    for unit in range(1, max_unit + 1):
+        i = 0
+        while i + 2 * unit <= len(seq):
+            if seq[i:i + unit] == seq[i + unit:i + 2 * unit]:
+                j = i + unit
+                while j + unit <= len(seq) and seq[j:j + unit] == seq[i:i + unit]:
+                    j += unit
+                for k in range(i, j):
+                    covered[k] = 1
+                i = j
+            else:
+                i += 1
+    return {"homopolymer_len": int(hp),
+            "repeat_frac": round(sum(covered) / len(seq), 4)}
 
 
 # ── convenience one-shot wrapper (fetch + compute) ────────────────────────────
 def locus_features(bam, chrom, start, end, min_span=MIN_SPAN,
-                   downsample_to=None, rng=None, return_lowcov=False):
+                   downsample_to=None, rng=None, return_lowcov=False, cut_pos=None):
     """Fetch reads at a locus and return count-free features (or None/lowcov)."""
     rr = read_records(bam, chrom, start, end)
     if rr is None:
@@ -177,12 +260,16 @@ def locus_features(bam, chrom, start, end, min_span=MIN_SPAN,
     records, _ = rr
     return features_from_records(records, min_span=min_span,
                                  downsample_to=downsample_to, rng=rng,
-                                 return_lowcov=return_lowcov)
+                                 return_lowcov=return_lowcov, cut_pos=cut_pos)
 
 
 # count-free features safe to feed a model (spanning/lowcov are gates, not inputs)
 MODEL_FEATURES = ["indel_frac", "conc_ratio", "pos_conc", "pos_mad",
-                  "modal_len", "modal_mapq", "softclip_frac"]
+                  "modal_len", "modal_mapq", "softclip_frac",
+                  # added after auditing the model against the manual-review rules:
+                  # cut_dist  = "is the indel near the PAM?"   (validated held-out on CART)
+                  # homopolymer_len / repeat_frac = "is it in a repeat?"
+                  "cut_dist", "homopolymer_len", "repeat_frac"]
 HOMOLOGY_FEATURES = ["min_mm", "n_tools"]
 
 

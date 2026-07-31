@@ -24,7 +24,8 @@ import pysam
 import joblib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import read_records, features_from_records, MODEL_FEATURES, parse_target_info, check_sklearn_version
+from features import (read_records, features_from_records, MODEL_FEATURES,
+                      parse_target_info, check_sklearn_version, repeat_context)
 import score as S
 
 REF = S.REF
@@ -119,6 +120,8 @@ def main():
 
     bundle = joblib.load(args.model)
     model, feat_names = bundle["model"], bundle["features"]
+    # one handle reused for every candidate; repeat_context reads a ~50bp window per call
+    ref_fa = pysam.FastaFile(args.ref)
     check_sklearn_version(model, name=os.path.basename(args.model))
     crams = S.cram_index(args.cram_list)
     if args.sample:
@@ -153,13 +156,18 @@ def main():
             if chrom not in STD_CHROMS:
                 continue
             n_pass_indel += 1
+            mm, tgt, dist = annotate_homology(homidx, chrom, pos)
             try:
                 rr = read_records(tbam, chrom, pos - 1, pos + 1)
+                # Deliberately NO cut_pos here. In this arm the candidate IS the observed
+                # indel, so |modal_pos - pos| is ~0 by construction and carries no
+                # information. The meaningful "distance to a predicted cut" is the distance
+                # to the nearest predicted homology site, which annotate_homology already
+                # returns as `dist`; it is assigned to cut_dist below.
                 feats = None if rr is None else features_from_records(
                     rr[0], min_span=args.min_span, return_lowcov=True)
             except OSError:                      # CRAM/ref decode failure at this locus
                 continue
-            mm, tgt, dist = annotate_homology(homidx, chrom, pos)
             rec_d = {"sample": s, "chrom": chrom, "start": pos, "ref": rec.ref,
                      "alt": ",".join(rec.alts or []), "dragen_af": round(float(af), 3),
                      "min_mm": mm, "is_target": tgt, "hom_dist": dist, "truth": False}
@@ -168,10 +176,16 @@ def main():
                 rec_d.update(score=np.nan, verdict=vd, call_basis=basis,
                              spanning=(feats or {}).get("spanning", 0),
                              conc_ratio=np.nan, indel_frac=np.nan, modal_len=np.nan,
-                             modal_pos=np.nan, ctrl_if=np.nan)
+                             modal_pos=np.nan, ctrl_if=np.nan, cut_dist=np.nan,
+                             homopolymer_len=np.nan, repeat_frac=np.nan)
             else:
-                psc = float(model.predict_proba(pd.DataFrame([{k: feats[k] for k in feat_names}]))[0, 1])
                 opos = feats.get("modal_pos") or pos
+                # reference context is a model input, so it must be in feats before scoring
+                feats.update(repeat_context(ref_fa, chrom, opos))
+                # in this arm the meaningful "distance to a predicted cut" is the homology
+                # distance, so inject it under the shared feature name before scoring
+                feats["cut_dist"] = (float("nan") if dist is None else float(dist))
+                psc = float(model.predict_proba(pd.DataFrame([{k: feats[k] for k in feat_names}]))[0, 1])
                 ctrl_if = None
                 if not args.no_normal_check:
                     ctrl_if, _ = S.control_check(npath, chrom, opos, args.ref, bam_cache=ncache)
@@ -180,7 +194,14 @@ def main():
                              conc_ratio=round(feats["conc_ratio"], 3),
                              indel_frac=round(feats["indel_frac"], 3),
                              modal_len=feats.get("modal_len"), modal_pos=opos,
-                             ctrl_if=(round(ctrl_if, 3) if ctrl_if is not None else np.nan))
+                             ctrl_if=(round(ctrl_if, 3) if ctrl_if is not None else np.nan),
+                             # same feature name as the hotspot arm, same meaning: bp from the
+                             # observed indel to the nearest PREDICTED site. NaN when no
+                             # predicted site is within the annotation pad -- honest, since the
+                             # true distance is then unbounded rather than large-but-known.
+                             cut_dist=feats.get("cut_dist"),
+                             homopolymer_len=feats.get("homopolymer_len"),
+                             repeat_frac=feats.get("repeat_frac"))
             # built-in positive control
             if chrom == "chr12" and abs(pos - 32679408) <= 3 and "PLCB2" in s:
                 rec_d["truth"] = True

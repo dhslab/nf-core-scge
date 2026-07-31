@@ -457,3 +457,88 @@ def test_offtarget_metrics_all_nan_scores_exits_zero(tmp_path):
     assert proc.returncode == 0
     assert out["metrics"]["pr_auc"] is None
     assert out["metrics"]["n_excluded_no_score"] == 16   # 11 pos + 5 neg
+
+
+# --------------------------------------------------------------------------
+# Reference-context + cut-site features (added after auditing the model against
+# the manual-review rules). These are pure functions over a sequence / record
+# list, so they are unit-testable without CRAMs.
+# --------------------------------------------------------------------------
+sys.path.insert(0, str(BIN))
+
+
+class _FakeFasta:
+    """Minimal pysam.FastaFile stand-in: fetch(chrom, start, end) -> str."""
+
+    def __init__(self, seq):
+        self.seq = seq
+
+    def fetch(self, chrom, start, end):
+        return self.seq[max(0, start):end]
+
+
+def test_homopolymer_run_only_counts_runs_touching_the_site():
+    from features import homopolymer_run
+    # a run AT the site is reported
+    assert homopolymer_run("CGAAAAAGC", 4) == 5
+    # the same run far from the site is NOT: a homopolymer 8bp away does not
+    # explain an indel here, and counting it would flag every read near any repeat
+    assert homopolymer_run("AAAAACGCGCG", 9) == 1
+    # adjacency counts (a run ending one base before the site still explains a slip)
+    assert homopolymer_run("AAAAACG", 5) == 5
+    assert homopolymer_run("ACGTACGT", 4) == 1
+    assert homopolymer_run("", 0) == 0
+
+
+def test_repeat_context_flags_homopolymer_and_tandem_repeat():
+    from features import repeat_context
+    hp = repeat_context(_FakeFasta("ACGT" * 10 + "A" * 10 + "ACGT" * 10), "c", 45)
+    assert hp["homopolymer_len"] >= 10
+    # a pure trinucleotide repeat is fully covered but has no homopolymer
+    cag = repeat_context(_FakeFasta("CAG" * 30), "c", 45)
+    assert cag["repeat_frac"] == 1.0
+    assert cag["homopolymer_len"] == 1
+
+
+def test_repeat_context_returns_zeros_off_contig():
+    """A missing/unreadable reference must yield zeros, never fabricated signal."""
+    from features import repeat_context
+
+    class Boom:
+        def fetch(self, *a):
+            raise KeyError("no such contig")
+
+    assert repeat_context(Boom(), "chrZ", 100) == {"homopolymer_len": 0, "repeat_frac": 0.0}
+
+
+def _rec(spans=True, indel=None, mapq=60, softclip=()):
+    return {"spans": spans, "indel": indel, "mapq": mapq, "softclip": list(softclip)}
+
+
+def test_cut_dist_is_distance_from_observed_indel_to_predicted_cut():
+    from features import features_from_records
+    # 12 reads carrying a 5bp deletion at ref position 1000, plus 8 clean reads
+    recs = [_rec(indel=(1000, 5)) for _ in range(12)] + [_rec() for _ in range(8)]
+    f = features_from_records(recs, min_span=8, cut_pos=1002)
+    assert f["modal_pos"] == 1000
+    assert f["cut_dist"] == 2          # |1000 - 1002|
+    f_far = features_from_records(recs, min_span=8, cut_pos=1071)
+    assert f_far["cut_dist"] == 71
+
+
+def test_cut_dist_is_nan_not_zero_when_no_indel_is_observed():
+    """0 would assert the indel sits exactly on the cut. There is no indel at all."""
+    import math
+    from features import features_from_records
+    f = features_from_records([_rec() for _ in range(20)], min_span=8, cut_pos=1000)
+    assert f["modal_pos"] is None
+    assert math.isnan(f["cut_dist"])
+    # and NaN when no cut site was supplied, rather than a silent 0
+    f2 = features_from_records([_rec(indel=(1000, 5)) for _ in range(20)], min_span=8)
+    assert math.isnan(f2["cut_dist"])
+
+
+def test_new_features_are_declared_model_inputs():
+    from features import MODEL_FEATURES
+    for f in ("cut_dist", "homopolymer_len", "repeat_frac"):
+        assert f in MODEL_FEATURES, f"{f} must be a model input, not just a report column"

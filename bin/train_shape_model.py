@@ -51,6 +51,11 @@ def main():
     ap.add_argument("--holdout-frac", type=float, default=0.25,
                     help="stratified holdout fraction for reporting AUC/AP (0 = train on all, no holdout)")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--allow-nan-features", action="store_true",
+                    help="keep rows with NaN features instead of dropping them. "
+                         "HistGradientBoostingClassifier supports missing values natively; "
+                         "needed whenever a feature is meaningfully absent (cut_dist is NaN "
+                         "wherever no indel was observed, i.e. ~90%% of a hotspot panel).")
     args = ap.parse_args()
 
     import sklearn
@@ -75,7 +80,17 @@ def main():
 
     X = df[feats].apply(pd.to_numeric, errors="coerce")
     y = pd.to_numeric(df["label"], errors="coerce")
-    ok = y.notna() & X.notna().all(axis=1)
+    # HistGradientBoostingClassifier handles NaN natively (it learns a missing-value branch
+    # per split), so requiring every feature to be present is a choice, not a necessity --
+    # and an expensive one now that the feature set includes cut_dist, which is legitimately
+    # NaN at any site with no observed indel. On the CART panel that is 90% of rows
+    # (9,278 of 99,308 have a cut_dist), so the default drops nine tenths of the training
+    # data the moment cut_dist is added. --allow-nan-features keeps those rows and lets the
+    # model treat "no indel to measure" as its own branch. Default is unchanged so existing
+    # models stay reproducible.
+    ok = y.notna()
+    if not args.allow_nan_features:
+        ok &= X.notna().all(axis=1)
     dropped = int((~ok).sum())
     X, y = X[ok].reset_index(drop=True), y[ok].astype(int).reset_index(drop=True)
     n_pos, n_neg = int((y == 1).sum()), int((y == 0).sum())

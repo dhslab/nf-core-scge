@@ -15,7 +15,11 @@ import pandas as pd
 
 WGS_FEATURE_COLS = ["indel_frac", "conc_ratio", "pos_conc", "pos_mad", "modal_len",
                     "modal_mapq", "softclip_frac", "spanning", "ctrl_if",
-                    "modal_pos", "min_mm", "score", "verdict", "call_basis"]
+                    "modal_pos", "min_mm", "score", "verdict", "call_basis",
+                    # distance from the observed indel to the predicted cut site, and the
+                    # reference-repeat context at that position. Carried so the offline
+                    # trainer and the validators see them without a re-score.
+                    "cut_dist", "homopolymer_len", "repeat_frac"]
 
 
 def main():

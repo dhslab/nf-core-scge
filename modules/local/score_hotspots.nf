@@ -15,6 +15,9 @@ process SCORE_HOTSPOTS {
 
     output:
     path "wgs_hotspot_scores.csv", emit: scores
+    // Per-read XC-tagged BAMs for IGV, one per WGS sample, covering the called sites only.
+    // Optional because --offtarget_wgs_tagged_bam is off by default.
+    path "wgs_tagged/*.bam*", optional: true, emit: tagged_bam
     path "versions.yml",           emit: versions
 
     script:
@@ -29,6 +32,8 @@ process SCORE_HOTSPOTS {
         --min-ifrac -1 \\
         --max-control 2 \\
         --min-span ${params.offtarget_min_span} \\
+        ${params.offtarget_max_cut_dist != null ? "--max-cut-dist ${params.offtarget_max_cut_dist}" : ''} \\
+        ${params.offtarget_wgs_tagged_bam ? "--tagged-bam-dir wgs_tagged" : ''} \\
         ${params.offtarget_rescue ? "--rescue-min-ifrac ${params.offtarget_rescue_min_ifrac} --rescue-min-conc ${params.offtarget_rescue_min_conc} --rescue-min-span ${params.offtarget_rescue_min_span}" : '--no-rescue'} \\
         --out wgs_hotspot_scores.csv
 
@@ -39,5 +44,13 @@ process SCORE_HOTSPOTS {
     """
 
     stub:
-    "touch wgs_hotspot_scores.csv versions.yml"
+    // the tagged BAMs are an `optional:` output, but the stub must still create them when the
+    // param is on, or a stub run silently exercises a different DAG than the real one
+    def tagged = params.offtarget_wgs_tagged_bam
+        ? "mkdir -p wgs_tagged && touch wgs_tagged/stub.wgs_tagged.bam wgs_tagged/stub.wgs_tagged.bam.bai"
+        : "true"
+    """
+    touch wgs_hotspot_scores.csv versions.yml
+    ${tagged}
+    """
 }

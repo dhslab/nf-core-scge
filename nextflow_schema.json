@@ -245,6 +245,16 @@
                     ],
                     "description": "Negative set for PR-AUC: ECS-negative hotspots only, or all label==0 rows",
                     "help_text": "label==0 is two populations: genuine ECS-negatives (ecs_is_edit==0) and ECS edits demoted because the indel is in the matched normal. The germline-demoted rows carry a real indel, so the shape ranker correctly scores them high and germline rejection is a separate downstream gate; including them charges the ranker with a job it does not do. Either way the alternative is reported as a labelled sensitivity block."
+                },
+                "offtarget_max_cut_dist": {
+                    "type": "number",
+                    "description": "Demote LIKELY EDIT calls whose indel sits further than this many bp from the predicted cut site",
+                    "help_text": "Off by default (report only): cut_dist is always emitted as a column, but nothing is demoted unless this is set. Cas9 cuts ~3 bp from the PAM, so a genuine edit sits within a few bp of the predicted site. Measured on the AAVS1 cohort: the two curated on-target edits are 2 bp and 4 bp away, while sites called LIKELY EDIT that curation marked negative run to a median of 24 bp (max 94). Setting 10 dropped 23 of 28 false positives without losing either edit. Demotion, not deletion - the row and its score stay in the table."
+                },
+                "offtarget_wgs_tagged_bam": {
+                    "type": "boolean",
+                    "description": "Emit per-read XC-tagged BAMs for the WGS arm at called sites, for IGV review",
+                    "help_text": "Off by default. The WGS analogue of --offtarget_tagged_bam, using the same XC tag names so one IGV colour scheme (Color alignments by -> tag -> XC) serves both arms. Windows cover only the LIKELY EDIT sites, so unlike the ECS tagged BAMs these stay small. Reads excluded by the caller's own filters are written and labelled Skipped_Duplicate / Skipped_LowMapQ / Skipped_Mismatches / Skipped_NoSpan, so a reviewer can audit the denominator rather than trust it."
                 }
             }
         },
@@ -691,6 +701,84 @@
                     "help_text": "Allows string values that are parseable as numbers or booleans. For further information see [JSONSchema docs](https://github.com/everit-org/json-schema#lenient-mode)."
                 }
             }
+        },
+        "review_filter_options": {
+            "title": "Automated review filter options",
+            "type": "object",
+            "description": "Turn the raw off-target call table into the short list a human reviews.",
+            "help_text": "Four rules applied to sites clearing the review gate: the matched control must be clean, the indel must sit near a PAM position, it must show several distinct indel lengths, and the site must not already be known bad. On the 25-sample CAR-T WGS cohort this takes the review queue from 238 sites to 63 while retaining 61/61 real edits.",
+            "properties": {
+                "review_filter": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Run REVIEW_FILTER after GET_INDELS."
+                },
+                "review_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 1,
+                    "description": "Gate: supporting indel reads required to enter the review queue."
+                },
+                "review_min_vaf": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Gate: indel fraction required to enter the review queue."
+                },
+                "review_max_control_vaf": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Rule 1: drop sites whose matched unedited control carries indels at or above this fraction."
+                },
+                "review_max_cut_dist": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Rule 2: the indel must lie within this many bp of a PAM position."
+                },
+                "review_min_distinct_len": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Rule 3: distinct indel lengths required. Depth-sensitive - do not apply below the gate.",
+                    "help_text": "Resampling real edits to 3 supporting reads leaves only ~49% passing this rule, so it silently reimposes a read-count floor if used at low VAF."
+                },
+                "review_auto_pon": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Rule 4: build the panel of normals from this run's own unedited controls.",
+                    "help_text": "A PoN is a list of genomic positions, so one built for a different guide covers none of a new guide's predicted sites and silently filters nothing. Building it from this run's controls against this run's target files gives full coverage for any guide, including a brand new one, at no extra sequencing cost."
+                },
+                "offtarget_pon": {
+                    "type": "string",
+                    "format": "file-path",
+                    "default": null,
+                    "description": "A prebuilt panel-of-normals TSV. Merged in and carried forward when review_auto_pon is set; used as-is otherwise."
+                },
+                "pon_min_reads": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "PoN: indel reads in an unedited sample for a site to be blacklisted."
+                },
+                "pon_min_donors": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "description": "PoN: distinct unedited samples that must show the site."
+                },
+                "pon_min_vaf": {
+                    "type": "number",
+                    "default": 0.02,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "PoN: indel fraction required as well as the read count.",
+                    "help_text": "A read count alone is not depth-robust: 3 reads is ~5% VAF at WGS depth but ~0.15% at ECS depth, which would blacklist over half an ECS panel as noise."
+                }
+            }
         }
     },
     "allOf": [
@@ -723,6 +811,9 @@
         },
         {
             "$ref": "#/definitions/generic_options"
+        },
+        {
+            "$ref": "#/definitions/review_filter_options"
         }
     ]
 }
