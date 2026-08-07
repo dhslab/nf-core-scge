@@ -14,6 +14,7 @@ include { ANNOTATE_OFFTARGETS           } from '../../modules/local/annotate_off
 include { GET_INDELS                    } from '../../modules/local/get_indels.nf'
 include { REVIEW_FILTER                 } from '../../modules/local/review_filter.nf'
 include { PON_SCORE; BUILD_PON         } from '../../modules/local/pon_score.nf'
+include { REVIEW_SNAPSHOTS             } from '../../modules/local/review_snapshots.nf'
 include { GET_TRANSGENE_JUNCTIONS       } from '../../modules/local/get_transgene_junctions.nf'
 include { TRANSGENE_TO_VCF              } from '../../modules/local/transgene_to_vcf'
 include { ANNOTATE_TRANSGENE_JUNCTIONS } from '../../modules/local/annotate_transgene_junctions.nf'
@@ -187,11 +188,39 @@ workflow SCGE_ANALYSIS {
                 : ch_no_file
         }
 
+        // Rule 5, repeat context. Needs no controls, no cohort and no guide information, so it
+        // is the one rule that works on day one for a guide never run before.
+        ch_repeats = params.review_repeat_beds
+            ? Channel.fromPath(params.review_repeat_beds.tokenize(','), checkIfExists: true).collect()
+            : Channel.value([])
+
         REVIEW_FILTER(
             GET_INDELS.out.indels_file.map{ meta, tsv -> tsv }.collect(),
-            ch_offtarget_pon
+            ch_offtarget_pon,
+            ch_repeats
         )
         ch_versions = ch_versions.mix(REVIEW_FILTER.out.versions)
+
+        // Review packet: an IGV-style pileup per surviving site, edited over matched control.
+        // CRAM paths are passed as a map rather than staged -- the queue names arbitrary
+        // samples, and staging every cohort CRAM to draw a few dozen pictures would copy TBs.
+        if (params.review_snapshots) {
+            ch_review_cram_map = ch_dragen_files
+                .map{ meta, dragenfiles ->
+                    def crams = dragenfiles.findAll{ it ==~ /.*\.(cram)$/ }
+                    def ed = crams.max{ it.toString().length() }
+                    def ct = crams.min{ it.toString().length() }
+                    "${meta.id}\t${ed}\t${ct}\n"
+                }
+                .collectFile(name: 'review_cram_map.tsv', sort: true)
+
+            REVIEW_SNAPSHOTS(
+                REVIEW_FILTER.out.queue,
+                ch_review_cram_map,
+                ch_fasta_reference.map{ it.find{ f -> f ==~ /.*\.(fasta|fa)$/ } }
+            )
+            ch_versions = ch_versions.mix(REVIEW_SNAPSHOTS.out.versions)
+        }
     }
 
     BND_FROM_INDELS_TO_VCF (

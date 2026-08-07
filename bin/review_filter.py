@@ -12,12 +12,15 @@ still needs to look at. Four rules, each one a statement you can defend:
                                               length repeated across every read is an artifact
   4. not a known-bad site                  -- a site carrying indels in samples that were never
                                               edited is germline or a repeat, not an edit
+  5. not in a repeat region                -- the off-target panel is built from homology, so it
+                                              is enriched for the sequence aligners misplace
+                                              indels in
 
 Measured on the 25-sample CAR-T WGS cohort against the corrected truth set (61 real edits,
 177 artifacts):
 
-    review queue 238 -> 63 rows, 61/61 real edits retained
-    precision 0.256 -> 0.968, recall 1.000
+    review queue 238 -> 62 rows, 61/61 real edits retained
+    precision 0.256 -> 0.984, recall 1.000
 
 RULE 1 REQUIRES THE FIXED CALLER. Before the control-reporting fix, find_edited_reads.py summed
 control support *after* the -x/--max-in-control filter had removed the events carrying it, so
@@ -33,10 +36,20 @@ RULE 4 HAS TWO SOURCES, and which one you get matters:
 On the CAR-T cohort the PoN is strictly better (63 rows / 2 FP vs 65 / 4) and subsumes the
 cross-guide rule entirely.
 
+WITH NEITHER A PoN NOR CONTROLS, use --repeats. Repeat annotation needs no cohort, no guide
+context and no unedited sample, and on this cohort it stands in for rule 4 at 64 rows / 3 FP
+(precision 0.953) -- worse than a PoN but far better than nothing, and it works on day one for
+a guide never run before. The GATK 1000g PoN was tested for this role and rejected: it flags 15
+artifacts but also 4 of the 61 real edits, because it is a Mutect2 SNV panel from blood normals
+rather than an indel-artifact map.
+
 usage:
   review_filter.py IN.tsv [IN2.tsv ...] -o queue.tsv [--pon assets/offtarget_pon.tsv]
+                   [--repeats rmsk.bed trf.bed]
 """
 import argparse
+import bisect
+import gzip
 import os
 import re
 import sys
@@ -106,6 +119,43 @@ def guide_of(sample):
     return re.sub(r'_\d+$', '', re.sub(r'^(CART_)?NS\d+-', '', str(sample)))
 
 
+class RepeatIndex:
+    """Point-in-interval lookup over one or more BED files.
+
+    Intervals are held as per-chromosome sorted (start, end) arrays and queried with bisect,
+    which keeps a 120 MB RepeatMasker BED usable without pulling in pybedtools.
+    """
+
+    def __init__(self, paths):
+        self.iv = {}
+        self.n = 0
+        for p in paths:
+            op = gzip.open if str(p).endswith(".gz") else open
+            with op(p, "rt") as fh:
+                for line in fh:
+                    if line.startswith(("#", "track", "browser")):
+                        continue
+                    f = line.split("\t")
+                    if len(f) < 3:
+                        continue
+                    try:
+                        self.iv.setdefault(f[0], []).append((int(f[1]), int(f[2])))
+                    except ValueError:
+                        continue
+                    self.n += 1
+        for c in self.iv:
+            self.iv[c].sort()
+
+    def __contains__(self, key):
+        chrom, pos = key
+        a = self.iv.get(chrom)
+        if not a:
+            return False
+        # rightmost interval whose start <= pos
+        i = bisect.bisect_right(a, (pos, float("inf"))) - 1
+        return i >= 0 and a[i][0] <= pos <= a[i][1]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -122,6 +172,10 @@ def main():
                          "(fallback only, ignored when --pon is given)")
     ap.add_argument("--max-control-vaf", type=float, default=MAX_CONTROL_VAF,
                     help="drop sites whose matched control carries indels at >= this fraction")
+    ap.add_argument("--repeats", nargs="*", default=None, metavar="BED",
+                    help="repeat-annotation BED(s); off-target sites inside a repeat are dropped. "
+                         "Needs no controls, cohort or guide context, so this is the rule-4 "
+                         "substitute for a brand-new guide with nothing else available.")
     ap.add_argument("--keep-all", action="store_true",
                     help="emit every gated row with a why_dropped column instead of filtering")
     a = ap.parse_args()
@@ -167,16 +221,28 @@ def main():
                       pon.loc[pon.get("blacklisted", 1) == 1, "pos"]))
         in_universe = [(c, int(p)) in universe for c, p in zip(q.chrom, q.end)]
         pon_coverage = float(np.mean(in_universe)) if len(q) else 0.0
-        known_bad = is_off & [(c, int(p)) in bad for c, p in zip(q.chrom, q.end)]
+        known_bad = is_off & pd.Series([(c, int(p)) in bad for c, p in zip(q.chrom, q.end)],
+                                       index=q.index)
         rule4 = "panel of normals"
     else:
         known_bad = is_off & (q.n_guides >= a.max_guides)
         rule4 = "cross-guide recurrence"
 
+    # Rule 5. Repeat context. Measured on the CAR-T cohort: RepeatMasker flags 100 of 177
+    # artifacts and 0 of 61 real edits, tandem repeats 54 and 0 -- the homology-built off-target
+    # panel is enriched for exactly the sequence aligners misplace indels in. On-target exempt.
+    if a.repeats:
+        rep_idx = RepeatIndex(a.repeats)
+        in_repeat = is_off & pd.Series([(c, int(p)) in rep_idx for c, p in zip(q.chrom, q.end)],
+                                       index=q.index)
+    else:
+        rep_idx = None
+        in_repeat = pd.Series(False, index=q.index)
+
     q["why_dropped"] = np.select(
-        [ctrl, far, mono, known_bad],
+        [ctrl, far, mono, known_bad, in_repeat],
         ["germline (present in control)", "far from PAM", "single indel length",
-         "known-bad site (%s)" % rule4], default="")
+         "known-bad site (%s)" % rule4, "repeat region"], default="")
     keep = q.why_dropped == ""
 
     (q if a.keep_all else q[keep]).to_csv(a.out, sep="\t", index=False)
@@ -188,9 +254,16 @@ def main():
           + (f"  (covers {pon_coverage:.0%} of this queue)" if pon_coverage is not None else ""))
     for lab, m in [("germline (in control)", ctrl), ("far from PAM", far & ~ctrl),
                    ("single indel length", mono & ~ctrl & ~far),
-                   ("known-bad site", known_bad & ~ctrl & ~far & ~mono)]:
+                   ("known-bad site", known_bad & ~ctrl & ~far & ~mono),
+                   ("repeat region", in_repeat & ~ctrl & ~far & ~mono & ~known_bad)]:
         print(f"  dropped, {lab:24s}: {int(m.sum())}")
-    print(f"REVIEW QUEUE          : {int(keep.sum())}  -> {a.out}")
+    if rep_idx is not None:
+        print(f"repeat annotation     : {rep_idx.n} intervals from {len(a.repeats)} file(s)")
+    if a.keep_all:
+        print(f"REVIEW QUEUE          : {int(keep.sum())}  "
+              f"(all {len(q)} gated rows written with why_dropped -> {a.out})")
+    else:
+        print(f"REVIEW QUEUE          : {int(keep.sum())}  -> {a.out}")
 
     # --- guards against the two ways this silently degrades ---------------------------------
     if (q.control_indel_reads.fillna(0) == 0).all():

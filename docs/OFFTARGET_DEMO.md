@@ -4,9 +4,9 @@ A hands-on tour you can run on a login node in about a minute. Nothing here need
 data, a cluster allocation, or the DRAGEN reference: every command below runs against a
 **5.5 KB synthetic genome** committed to the repo.
 
-For the full scientific writeup — what the workflow is and is not, how the shape model was
-trained, what the AAVS1 cohort actually showed — see
-[`OFFTARGET_WORKFLOW.md`](OFFTARGET_WORKFLOW.md). This page is the "show me it working" one.
+For the full writeup — what the workflow is and is not, how the shape model was trained, what the
+AAVS1 cohort actually showed — see [`OFFTARGET.md`](OFFTARGET.md). This page is the "show me it
+working" one.
 
 ---
 
@@ -215,7 +215,13 @@ bash run_offtarget_tests.sh        # all five tiers, ~3 min
 | 2 | unpickle the shape model | the sklearn pin holds | version drift |
 | 3 | `nextflow -stub-run` | **the DAG wires up** | broken channels |
 | 4 | `nf-test` | **the two halves connect** | module ↔ script contract |
-| 5 | real AAVS1 cohort (SLURM) | it works on real data | everything else |
+
+Tier 5 — a real AAVS1 cohort run on SLURM — is what proves it works on real data, but it needs a
+cohort and an allocation, so it is deliberately **not** part of the command above:
+
+```bash
+sbatch run_offtarget.sh --input offtarget_samplesheet_aavs1.csv --outdir results_offtarget_aavs1
+```
 
 Tiers 1 and 3 are the two halves that tier 4 joins: pytest runs the Python but never through
 Nextflow; the stub run goes through Nextflow but never runs the Python.

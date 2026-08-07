@@ -16,6 +16,7 @@ process REVIEW_FILTER {
     input:
     path analysis_tsvs
     path pon
+    path repeat_beds
 
     output:
     path "review_queue.tsv",     emit: queue
@@ -24,9 +25,10 @@ process REVIEW_FILTER {
 
     script:
     def pon_arg = pon.name != 'NO_FILE' ? "--pon ${pon}" : ''
+    def rep_arg = repeat_beds ? "--repeats ${repeat_beds.join(' ')}" : ''
     """
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} \\
+        ${pon_arg} ${rep_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\
@@ -37,7 +39,7 @@ process REVIEW_FILTER {
     # Same thresholds, nothing filtered: every gated row with a why_dropped column, so a
     # reviewer can audit what was removed and why without re-running anything.
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} \\
+        ${pon_arg} ${rep_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\

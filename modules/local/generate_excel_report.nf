@@ -13,12 +13,9 @@ process GENERATE_EXCEL_REPORT {
 
     script:
     """
-    # Install xlsxwriter (pandas and openpyxl are in base image)
-    # Use --user to avoid permission issues in /opt/conda
-    pip install --user pandas xlsxwriter openpyxl
-    
-    # Ensure python can find the user installed packages
-    export PYTHONPATH=\$(python3 -m site --user-site):\${PYTHONPATH:-}
+    # No runtime pip install: the container already ships pandas + openpyxl, and installing at
+    # task time needs network on every compute node and silently changes the versions the run
+    # computed with. (It also just fails here -- user site-packages are disabled in this Python.)
 
     # Defensive copy/dereference logic for Circos
     CIRCOS_FILENAME=""

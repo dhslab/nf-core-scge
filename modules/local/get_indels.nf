@@ -30,8 +30,13 @@ process GET_INDELS {
     // the per-read call, for colouring the pileup in IGV. Off unless explicitly asked.
     def tagged_bam = params.offtarget_tagged_bam ? "--tagged-bam-out ${meta.id}.tagged.bam" : ""
 
+    // The per-read "unevaluable reads" log is a debug artifact, not an emitted output, and it
+    // runs ~0.1-1 TB per sample. Passed unconditionally it filled the shared scratch2 group
+    // quota and killed three CAR-T runs before anyone traced it. Gated behind the same param
+    // ecs_indels.nf already uses; off by default.
+    def unevaluable = params.offtarget_ecs_unevaluable_log ? "-u ${meta.id}.unevaluable_reads.txt" : ""
     """
-    find_edited_reads.py ${inputs} ${tagged_bam} -u ${meta.id}.unevaluable_reads.txt --vcf-out ${meta.id}.offtarget_edits.vcf -o ${meta.id}.offtarget_analysis.tsv
+    find_edited_reads.py ${inputs} ${tagged_bam} ${unevaluable} --vcf-out ${meta.id}.offtarget_edits.vcf -o ${meta.id}.offtarget_analysis.tsv
 
     cat <<-END_VERSIONS > versions.yml
     ${task.process}:

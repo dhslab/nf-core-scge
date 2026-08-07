@@ -21,13 +21,12 @@ and AWS Batch.
 The pipeline has **two entry points**:
 
 1. **`SCGE`** (default) — the full per-sample analysis and report.
-2. **`OFFTARGET`** (`-entry OFFTARGET`) — the **Unified CRISPR Off-Target Workflow**: a WGS hotspot
-   edit-confirmation model (trained on error-corrected ECS truth) plus a genome-wide, PoN-filtered
-   worklist for review. Validated end-to-end on a real AAVS1 run: the on-target is recovered from WGS
-   alone, as is the one confirmed off-target we have (PLCB2 chr12:32,679,410, 90% VAF). Real
-   off-targets are rare and high-VAF in both cohorts (editing is highly on-target-specific), so a
-   sub-5% off-target floor is unproven — trust WGS-only calls at hotspots **≥5% VAF**. Scope and
-   validation in [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
+2. **`OFFTARGET`** (`-entry OFFTARGET`) — a two-assay (ECS + WGS) investigation arm: a WGS hotspot
+   edit-confirmation model trained on error-corrected ECS truth, plus a genome-wide, PoN-filtered
+   worklist. Validated end-to-end on a real AAVS1 run: the on-target is recovered from WGS alone, as
+   is the one confirmed off-target we have (PLCB2 chr12:32,679,410, 90% VAF). Real off-targets are
+   rare and high-VAF in both cohorts, so a sub-5% floor is unproven — trust WGS-only calls at
+   hotspots **≥5% VAF**. Full details in [`docs/OFFTARGET.md`](docs/OFFTARGET.md).
 
 ## Pipeline summary
 
@@ -47,7 +46,7 @@ The pipeline has **two entry points**:
 hotspots) + `WGS_WORKLIST` → `PON_OFFTARGET_FILTER` (genome-wide, homology-free, Panel-of-Normals
 filtered worklist) → per-hotspot WGS scoring → `training.tsv` (WGS features × ECS VAF) → a
 recall-vs-VAF curve and a reconciled report. Full details in
-[`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/offtarget_metro_dark.svg">
@@ -96,7 +95,30 @@ Compute profiles: `-profile ris` (Compute1/LSF) or `ris2` (Compute2/SLURM), plus
 engine (`apptainer`/`singularity`/`docker`); add `dragen4` (local DRAGEN) or `dragenaws` (AWS
 DRAGEN) **only when aligning**. `-profile stub` gives a dependency-free dry run.
 
+### Automated review of off-target calls
+
+The default pipeline now shortlists its own off-target calls instead of handing you every site
+that clears the gate. On the 25-sample CAR-T WGS cohort this took the review queue from **238
+sites to 62, keeping all 61 real edits** (precision 0.256 → 0.984).
+
+Five rules — matched control clean, indel near a PAM position, several distinct indel lengths,
+not a known-bad site, not in a repeat. Results land in `<outdir>/review/`:
+
+```
+review_queue.tsv       the sites to actually look at
+review_queue_all.tsv   every gated site + why_dropped (audit trail)
+offtarget_pon.tsv      the panel of normals this run built, reusable next time
+snapshots/             one pileup image per site: edited on top, matched control below
+```
+
+The panel of normals is built from each run's own unedited controls against its own target file,
+so it works for a guide that has never been run before. Full docs:
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md).
+
 ### Unified CRISPR Off-Target Workflow
+
+> This is a **separate arm** (`-entry OFFTARGET`) from the review filter above, which runs on the
+> default analysis path. Both are current; they solve different problems.
 
 ```bash
 # RIS Compute2 (SLURM + Apptainer) — the validated path. One wrapper for any cohort:
@@ -111,7 +133,7 @@ nextflow run . -entry OFFTARGET -profile ris2,apptainer \
 On RIS Compute1 (LSF) run `nextflow run . -entry OFFTARGET -profile ris` under `bsub`. Samplesheet
 `sample,datatype{ecs|wgs},guide,edited_cram,control_cram,target_file,vcf` — template at
 `assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
-workflow does not run. Full docs: [`docs/OFFTARGET_WORKFLOW.md`](docs/OFFTARGET_WORKFLOW.md).
+workflow does not run. Full docs: [`docs/OFFTARGET.md`](docs/OFFTARGET.md).
 
 **Retrain the shape model** from a paired run's `training.tsv` with the separate `TRAIN` entry —
 `nextflow run . -entry TRAIN --input results_offtarget/offtarget/training.tsv --outdir results` →

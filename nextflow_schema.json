@@ -127,7 +127,7 @@
             "type": "object",
             "fa_icon": "fas fa-crosshairs",
             "description": "Unified CRISPR Off-Target Workflow (-entry OFFTARGET).",
-            "help_text": "These options only take effect under `-entry OFFTARGET`. See docs/OFFTARGET_WORKFLOW.md for the full description of the two arms (ECS truth and WGS discovery) and the validated VAF floor.",
+            "help_text": "These options only take effect under `-entry OFFTARGET`. See docs/OFFTARGET.md for the full description of the two arms (ECS truth and WGS discovery) and the validated VAF floor.",
             "properties": {
                 "offtarget_shape_model": {
                     "type": "string",
@@ -169,7 +169,7 @@
                 "offtarget_tagged_bam": {
                     "type": "boolean",
                     "description": "Emit a per-read tagged BAM from the ECS caller for review in IGV",
-                    "help_text": "Off by default. Writes <id>.tagged.bam(.bai) in which every read carries an XC string tag naming how the caller classified it (Edited_Deletion_5bp, Unedited_WT, Skipped_LowMapQ, ...), so a reviewer can load it in IGV and use Color alignments by -> tag -> XC. Output is restricted to the target windows (target +/- 150 bp), not the whole genome, but it still scales with target count and depth: one AAVS1 site14 ECS sample (1149 targets, ~11000x) produced a 800 MB BAM of 21.8 M reads and pushed ECS_INDELS from 1.4 GB to 6.3 GB peak RSS, so the process is given 24 GB instead of 8 GB while this is set. Check the size on one sample before enabling it across a cohort. See docs/OFFTARGET_WORKFLOW.md."
+                    "help_text": "Off by default. Writes <id>.tagged.bam(.bai) in which every read carries an XC string tag naming how the caller classified it (Edited_Deletion_5bp, Unedited_WT, Skipped_LowMapQ, ...), so a reviewer can load it in IGV and use Color alignments by -> tag -> XC. Output is restricted to the target windows (target +/- 150 bp), not the whole genome, but it still scales with target count and depth: one AAVS1 site14 ECS sample (1149 targets, ~11000x) produced a 800 MB BAM of 21.8 M reads and pushed ECS_INDELS from 1.4 GB to 6.3 GB peak RSS, so the process is given 24 GB instead of 8 GB while this is set. Check the size on one sample before enabling it across a cohort. See docs/OFFTARGET.md."
                 },
                 "offtarget_ecs_edit_threshold": {
                     "type": "number",
@@ -201,7 +201,7 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Call LIKELY EDIT on unambiguous somatic indel evidence even when the shape model under-scores it",
-                    "help_text": "The shape model is a ranker, not a detector, and demotes some clear edits. The rescue runs AFTER the low-MAPQ and matched-normal vetoes, so it can only override the model score, never the evidence. Set false to call on the model score alone. See docs/OFFTARGET_WORKFLOW.md."
+                    "help_text": "The shape model is a ranker, not a detector, and demotes some clear edits. The rescue runs AFTER the low-MAPQ and matched-normal vetoes, so it can only override the model score, never the evidence. Set false to call on the model score alone. See docs/OFFTARGET.md."
                 },
                 "offtarget_rescue_min_ifrac": {
                     "type": "number",
@@ -777,6 +777,24 @@
                     "maximum": 1,
                     "description": "PoN: indel fraction required as well as the read count.",
                     "help_text": "A read count alone is not depth-robust: 3 reads is ~5% VAF at WGS depth but ~0.15% at ECS depth, which would blacklist over half an ECS panel as noise."
+                },
+                "review_repeat_beds": {
+                    "type": "string",
+                    "default": null,
+                    "description": "Comma-separated repeat-annotation BEDs; off-target sites inside one are dropped (rule 5).",
+                    "help_text": "Measured on the CAR-T cohort: RepeatMasker flags 100 of 177 artifacts and 0 of 61 real edits. Needs no controls, cohort or guide context, so it is the only rule that works on day one for a guide never run before."
+                },
+                "review_snapshots": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Render an IGV-style pileup image for each surviving review site.",
+                    "help_text": "Each figure pairs the edited sample over its matched unedited control at the same locus, which is what lets a reviewer settle most calls without opening IGV."
+                },
+                "review_snapshot_window": {
+                    "type": "integer",
+                    "default": 80,
+                    "minimum": 10,
+                    "description": "bp either side of the site to show in each snapshot."
                 }
             }
         }

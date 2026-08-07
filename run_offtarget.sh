@@ -73,7 +73,7 @@
 # so the whole run stays a few GB and lives comfortably in the repo-local ./work.
 #
 # For the RIS Compute1 (LSF) path instead, use: nextflow run . -entry OFFTARGET
-# -profile ris  (see docs/OFFTARGET_WORKFLOW.md).
+# -profile ris  (see docs/OFFTARGET.md).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 

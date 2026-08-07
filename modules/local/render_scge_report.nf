@@ -26,8 +26,17 @@ process RENDER_SCGE_REPORT {
     # Add quarto to PATH
     export PATH="/opt/quarto/bin:\$PATH"
 
+    # Quarto writes a cache under \$HOME on startup. \$HOME is not writable inside the container
+    # on the cluster, so it aborts with "Read-only file system ... mkdir '\$HOME/.cache/quarto'"
+    # before rendering anything. Point HOME and the XDG cache at the task work dir, which always
+    # is writable.
+    export HOME="\$PWD"
+    export XDG_CACHE_HOME="\$PWD/.cache"
+    export XDG_DATA_HOME="\$PWD/.local/share"
+    mkdir -p "\$XDG_CACHE_HOME" "\$XDG_DATA_HOME"
+
     # Debug: verify tools are available
-    which quarto && which Rscript || { echo "ERROR: Required tools not found"; exit 1; }
+    which quarto && which Rscript || { echo "ERROR: quarto or Rscript not on PATH"; exit 1; }
 
     # Create params file for Quarto to avoid shell quoting issues
     # Ensure circos_plot is just the filename if it exists
