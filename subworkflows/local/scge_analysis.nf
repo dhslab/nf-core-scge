@@ -13,6 +13,7 @@ include { VEP_TO_TSV as CNV_TO_TSV      } from '../../modules/local/vep_to_tsv'
 include { ANNOTATE_OFFTARGETS           } from '../../modules/local/annotate_offtargets.nf'
 include { GET_INDELS                    } from '../../modules/local/get_indels.nf'
 include { REVIEW_FILTER                 } from '../../modules/local/review_filter.nf'
+include { REVIEW_FILTER_BND             } from '../../modules/local/review_filter_bnd.nf'
 include { PON_SCORE; BUILD_PON         } from '../../modules/local/pon_score.nf'
 include { REVIEW_SNAPSHOTS             } from '../../modules/local/review_snapshots.nf'
 include { GET_TRANSGENE_JUNCTIONS       } from '../../modules/local/get_transgene_junctions.nf'
@@ -194,12 +195,37 @@ workflow SCGE_ANALYSIS {
             ? Channel.fromPath(params.review_repeat_beds.tokenize(','), checkIfExists: true).collect()
             : Channel.value([])
 
+        // Rule 6, external DRAGEN noise panel. Like rule 5 it needs nothing from this run, but it
+        // is a single optional file, so it uses the NO_FILE sentinel rather than an empty list.
+        ch_snv_noise = params.review_snv_noise
+            ? Channel.fromPath(params.review_snv_noise, checkIfExists: true)
+            : ch_no_file
+
+        // .collect() yields a value channel, so the same staged list feeds both review processes.
+        ch_analysis_tsvs = GET_INDELS.out.indels_file.map{ meta, tsv -> tsv }.collect()
+
         REVIEW_FILTER(
-            GET_INDELS.out.indels_file.map{ meta, tsv -> tsv }.collect(),
+            ch_analysis_tsvs,
             ch_offtarget_pon,
-            ch_repeats
+            ch_repeats,
+            ch_snv_noise
         )
         ch_versions = ch_versions.mix(REVIEW_FILTER.out.versions)
+
+        // The same triage applied to breakends rather than indels. Separate process because the
+        // rules differ: a junction has two ends, so promiscuity replaces length diversity and the
+        // noise panel is a BEDPE rather than a BED.
+        if (params.review_filter_bnd) {
+            ch_sv_noise = params.review_sv_noise
+                ? Channel.fromPath(params.review_sv_noise, checkIfExists: true)
+                : ch_no_file
+
+            REVIEW_FILTER_BND(
+                ch_analysis_tsvs,
+                ch_sv_noise
+            )
+            ch_versions = ch_versions.mix(REVIEW_FILTER_BND.out.versions)
+        }
 
         // Review packet: an IGV-style pileup per surviving site, edited over matched control.
         // CRAM paths are passed as a map rather than staged -- the queue names arbitrary

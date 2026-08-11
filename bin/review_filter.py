@@ -49,6 +49,7 @@ usage:
 """
 import argparse
 import bisect
+import collections
 import gzip
 import os
 import re
@@ -58,6 +59,8 @@ import numpy as np
 import pandas as pd
 
 GATE_READS, GATE_VAF = 10, 0.05
+SNV_NOISE_MIN_DONORS = 3
+SNV_NOISE_SLOP = 2
 MAX_CUT_DIST, MIN_DISTINCT_LEN, MAX_GUIDES = 10, 3, 2
 MAX_CONTROL_VAF = 0.05
 
@@ -112,6 +115,79 @@ def add_features(df):
     df["cut_dist_min"] = cut
     df["n_distinct_len"] = ndl
     return df
+
+
+def load_snv_noise(path, positions, slop=SNV_NOISE_SLOP):
+    """DRAGEN systematic-noise BED -> {(chrom, pos): (max_noise, n_donors, alleles)}.
+
+    Columns: chrom, start, end, mean_noise, max_noise, alleles, n_donors. `end` is the 1-based
+    position, matching the `end` column of the caller's table.
+
+    Despite the "snv" in the filename this panel is NOT SNV-only: the allele column carries D
+    (1,299,670 records) and I (892,925) codes, so it covers indel noise too. Measured against the
+    1,498 gated rows of the 32-sample cohort, a bare interval hit flags 33.1% of artifacts but also
+    1.2% of real on-target edits -- 27x enrichment, but not clean enough to use as-is.
+
+    The panel's own fields separate the two cases, which is why this returns them rather than a
+    boolean:
+
+        IKZF2  chr2:213,147,790  on-target,  n_donors=1,  alleles 'G',   max 0.027  <- coincidence
+        B2M    chr1:28,580,333   off-target, n_donors=17, alleles 'C,D', max 0.078  <- real warning
+
+    The file is ~1 GB and is not shipped with a tabix index, so this streams it once (~2-3 min).
+    Only positions in `positions` are retained, so memory stays small.
+    """
+    want = collections.defaultdict(set)
+    for c, e in positions:
+        for d in range(-slop, slop + 1):
+            want[c].add(int(e) + d)
+    hits = {}
+    op = gzip.open if path.endswith(".gz") else open
+    with op(path, "rt") as f:
+        for line in f:
+            if line[0] == "#":
+                continue
+            p = line.rstrip("\n").split("\t")
+            if len(p) < 7:
+                continue
+            c = p[0]
+            if c not in want:
+                continue
+            try:
+                pos = int(p[2])
+            except ValueError:
+                continue
+            if pos not in want[c]:
+                continue
+            try:
+                prev = hits.get((c, pos))
+                rec = (float(p[4]), int(p[6]), p[5])
+                # keep the strongest record if several land on one position
+                if prev is None or rec[1] > prev[1]:
+                    hits[(c, pos)] = rec
+            except ValueError:
+                continue
+    return hits
+
+
+def snv_noise_mask(hits, chroms, ends, min_donors, slop=SNV_NOISE_SLOP):
+    """True where a site sits on a recurrent indel-noise locus.
+
+    Two conditions beyond a plain interval hit, both derived from the measurement above:
+      * the locus recurs in at least `min_donors` panel donors -- drops the n=1 coincidences
+      * the noise involves an insertion or deletion -- an SNV-only locus says nothing about an
+        indel call at the same coordinate
+    """
+    out = []
+    for c, e in zip(chroms, ends):
+        flag = False
+        for d in range(-slop, slop + 1):
+            rec = hits.get((c, int(e) + d))
+            if rec and rec[1] >= min_donors and ("D" in rec[2] or "I" in rec[2]):
+                flag = True
+                break
+        out.append(flag)
+    return out
 
 
 def guide_of(sample):
@@ -172,6 +248,12 @@ def main():
                          "(fallback only, ignored when --pon is given)")
     ap.add_argument("--max-control-vaf", type=float, default=MAX_CONTROL_VAF,
                     help="drop sites whose matched control carries indels at >= this fraction")
+    ap.add_argument("--snv-noise", metavar="BED",
+                    help="DRAGEN systematic-noise BED (rule 6). Supplements the run's own PoN with "
+                         "an external panel; on-target sites are exempt. Streams a ~1 GB file.")
+    ap.add_argument("--snv-noise-min-donors", type=int, default=SNV_NOISE_MIN_DONORS,
+                    help="a noise locus must recur in at least this many panel donors to count "
+                         "(default 3; at 1 it starts flagging real on-target edits)")
     ap.add_argument("--repeats", nargs="*", default=None, metavar="BED",
                     help="repeat-annotation BED(s); off-target sites inside a repeat are dropped. "
                          "Needs no controls, cohort or guide context, so this is the rule-4 "
@@ -239,10 +321,21 @@ def main():
         rep_idx = None
         in_repeat = pd.Series(False, index=q.index)
 
+    # Rule 6. External systematic-noise panel. Placed LAST in the np.select order deliberately:
+    # first match wins, so appending it here cannot change how any previously-dropped row is
+    # attributed -- it can only claim rows the five existing rules kept.
+    if a.snv_noise:
+        _hits = load_snv_noise(a.snv_noise, set(zip(q.chrom, q.end)))
+        snv_noise = is_off & pd.Series(
+            snv_noise_mask(_hits, q.chrom, q.end, a.snv_noise_min_donors), index=q.index)
+    else:
+        snv_noise = pd.Series(False, index=q.index)
+
     q["why_dropped"] = np.select(
-        [ctrl, far, mono, known_bad, in_repeat],
+        [ctrl, far, mono, known_bad, in_repeat, snv_noise],
         ["germline (present in control)", "far from PAM", "single indel length",
-         "known-bad site (%s)" % rule4, "repeat region"], default="")
+         "known-bad site (%s)" % rule4, "repeat region",
+         "systematic noise (external panel)"], default="")
     keep = q.why_dropped == ""
 
     (q if a.keep_all else q[keep]).to_csv(a.out, sep="\t", index=False)
@@ -255,7 +348,9 @@ def main():
     for lab, m in [("germline (in control)", ctrl), ("far from PAM", far & ~ctrl),
                    ("single indel length", mono & ~ctrl & ~far),
                    ("known-bad site", known_bad & ~ctrl & ~far & ~mono),
-                   ("repeat region", in_repeat & ~ctrl & ~far & ~mono & ~known_bad)]:
+                   ("repeat region", in_repeat & ~ctrl & ~far & ~mono & ~known_bad),
+                   ("systematic noise (panel)",
+                    snv_noise & ~ctrl & ~far & ~mono & ~known_bad & ~in_repeat)]:
         print(f"  dropped, {lab:24s}: {int(m.sum())}")
     if rep_idx is not None:
         print(f"repeat annotation     : {rep_idx.n} intervals from {len(a.repeats)} file(s)")

@@ -1,13 +1,18 @@
 // REVIEW_FILTER — turn the raw off-target call table into the short list a human reviews.
 //
-// Wraps bin/review_filter.py. Four rules: matched control clean, indel within 10 bp of a PAM
-// position, >=3 distinct indel lengths, and not a known-bad site. On the CAR-T WGS cohort this
-// takes the review queue from 238 sites to 63 while retaining 61/61 real edits.
+// Wraps bin/review_filter.py. Six rules, first match wins: matched control clean, indel within
+// 10 bp of a PAM position, >=3 distinct indel lengths, not a known-bad site (panel of normals),
+// not inside a repeat, and not on a recurrent indel-noise locus in the external DRAGEN panel.
+// On the 32-sample CAR-T WGS cohort this takes 1,498 gated rows to an 88-site queue (87 with
+// rule 6 enabled) while retaining all 81 on-target edits.
 //
 // The panel of normals is optional but strongly preferred: it is what makes rule 4 work for a
 // SINGLE-GUIDE submission. Without it the process falls back to cross-guide recurrence, which
 // needs several differently-guided samples in the same invocation and cannot fire at all for
 // one guide. All samples are staged into a single call so that fallback has a chance to work.
+//
+// Rule 6 (--snv-noise) is off unless params.review_snv_noise is set. It streams a ~1 GB unindexed
+// BED, and this process invokes the script twice, so enabling it costs roughly 6 minutes.
 process REVIEW_FILTER {
     tag "cohort"
     label 'process_single'
@@ -17,6 +22,7 @@ process REVIEW_FILTER {
     path analysis_tsvs
     path pon
     path repeat_beds
+    path snv_noise
 
     output:
     path "review_queue.tsv",     emit: queue
@@ -26,9 +32,12 @@ process REVIEW_FILTER {
     script:
     def pon_arg = pon.name != 'NO_FILE' ? "--pon ${pon}" : ''
     def rep_arg = repeat_beds ? "--repeats ${repeat_beds.join(' ')}" : ''
+    def snv_arg = snv_noise.name != 'NO_FILE'
+        ? "--snv-noise ${snv_noise} --snv-noise-min-donors ${params.review_snv_noise_min_donors}"
+        : ''
     """
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} ${rep_arg} \\
+        ${pon_arg} ${rep_arg} ${snv_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\
@@ -39,7 +48,7 @@ process REVIEW_FILTER {
     # Same thresholds, nothing filtered: every gated row with a why_dropped column, so a
     # reviewer can audit what was removed and why without re-running anything.
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} ${rep_arg} \\
+        ${pon_arg} ${rep_arg} ${snv_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\

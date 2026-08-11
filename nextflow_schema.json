@@ -706,7 +706,7 @@
             "title": "Automated review filter options",
             "type": "object",
             "description": "Turn the raw off-target call table into the short list a human reviews.",
-            "help_text": "Four rules applied to sites clearing the review gate: the matched control must be clean, the indel must sit near a PAM position, it must show several distinct indel lengths, and the site must not already be known bad. On the 25-sample CAR-T WGS cohort this takes the review queue from 238 sites to 63 while retaining 61/61 real edits.",
+            "help_text": "Six rules, first match wins, applied to sites clearing the review gate: the matched control must be clean, the indel must sit near a PAM position, it must show several distinct indel lengths, the site must not already be known bad, it must not lie in a repeat, and it must not sit on a recurrent indel-noise locus in the external DRAGEN panel. On the 32-sample CAR-T WGS cohort this takes 1,498 gated rows to an 88-site queue (87 with rule 6 enabled) while retaining all 81 on-target edits. A companion process, REVIEW_FILTER_BND, applies the same idea to breakends.",
             "properties": {
                 "review_filter": {
                     "type": "boolean",
@@ -715,13 +715,13 @@
                 },
                 "review_min_reads": {
                     "type": "integer",
-                    "default": 10,
+                    "default": 2,
                     "minimum": 1,
                     "description": "Gate: supporting indel reads required to enter the review queue."
                 },
                 "review_min_vaf": {
                     "type": "number",
-                    "default": 0.05,
+                    "default": 0.005,
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Gate: indel fraction required to enter the review queue."
@@ -760,9 +760,10 @@
                 },
                 "pon_min_reads": {
                     "type": "integer",
-                    "default": 3,
+                    "default": 2,
                     "minimum": 1,
-                    "description": "PoN: indel reads in an unedited sample for a site to be blacklisted."
+                    "description": "PoN: indel reads in an unedited sample for a site to be blacklisted.",
+                    "help_text": "Keep this at or below review_min_reads. If the panel needs more evidence than the gate that consumes it, there is a band where the filter admits a site the panel structurally cannot flag."
                 },
                 "pon_min_donors": {
                     "type": "integer",
@@ -784,6 +785,19 @@
                     "description": "Comma-separated repeat-annotation BEDs; off-target sites inside one are dropped (rule 5).",
                     "help_text": "Measured on the CAR-T cohort: RepeatMasker flags 100 of 177 artifacts and 0 of 61 real edits. Needs no controls, cohort or guide context, so it is the only rule that works on day one for a guide never run before."
                 },
+                "review_snv_noise": {
+                    "type": "string",
+                    "format": "file-path",
+                    "default": null,
+                    "description": "Rule 6: DRAGEN systematic-noise BED (systematic_noise.snv.bed.gz). Unset disables the rule.",
+                    "help_text": "An external panel of normals built from hundreds of donors, so unlike rule 4 it needs no controls of our own. A bare interval hit is not usable as the rule: it flags 33.1% of artifacts but also 1.2% of real on-target edits. The rule therefore also requires the locus to recur in several panel donors and to involve an insertion or deletion. Despite the filename the panel carries 1,299,670 D and 892,925 I records. The file is ~1 GB and unindexed, and REVIEW_FILTER runs the script twice, so enabling this adds roughly 6 minutes."
+                },
+                "review_snv_noise_min_donors": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Rule 6: distinct panel donors required before a locus counts as systematic noise."
+                },
                 "review_snapshots": {
                     "type": "boolean",
                     "default": true,
@@ -795,6 +809,50 @@
                     "default": 80,
                     "minimum": 10,
                     "description": "bp either side of the site to show in each snapshot."
+                },
+                "review_filter_bnd": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Run REVIEW_FILTER_BND, the breakend counterpart of the review filter.",
+                    "help_text": "Reads the same *.offtarget_analysis.tsv tables and triages BND calls. On the 32-sample cohort: 2,404 breakends to 36 gated to a 25-site queue."
+                },
+                "review_bnd_min_reads": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Breakend gate: reads supporting the junction."
+                },
+                "review_bnd_max_cut_dist": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Breakend rule: the junction must lie within this many bp of a PAM position."
+                },
+                "review_bnd_max_partners": {
+                    "type": "integer",
+                    "default": 5,
+                    "minimum": 2,
+                    "description": "Breakend rule: drop bins joining this many or more distinct partners as mapping hubs.",
+                    "help_text": "The real cut sites are exempt. Currently non-binding: fixing the BND off-by-one in find_edited_reads.py dropped the worst hub from 25 partners to 3. Kept as insurance for future cohorts."
+                },
+                "review_bnd_bin_size": {
+                    "type": "integer",
+                    "default": 1000,
+                    "minimum": 1,
+                    "description": "bp bin used to group breakpoints when counting partners."
+                },
+                "review_sv_noise": {
+                    "type": "string",
+                    "format": "file-path",
+                    "default": null,
+                    "description": "Breakend rule: DRAGEN systematic-noise BEDPE. Use ONLY the WGS v3.1.0 panel.",
+                    "help_text": "Measured against the 25 real junctions of the 32-sample cohort: WGS_hg38_v3.1.0 flags 0 of 25 real junctions and 11 of 11 artifacts. IDPF_WGS_hg38_v3.0.0 flags 25 of 25 real, and WGS_FF_Heme_hg38_v3.1.0 flags 24 of 25 - either would erase the entire result. If the breakend queue collapses toward zero, the wrong BEDPE is wired here."
+                },
+                "review_sv_noise_slop": {
+                    "type": "integer",
+                    "default": 50,
+                    "minimum": 0,
+                    "description": "bp tolerance when matching a junction to an SV noise panel record."
                 }
             }
         }
