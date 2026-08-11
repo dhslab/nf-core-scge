@@ -832,6 +832,18 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
     variants = []
     for idx, row in df.iterrows():
         pos = int(row['pos'])
+        # The indel and breakend paths disagree by one base in what they store as 'pos', and
+        # generate_contig's linear and BND branches inherit that disagreement, so a single
+        # convention here cannot serve both. Settled by measurement rather than by reading: run the
+        # caller with --edited-bam and --control-bam set to the SAME file, where every called event
+        # must by construction be supported in the control, and count what escapes `-x`.
+        #     indels    as-is 12 escapes / 3925 control reads   |  with +1  72 / 2000
+        #     breakends as-is  5 control reads                  |  with +1  40
+        # So +1 belongs to breakends only. Applying it to both leaves indel calling six times worse;
+        # applying it to neither leaves breakend control support all but dead, which is why
+        # control_bnd_reads read zero across every site when it was first added.
+        if str(row.get('alttype', '')) == 'BND':
+            pos += 1
         chrom = row['chrom']
         ref = row['ref']
         alt = row['alt']
@@ -1886,9 +1898,10 @@ def main():
     # STEP 4: Create output header
     # ========================================================================
     
-    header_columns = ['chrom', 'start', 'end', 'pam_positions', 'total_reads', 'indel_reads', 'indel_fraction', 
-                     'control_reads', 'control_indel_reads', 'control_indel_fraction', 'indel_count', 'indel_info', 
-                     'bnd_count', 'bnd_info', 'target_info', 'is_target']
+    header_columns = ['chrom', 'start', 'end', 'pam_positions', 'total_reads', 'indel_reads', 'indel_fraction',
+                     'control_reads', 'control_indel_reads', 'control_indel_fraction', 'indel_count', 'indel_info',
+                     'bnd_count', 'bnd_info', 'control_bnd_reads', 'n_control_filtered',
+                     'min_cut_distance', 'target_info', 'is_target']
     if args.enable_crispr_prediction:
         header_columns.extend(['crispr_predicted_reads', 'crispr_prediction_fraction', 'crispr_prediction_probability'])
 
@@ -2225,11 +2238,46 @@ def main():
         control_alt_observed = int(indelcounts['control_alt_counts'].sum()) if len(indelcounts) > 0 else 0
         control_tot_observed = int(indelcounts['control_total_counts'].mean()) if len(indelcounts) > 0 else 0
 
+        # Same summation, restricted to breakends. control_alt_observed above spans every event type
+        # -- indels, BNDs and REF placeholder rows -- because the indel/BND split does not happen
+        # until ~35 lines below, so control_indel_reads has always silently included breakend support.
+        # Reported separately here so the matched-control rule can be applied to breakends, which it
+        # could not be before: there was no site-level control statistic for them at all.
+        # The mask must stay identical to the one used for `bnds` below or the two will disagree.
+        control_bnd_observed = (
+            int(indelcounts.loc[(indelcounts['alttype'] == 'BND') & (indelcounts['ref'] != '.'),
+                                'control_alt_counts'].sum())
+            if len(indelcounts) > 0 else 0
+        )
+
+        # How many real events this filter is about to discard, and the cut distance the caller
+        # actually filtered on. Neither was recoverable downstream before.
+        #
+        # -x/--max-in-control removes control-supported events entirely, so a site reports
+        # indel_count = 5 whether one event was suppressed or fifty. Measured on a 92-site KLF12
+        # subset at the default -x 0: 81 events suppressed across 42 sites, indel_count 170 -> 90
+        # and indel_reads 2,966 -> 412. That is the caller doing most of the germline removal before
+        # review_filter's rule 1 ever runs, with no record that it happened. Counting it here does
+        # not change the filter -- it just stops the evidence disappearing silently.
+        #
+        # min_cut_distance is the value in `Distance`, which is what line ~2229 filters on:
+        # min over |pos - PAM| AND |pos + len(ref) - 1 - PAM|. The per-event `distance` reported in
+        # indel_info is a different, always-larger quantity measured from the anchor base only, so
+        # downstream cannot reproduce the caller's own -d decision from the reported field -- 32
+        # cohort rows report cut_dist_min > 25 under a nominal 25 bp cap for exactly this reason.
+        _real = indelcounts['ref'] != '.'
+        n_control_filtered = int((_real & (indelcounts['control_alt_counts'] > args.max_in_control)).sum())
+        _dist = pd.to_numeric(indelcounts.loc[_real, 'Distance'], errors='coerce').dropna()
+        min_cut_distance = int(_dist.min()) if len(_dist) else -1
+
         indelcounts = indelcounts[(indelcounts['control_alt_counts'] <= args.max_in_control) | (indelcounts['ref']=='.')]
 
         # Process indel results
         total_reads, indel_reads, control_total_reads, control_indel_reads = 0, 0, 0, 0
         indel_fraction, control_indel_fraction = 0, 0
+        control_bnd_reads = 0
+        # NOTE: n_control_filtered and min_cut_distance are computed above, before the -x filter,
+        # and must NOT be re-initialised here -- doing so silently blanked both columns.
         indel_keys, bnd_keys = '.', '.'
         bnds = []
 
@@ -2237,6 +2285,7 @@ def main():
         indel_reads = sum(indelcounts[indelcounts['alttype']!='REF']['counts']) if len(indelcounts) > 0 else 0
         control_indel_reads = control_alt_observed
         control_total_reads = control_tot_observed
+        control_bnd_reads = control_bnd_observed
 
         # combine info from multiple reads for this position
         indelcounts['info'] = indelcounts['info'].apply(merge_dicts_to_tuples)
@@ -2303,10 +2352,11 @@ def main():
                 
                 if fp_log:
                     log_fields = [
-                        row['Chromosome'], row['Start'], row['End'], 
+                        row['Chromosome'], row['Start'], row['End'],
                         ';'.join([str(x) for x in row['Pos']]), total_reads, indel_reads, indel_fraction,
                         control_total_reads, control_indel_reads, control_indel_fraction,
-                        len(indels), indel_keys, len(bnds), bnd_keys, offtargetsites, ontarget
+                        len(indels), indel_keys, len(bnds), bnd_keys, control_bnd_reads,
+                        n_control_filtered, min_cut_distance, offtargetsites, ontarget
                     ]
                     if args.enable_crispr_prediction:
                         log_fields.extend([crispr_predicted_reads, crispr_prediction_fraction, round(crispr_prediction_probability, 1)])
@@ -2315,10 +2365,11 @@ def main():
         
         # Output results
         output_fields = [
-            row['Chromosome'], row['Start'], row['End'], 
+            row['Chromosome'], row['Start'], row['End'],
             ';'.join([str(x) for x in row['Pos']]), total_reads, indel_reads, indel_fraction,
             control_total_reads, control_indel_reads, control_indel_fraction,
-            len(indels), indel_keys, len(bnds), bnd_keys, offtargetsites, ontarget
+            len(indels), indel_keys, len(bnds), bnd_keys, control_bnd_reads,
+            n_control_filtered, min_cut_distance, offtargetsites, ontarget
         ]
         if args.enable_crispr_prediction:
             output_fields.extend([crispr_predicted_reads, crispr_prediction_fraction, round(crispr_prediction_probability, 1)])
