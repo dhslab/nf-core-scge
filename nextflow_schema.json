@@ -748,8 +748,8 @@
                 },
                 "review_auto_pon": {
                     "type": "boolean",
-                    "default": true,
-                    "description": "Rule 4: build the panel of normals from this run's own unedited controls.",
+                    "default": false,
+                    "description": "Rule 4 fallback: build a panel of normals from this run's own unedited controls. OFF by default -- review_noise_model supersedes it and needs no cohort.",
                     "help_text": "A PoN is a list of genomic positions, so one built for a different guide covers none of a new guide's predicted sites and silently filters nothing. Building it from this run's controls against this run's target files gives full coverage for any guide, including a brand new one, at no extra sequencing cost."
                 },
                 "offtarget_pon": {
@@ -856,14 +856,14 @@
                 },
                 "review_noise_model": {
                     "type": "string",
-                    "default": "off",
+                    "default": "matched",
                     "enum": [
                         "off",
                         "matched",
                         "loo",
                         "both"
                     ],
-                    "description": "Replace the boolean panel of normals (rule 4) with a beta-binomial test against a control-derived background.",
+                    "description": "Rule 4: beta-binomial test against a control-derived background, replacing the boolean panel of normals.",
                     "help_text": "'matched' uses only the sample's own unedited control and needs no cohort, yet matches the PoN's measured performance on the 32-sample CAR-T cohort (64/64 confirmed retained, 9 human-rejected, precision 0.877). 'loo' uses the other samples' controls, 'both' pools them. Default 'off' keeps the PoN so existing runs are unchanged."
                 },
                 "review_aq_min": {

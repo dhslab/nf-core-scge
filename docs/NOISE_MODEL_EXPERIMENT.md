@@ -244,6 +244,42 @@ one, pending recalibration.
   stream, both currently paid **once per cohort**; per sample they become 32×. `bin/subset_noise_panel.py`
   makes the panel side cheap enough to move later (once per *guide*, not per sample) if wanted.
 
+## Production configuration (2026-08-13)
+
+The PoN is off, the noise model is on, and there is one cut-distance threshold.
+
+| param | was | now |
+|---|---|---|
+| `review_noise_model` | `off` | **`matched`** |
+| `review_auto_pon` | `true` | **`false`** |
+| `find_edited_reads.py -d` | 25 | **10** |
+| filter-side cut-distance metric | derived from `indel_info` | the caller's `min_cut_distance` |
+
+**One distance rule.** The caller enforces it at `-d 10` on `Distance` =
+`min(|pos − PAM|, |pos + len(ref) − 1 − PAM|)`; the filter's rule 2 reads the same value from
+`min_cut_distance` and is now a consistency guard that drops nothing. Recalibrated against the
+curated label before changing the default: thresholds **6, 8, 10, 12 and 15 all hold 64/64 confirmed
+edits at precision 0.877**; only 25 degrades it (0.831). 10 sits inside that plateau.
+
+**Quality is unchanged by dropping the PoN.** Same 32 tables, new config vs old:
+
+| | queue | confirmed | rejected | precision | ECS | sub-5% | on-target |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| old (PoN, `indel_info` distance) | 87 | 64 | 8 | 0.889 | 70/70 | 12/12 | 81/81 |
+| **new (no PoN, matched AQ, caller distance)** | 96 | 64 | 8 | **0.889** | 70/70 | 12/12 | 81/81 |
+
+Identical on every quality axis. The queue grows by 9 rows, all of them *unlabeled* candidates the
+curated review never adjudicated — the cost of the correct, more permissive distance metric, not a
+loss of precision. `PON_SCORE` and `BUILD_PON` no longer appear in the DAG, which also removes a
+per-control scoring step from every run.
+
+The legacy path still works: tables written before `min_cut_distance` existed fall back to the
+`indel_info` derivation, print a warning that rule 2 will be stricter than the caller's, and
+reproduce the previous 87-row queue **byte-identically**.
+
+⚠️ Changing `-d` alters the caller's task hash, so the next run **re-executes all 32 `GET_INDELS`
+tasks** (~50 min–1h 28m each) rather than resuming them.
+
 ## Reproduce
 
 ```

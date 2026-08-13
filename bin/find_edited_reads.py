@@ -1744,7 +1744,16 @@ def main():
 
     # Search and filtering parameters
     parser.add_argument('-w','--target-window',type=int,default=150,help='Window size')
-    parser.add_argument('-d','--max-mutation-distance',type=int,default=25,help='Distance')
+    # ONE distance rule, and it lives here. Cas9 cuts ~3 bp from the PAM, so an indel more than
+    # 10 bp away is not the edit -- review_filter.py used to re-apply a 10 bp cut downstream on a
+    # DIFFERENT quantity (derived from indel_info, measured from the anchor base only, always
+    # larger), which meant two thresholds named the same thing disagreeing on 162 of 1,498 rows.
+    # The value filtered here is `Distance` = min(|pos - PAM|, |pos + len(ref) - 1 - PAM|), the
+    # true minimum, and it is what min_cut_distance reports. Recalibrated on the 32-sample CAR-T
+    # cohort against the curated review label: 6, 8, 10, 12 and 15 all hold 64/64 confirmed edits
+    # at precision 0.877; only 25 degrades it (0.831). 10 sits inside that plateau and matches the
+    # cut biology, so it is the default rather than a filter-side afterthought.
+    parser.add_argument('-d','--max-mutation-distance',type=int,default=10,help='Maximum distance (bp) from a PAM position for an indel to be called. This is the pipeline\'s only cut-distance threshold.')
     parser.add_argument('-s','--mutation-search-window',type=int,default=20000,help='Search window')
     parser.add_argument('-l','--min-softclip-length',type=int,default=8,help='Minimum softclip length')
     parser.add_argument('-b','--min-bnd-mapqual',type=int,default=40,help='Minimum BND mapping quality')

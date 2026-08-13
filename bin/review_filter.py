@@ -27,20 +27,27 @@ control support *after* the -x/--max-in-control filter had removed the events ca
 control_indel_reads was 0 at every site and this rule was a no-op. The script warns if it sees
 that signature.
 
-RULE 4 HAS TWO SOURCES, and which one you get matters:
-  --pon    a panel of normals built from unedited samples (bin/build_offtarget_pon.py).
-           Uses no guide information, so it works for a SINGLE GUIDE. Preferred.
-  (auto)   cross-guide recurrence -- a site appearing under >=2 distinct guides is a bad
-           region. Requires several differently-guided samples in ONE invocation. Used only
-           as a fallback when no PoN is given.
-On the CAR-T cohort the PoN is strictly better (63 rows / 2 FP vs 65 / 4) and subsumes the
-cross-guide rule entirely.
+RULE 2 IS NOT DECIDED HERE. The pipeline has ONE cut-distance threshold and the caller owns it
+(find_edited_reads.py -d, default 10). cut_dist_min is the caller's own min_cut_distance, so the
+check below is a consistency guard that drops nothing on a current table. It used to be a second,
+differently-computed threshold sharing the name, which disagreed with the caller's on 162 of 1,498
+gated rows.
 
-WITH NEITHER A PoN NOR CONTROLS, use --repeats. Repeat annotation needs no cohort, no guide
-context and no unedited sample, and on this cohort it stands in for rule 4 at 64 rows / 3 FP
-(precision 0.953) -- worse than a PoN but far better than nothing, and it works on day one for
-a guide never run before. The GATK 1000g PoN was tested for this role and rejected: it flags 15
-artifacts but also 4 of the 61 real edits, because it is a Mutect2 SNV panel from blood normals
+RULE 4 HAS THREE SOURCES, in order of preference:
+  --noise-model matched   a beta-binomial test against the sample's OWN unedited control
+                          (bin/noise_model.py). Needs no cohort. THE DEFAULT in the pipeline.
+                          Measured on the 32-sample CAR-T cohort it equals the panel of normals
+                          exactly: 64/64 confirmed retained, 9 rejected, precision 0.877.
+  --pon                   the old panel of normals. Superseded -- it needs a cohort of unedited
+                          samples to be worth building, which a single-sample submission has not
+                          got. Kept for material with no matched control at all.
+  (auto)                  cross-guide recurrence -- a site under >=2 distinct guides is a bad
+                          region. Needs several differently-guided samples in ONE invocation, so
+                          it CANNOT fire for a single guide; the script says so loudly.
+
+WITH NO CONTROL MATERIAL AT ALL, use --repeats and --snv-noise. Neither needs a cohort, a guide
+context or an unedited sample. The GATK 1000g PoN was tested for this role and rejected: it flags
+15 artifacts but also 4 of the 61 real edits, because it is a Mutect2 SNV panel from blood normals
 rather than an indel-artifact map.
 
 usage:
@@ -105,33 +112,31 @@ def parse_events(s):
     return out
 
 
-def add_features(df, cut_dist_source="indel_info"):
+def add_features(df):
     """Attach cut_dist_min and n_distinct_len, preferring caller-supplied columns.
 
     ANNOTATE IN THE CALLER, FILTER HERE. Anything the caller can compute once while it already
     has the pileup open should arrive as a column; this function only derives what is missing, so
-    a table from an older caller still works unchanged. That backward compatibility is not
-    theoretical -- tables written before the columns existed are still the input to reruns.
+    a table from an older caller still works unchanged.
 
-    cut_dist_source picks WHICH cut distance rule 2 uses, and the two are not the same quantity:
+    THERE IS ONE CUT-DISTANCE METRIC and the caller owns it. cut_dist_min is the caller's
+    `min_cut_distance` = min(|pos - PAM|, |pos + len(ref) - 1 - PAM|), the same value its -d cutoff
+    acts on. Rule 2 here is therefore a consistency guard, not a second threshold: with the caller
+    at -d 10 every surviving event is already within 10 bp and the rule drops nothing.
 
-      indel_info  (default) min over events of the `distance` field in indel_info -- measured from
-                  the anchor base only, so always >= the true distance.
-      caller      the caller's own `min_cut_distance` column, which is
-                  min(|pos - PAM|, |pos + len(ref) - 1 - PAM|) -- the real minimum, and the value
-                  the caller's own -d cutoff acts on (see find_edited_reads.py:2263).
-
-    'caller' is the more correct metric, but the 10 bp threshold and every rule-2 measurement to
-    date were calibrated against 'indel_info'. Measured on the 32-sample cohort the two disagree on
-    162 of 1,498 gated rows (rule 2 drops 838 vs 682); both retain all 64 confirmed edits. So the
-    switch is recall-neutral but not free, and it stays opt-in until it is recalibrated rather than
-    being swapped in silently.
+    The legacy path below derives a distance from indel_info instead. That is a DIFFERENT quantity
+    -- measured from the anchor base only, so always larger -- and the two disagreed on 162 of
+    1,498 gated rows. It exists solely so tables written before min_cut_distance existed still
+    run; it warns when it fires, because on those tables rule 2 is stricter than the caller's.
     """
     df = df.copy()
-    if cut_dist_source == "caller" and "min_cut_distance" in df.columns:
+    if "min_cut_distance" in df.columns:
         cut = pd.to_numeric(df.min_cut_distance, errors="coerce")
         cut = cut.where(cut >= 0, np.nan)          # the caller writes -1 for "no real indel"
     else:
+        print("NOTE: no min_cut_distance column (table predates it) -- falling back to the "
+              "indel_info\n      distance, which is anchor-only and always larger, so rule 2 will "
+              "be stricter\n      than the caller's own -d cutoff.", file=sys.stderr)
         cut = None
     ndl_supplied = "n_distinct_len" in df.columns and not df.n_distinct_len.isna().any()
 
@@ -317,11 +322,6 @@ def main():
     ap.add_argument("--strict-fallback", action="store_true",
                     help="exit non-zero instead of warning when rule 4 has no usable source "
                          "(no --pon, no --noise-model, and only one guide in this invocation)")
-    ap.add_argument("--cut-dist-source", default="indel_info", choices=["indel_info", "caller"],
-                    help="which cut distance rule 2 uses. 'caller' takes the min_cut_distance "
-                         "column, which is the true min over both indel endpoints; 'indel_info' "
-                         "(default) derives the anchor-only value the 10bp threshold was "
-                         "calibrated against. They disagree on 162 of 1,498 gated rows")
     ap.add_argument("--keep-all", action="store_true",
                     help="emit every gated row with a why_dropped column instead of filtering")
     a = ap.parse_args()
@@ -334,7 +334,7 @@ def main():
     df = pd.concat(frames, ignore_index=True)
 
     gate = (df.indel_reads >= a.min_reads) & (df.indel_fraction >= a.min_vaf)
-    q = add_features(df[gate], a.cut_dist_source)
+    q = add_features(df[gate])
     if q.empty:
         pd.DataFrame(columns=list(df.columns)).to_csv(a.out, sep="\t", index=False)
         print("no rows cleared the gate; wrote an empty queue")
