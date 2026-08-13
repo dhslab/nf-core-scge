@@ -280,6 +280,56 @@ reproduce the previous 87-row queue **byte-identically**.
 ⚠️ Changing `-d` alters the caller's task hash, so the next run **re-executes all 32 `GET_INDELS`
 tasks** (~50 min–1h 28m each) rather than resuming them.
 
+## Does rule 4 make rule 1 redundant?
+
+Fair question once rule 4 became a control-based statistical test: rule 1 (drop sites whose matched
+control carries the indel at ≥5% VAF) is also a control-based germline check, so it looks like the
+crude version of the same idea. **It is not, and it must stay.** Measured on the same 32 tables,
+rule 1 disabled via `--max-control-vaf 1.1`:
+
+| | queue | confirmed | rejected | precision | ECS | sub-5% | on-target |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **rule 1 ON** (production) | 96 | 64/64 | 8 | **0.889** | 70/70 | 12/12 | 81/81 |
+| rule 1 OFF (rule 4 only) | 99 | 64/64 | 9 | 0.877 | 70/70 | 12/12 | 81/81 |
+
+Recall is identical either way, so **rule 1 costs nothing** — it drops no confirmed edit, no
+ECS-confirmed edit, and no on-target site. It buys back one human-rejected site and 0.012 precision.
+
+### Where the two rules diverge
+
+Of the 221 gated rows with matched-control VAF in [5%, 30%) — every one of which rule 1 drops —
+rule 4 drops 195 but **keeps 26**. Other rules catch 23 of those (12 single indel length, 8 repeat,
+3 far from PAM). **Three reach the queue**, and they are the whole argument:
+
+| sample | site | edited | matched control | AQ |
+|---|---|---|---|---:|
+| CART_NS0027-CTLA4_1 | chr8:50,010,776 | 15/81 (18.5%) | 8/97 (8.2%) | 17.13 |
+| CHD2-KO-DNA | chr20:60,991,255 | 20/77 (26.0%) | 42/186 (**22.6%**) | 5.33 |
+| CNNM3-KO-DNA | chr15:52,552,620 | 4/26 (15.4%) | 11/159 (6.9%) | 9.45 |
+
+CHD2 is the clearest: 26.0% in the edited sample against 22.6% in its *own* matched control —
+near-identical fractions, plainly shared rather than edited — and the beta-binomial still passes it.
+
+That is structural, not a tuning miss. The binomial asks **"is k surprising given p?"**, and at 77
+reads a modest excess over a high background clears a low bar. Rule 1 asks a different question —
+**"does the control carry this at all?"** — which is the right question for germline. Two different
+tests, both load-bearing.
+
+### Raising `aq_min` cannot absorb rule 1
+
+The obvious alternative fails, and fails expensively. Rule 1 off, sweeping the AQ cut:
+
+| `aq_min` | queue | confirmed | ECS | on-target |
+|---|---:|---:|---:|---:|
+| 6 | 98 | 64/64 | 70/70 | 81/81 |
+| 10 | 93 | 63/64 | 70/70 | **80/81** |
+| 18 | 90 | 63/64 | **69/70** | **79/81** |
+
+Catching all three needs `aq_min > 17.13`. By 10 a confirmed edit and an on-target site are already
+gone; by 18 it is two on-target sites and an ECS-confirmed edit. **No AQ threshold separates those
+germline sites from real edits** — they rank *above* genuine edits in AQ order, so no cut divides
+them. Keep both rules.
+
 ## Reproduce
 
 ```
@@ -293,7 +343,17 @@ bin/review_filter.py results_cart_ponfix/*/*.offtarget_analysis.tsv \
 bin/noise_model.py results_cart_ponfix/*/*.offtarget_analysis.tsv --baseline matched -o scored.tsv \
     --truth-wgs "Manual Indel Review/cart_wgs/cart_wgs_merged.xlsx" \
     --truth-ecs "Manual Indel Review/cart_ecs/cart_ecs_merged.csv.gz"
+
+# Rule 1 redundancy check -- disable rule 1 by putting its threshold out of reach.
+# --keep-all then gives every gated row with its AQ, control VAF and why_dropped.
+bin/review_filter.py <tables>/*.offtarget_analysis.tsv \
+    --repeats rmsk.no_simple.bed GRCh38_no_alt.trf.bed --snv-noise panel.subset.bed.gz \
+    --noise-model matched --max-control-vaf 1.1 \
+    --min-reads 2 --min-vaf 0.005 --keep-all -o audit.tsv
 ```
+
+Note when parsing `--keep-all` output: `why_dropped` is empty for surviving rows, and pandas reads
+that as `NaN`, not `""`. Filtering with `== ""` silently returns nothing — `fillna("")` first.
 
 ## Not done
 
