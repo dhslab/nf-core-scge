@@ -63,6 +63,10 @@ SNV_NOISE_MIN_DONORS = 3
 SNV_NOISE_SLOP = 2
 MAX_CUT_DIST, MIN_DISTINCT_LEN, MAX_GUIDES = 10, 3, 2
 MAX_CONTROL_VAF = 0.05
+# Default AQ cut for --noise-model. Measured on the 32-sample cohort with the depth floor on:
+# 3, 5 and 8 all reproduce the panel-of-normals result exactly (91 rows, 64 confirmed, 9 rejected,
+# precision 0.877); 10 drops a confirmed edit. 5 sits in the middle of that plateau.
+AQ_MIN = 5.0
 
 
 def _indel_len(ref, alt):
@@ -258,6 +262,23 @@ def main():
                     help="repeat-annotation BED(s); off-target sites inside a repeat are dropped. "
                          "Needs no controls, cohort or guide context, so this is the rule-4 "
                          "substitute for a brand-new guide with nothing else available.")
+    ap.add_argument("--noise-model", default="off", choices=["off", "matched", "loo", "both"],
+                    help="REPLACE rule 4 with a beta-binomial test against a control-derived "
+                         "background (bin/noise_model.py). 'matched' uses the sample's own "
+                         "unedited control and needs no cohort, which is the point: it matches "
+                         "the PoN's measured performance (64/64 recall, 9 rejects, precision "
+                         "0.877) without one. Default off, so existing runs are unchanged.")
+    ap.add_argument("--aq-min", type=float, default=AQ_MIN,
+                    help=f"drop sites scoring below this AQ under --noise-model (default "
+                         f"{AQ_MIN}). With the depth floor on, 3-8 all reproduce the PoN exactly; "
+                         f"10 starts costing confirmed edits")
+    ap.add_argument("--no-depth-floor", dest="depth_floor", action="store_false",
+                    help="disable the 1/control_depth floor on the posterior background "
+                         "(see apply_depth_floor in noise_model.py -- leaving it off lets a clean "
+                         "control claim a background it has no power to support)")
+    ap.add_argument("--strict-fallback", action="store_true",
+                    help="exit non-zero instead of warning when rule 4 has no usable source "
+                         "(no --pon, no --noise-model, and only one guide in this invocation)")
     ap.add_argument("--keep-all", action="store_true",
                     help="emit every gated row with a why_dropped column instead of filtering")
     a = ap.parse_args()
@@ -293,7 +314,28 @@ def main():
     # Rule 4. On-target sites are exempt from both forms: they are shared by design.
     is_off = q.get("is_target", pd.Series(0, index=q.index)) == 0
     pon_coverage = None
-    if a.pon:
+    if a.noise_model != "off":
+        # Rule 4 as a statistical test rather than a blacklist. Imported lazily so that a run
+        # without --noise-model never needs scipy.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from noise_model import (fit_global_prior, control_posterior, apply_depth_floor,
+                                 aq_from_sf)
+        from scipy.stats import betabinom
+
+        a0, b0 = fit_global_prior(df.control_indel_reads.fillna(0).values,
+                                  df.control_reads.fillna(0).values)
+        alpha, beta, _nsup, dep = control_posterior(df, q, a.noise_model, a0, b0)
+        n_floored = 0
+        if a.depth_floor:
+            alpha, beta, n_floored = apply_depth_floor(alpha, beta, dep)
+        q["bg_rate"] = (alpha / (alpha + beta)).round(6)
+        q["AQ"] = aq_from_sf(betabinom.sf(q.indel_reads.values.astype(int) - 1,
+                                          q.total_reads.values.astype(int), alpha, beta)).round(2)
+        known_bad = q.AQ < a.aq_min
+        rule4 = f"beta-binomial vs {a.noise_model} control (AQ<{a.aq_min:g})"
+        print(f"noise model           : prior Beta({a0:.4g},{b0:.4g}), "
+              f"depth floor {'on' if a.depth_floor else 'OFF'} ({n_floored} rows raised)")
+    elif a.pon:
         pon = pd.read_csv(a.pon, sep="\t")
         # A PoN is specific to the guide panel it was built from. Applied to a different guide's
         # sites it silently matches nothing, which is indistinguishable from a clean result --
@@ -331,10 +373,12 @@ def main():
     else:
         snv_noise = pd.Series(False, index=q.index)
 
+    rule4_label = (f"indistinguishable from control noise (AQ<{a.aq_min:g})"
+                   if a.noise_model != "off" else "known-bad site (%s)" % rule4)
     q["why_dropped"] = np.select(
         [ctrl, far, mono, known_bad, in_repeat, snv_noise],
         ["germline (present in control)", "far from PAM", "single indel length",
-         "known-bad site (%s)" % rule4, "repeat region",
+         rule4_label, "repeat region",
          "systematic noise (external panel)"], default="")
     keep = q.why_dropped == ""
 
@@ -377,16 +421,32 @@ def main():
               f"             build_offtarget_pon.py <unedited>.offtarget_analysis.tsv -o pon.tsv",
               file=sys.stderr)
 
-    if not a.pon and n_guides_total < 2:
-        print(f"\nWARNING: no --pon given and only {n_guides_total} guide present, so rule 4 "
-              f"cannot fire.\n         The filter has degraded to three rules. Build a panel of "
-              f"normals from any\n         unedited samples you have "
-              f"(bin/build_offtarget_pon.py) and pass --pon; it\n         uses no guide "
-              f"information and works for a single guide.", file=sys.stderr)
+    # Rule 4 has three possible sources and one dangerous hole. The hole is a SILENT one: with no
+    # PoN, no noise model and a single guide in the invocation, cross-guide recurrence cannot fire
+    # and the output looks identical to a clean result -- so the user reads an unfiltered queue as
+    # a precise one. Say so loudly, and let a caller make it fatal.
+    if a.noise_model != "off":
+        pass                                            # rule 4 is covered by the statistical test
+    elif not a.pon and n_guides_total < 2:
+        msg = (f"\n{'=' * 78}\n"
+               f"WARNING: RULE 4 IS NOT ACTIVE. No --pon, no --noise-model, and only "
+               f"{n_guides_total} guide in this\n"
+               f"         invocation -- cross-guide recurrence needs >=2 guides passed TOGETHER,\n"
+               f"         so it cannot fire. Known-bad sites are NOT being removed and this queue\n"
+               f"         is less precise than it looks.\n"
+               f"         Fix, in order of preference:\n"
+               f"           --noise-model matched   (needs only this sample's own control)\n"
+               f"           --pon pon.tsv           (bin/build_offtarget_pon.py)\n"
+               f"           pass all guides in ONE invocation\n"
+               f"{'=' * 78}")
+        print(msg, file=sys.stderr)
+        if a.strict_fallback:
+            sys.exit("ERROR: --strict-fallback set and rule 4 has no usable source")
     elif not a.pon:
         print(f"\nNOTE: using cross-guide recurrence for rule 4 across {n_guides_total} guides. "
-              f"A panel of\n      normals (--pon) is strictly better and is not affected by how "
-              f"many guides\n      you pass in one invocation.", file=sys.stderr)
+              f"A panel of\n      normals (--pon) or --noise-model matched is strictly better and "
+              f"is not affected\n      by how many guides you pass in one invocation.",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

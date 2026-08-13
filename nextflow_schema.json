@@ -853,6 +853,36 @@
                     "default": 50,
                     "minimum": 0,
                     "description": "bp tolerance when matching a junction to an SV noise panel record."
+                },
+                "review_noise_model": {
+                    "type": "string",
+                    "default": "off",
+                    "enum": [
+                        "off",
+                        "matched",
+                        "loo",
+                        "both"
+                    ],
+                    "description": "Replace the boolean panel of normals (rule 4) with a beta-binomial test against a control-derived background.",
+                    "help_text": "'matched' uses only the sample's own unedited control and needs no cohort, yet matches the PoN's measured performance on the 32-sample CAR-T cohort (64/64 confirmed retained, 9 human-rejected, precision 0.877). 'loo' uses the other samples' controls, 'both' pools them. Default 'off' keeps the PoN so existing runs are unchanged."
+                },
+                "review_aq_min": {
+                    "type": "number",
+                    "default": 5,
+                    "description": "AQ below which a site is called background under review_noise_model.",
+                    "help_text": "AQ = -10log10 P(X >= k | n, background). With review_depth_floor on, 3-8 all reproduce the panel-of-normals result exactly; 10 begins costing confirmed edits."
+                },
+                "review_depth_floor": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Floor the posterior background at 1/control_depth so the model cannot claim more resolution than the control has.",
+                    "help_text": "A control with zero alt reads at depth d shows background is below ~1/d, not that it is zero. Without the floor the posterior collapses to 3.5e-5 against a 170x control. Harmless at the current VAF>=0.005 gate, unsafe if that gate is lowered."
+                },
+                "review_strict_fallback": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Fail instead of warning when rule 4 has no usable source.",
+                    "help_text": "With no PoN, no noise model and a single guide in one invocation, cross-guide recurrence cannot fire and the unfiltered queue looks deceptively clean."
                 }
             }
         }

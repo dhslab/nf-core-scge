@@ -30,14 +30,21 @@ process REVIEW_FILTER {
     path "versions.yml",         emit: versions
 
     script:
-    def pon_arg = pon.name != 'NO_FILE' ? "--pon ${pon}" : ''
+    def pon_arg = (pon.name != 'NO_FILE' && params.review_noise_model == 'off') ? "--pon ${pon}" : ''
     def rep_arg = repeat_beds ? "--repeats ${repeat_beds.join(' ')}" : ''
     def snv_arg = snv_noise.name != 'NO_FILE'
         ? "--snv-noise ${snv_noise} --snv-noise-min-donors ${params.review_snv_noise_min_donors}"
         : ''
+    // The noise model REPLACES rule 4, so the PoN is not passed alongside it -- handing the script
+    // both would silently pick one and make the run's provenance unreadable.
+    def nm_arg = params.review_noise_model != 'off'
+        ? "--noise-model ${params.review_noise_model} --aq-min ${params.review_aq_min}" +
+          (params.review_depth_floor ? '' : ' --no-depth-floor')
+        : ''
+    def strict_arg = params.review_strict_fallback ? '--strict-fallback' : ''
     """
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} ${rep_arg} ${snv_arg} \\
+        ${pon_arg} ${rep_arg} ${snv_arg} ${nm_arg} ${strict_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\
@@ -48,7 +55,7 @@ process REVIEW_FILTER {
     # Same thresholds, nothing filtered: every gated row with a why_dropped column, so a
     # reviewer can audit what was removed and why without re-running anything.
     python ${projectDir}/bin/review_filter.py ${analysis_tsvs} \\
-        ${pon_arg} ${rep_arg} ${snv_arg} \\
+        ${pon_arg} ${rep_arg} ${snv_arg} ${nm_arg} ${strict_arg} \\
         --min-reads ${params.review_min_reads} \\
         --min-vaf ${params.review_min_vaf} \\
         --max-cut-dist ${params.review_max_cut_dist} \\
