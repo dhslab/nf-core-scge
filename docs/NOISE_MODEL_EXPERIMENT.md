@@ -199,6 +199,51 @@ Restricting the 1 GB panel to the positions a cohort can query collapses it from
 4,891 records (60 KB)** and produces **byte-identical** filter output. That removes the ~6 min
 streaming cost and makes the tabix question moot.
 
+## Annotate in the caller, filter in the TSV
+
+With the PoN gone, nothing in the filter needs a cohort — so the two-stage split had to be
+re-justified. It survives, on cost asymmetry:
+
+| stage | cost |
+|---|---|
+| `REVIEW_FILTER`, whole cohort, from TSVs | **1.78 s** |
+| `GET_INDELS`, per sample, from CRAM | **50 min – 1h 28m** |
+
+~2,000×. Every threshold here (`min_reads`, `min_vaf`, `max_cut_dist`, `min_distinct_len`,
+`aq_min`) was calibrated by re-running the filter; moving those decisions into the caller converts
+each experiment from seconds into hours and deletes the `why_dropped` audit trail — including the
+**753 of 1,498** rows sitting 11–25 bp from the cut, which are exactly the evidence for the 10 bp
+threshold. The intermediate TSVs are **27 MB** total, so there is no I/O argument either way.
+
+So: computation moves to the caller, decisions stay in the filter. `add_features` now **consumes**
+caller-supplied columns and derives them only as a fallback, which keeps tables from older callers
+working unchanged.
+
+### The cut-distance trap
+
+`min_cut_distance` (caller) and `cut_dist_min` (filter) are **not the same quantity**, and swapping
+one for the other silently changes results. The caller's is
+`min(|pos − PAM|, |pos + len(ref) − 1 − PAM|)`; the filter's is derived from `indel_info`, measured
+from the anchor base only, and therefore always larger (`find_edited_reads.py:2263` documents this).
+Measured on the 32-sample cohort they disagree on **162 of 1,498** gated rows — rule 2 drops 838 vs
+682 — while both retain all 64 confirmed edits.
+
+The caller's metric is the more correct one, but the 10 bp threshold was calibrated against the
+other. So it is exposed as `--cut-dist-source {indel_info,caller}`, defaulting to the calibrated
+one, pending recalibration.
+
+### What deliberately did NOT move into the caller
+
+- **The beta-binomial.** It reads `indel_reads`, `total_reads`, `control_indel_reads`,
+  `control_reads` — all already columns. It never opens a BAM, so putting it in the caller buys no
+  avoided work, forces a global-prior fit into a streaming writer (`find_edited_reads.py` writes
+  rows as it goes, `flush=True`), and freezes `bg_rate`/`AQ` behind a 1.5 h rerun. Verified
+  separately that the prior is not cohort-dependent: refitting per sample gives **0 of 1,498**
+  decision flips at AQ≥5 and an identical queue.
+- **The repeat and panel intersects.** `RepeatIndex` loads 5.28M intervals and the panel is a 1 GB
+  stream, both currently paid **once per cohort**; per sample they become 32×. `bin/subset_noise_panel.py`
+  makes the panel side cheap enough to move later (once per *guide*, not per sample) if wanted.
+
 ## Reproduce
 
 ```

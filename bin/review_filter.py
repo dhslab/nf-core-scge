@@ -105,19 +105,57 @@ def parse_events(s):
     return out
 
 
-def add_features(df):
-    cut, ndl = [], []
-    for s in df.indel_info:
-        ev = parse_events(s)
-        if not ev:
-            cut.append(np.nan)
-            ndl.append(0)
-            continue
-        cut.append(min(e[0] for e in ev))
-        ndl.append(len({e[1] for e in ev}))
+def add_features(df, cut_dist_source="indel_info"):
+    """Attach cut_dist_min and n_distinct_len, preferring caller-supplied columns.
+
+    ANNOTATE IN THE CALLER, FILTER HERE. Anything the caller can compute once while it already
+    has the pileup open should arrive as a column; this function only derives what is missing, so
+    a table from an older caller still works unchanged. That backward compatibility is not
+    theoretical -- tables written before the columns existed are still the input to reruns.
+
+    cut_dist_source picks WHICH cut distance rule 2 uses, and the two are not the same quantity:
+
+      indel_info  (default) min over events of the `distance` field in indel_info -- measured from
+                  the anchor base only, so always >= the true distance.
+      caller      the caller's own `min_cut_distance` column, which is
+                  min(|pos - PAM|, |pos + len(ref) - 1 - PAM|) -- the real minimum, and the value
+                  the caller's own -d cutoff acts on (see find_edited_reads.py:2263).
+
+    'caller' is the more correct metric, but the 10 bp threshold and every rule-2 measurement to
+    date were calibrated against 'indel_info'. Measured on the 32-sample cohort the two disagree on
+    162 of 1,498 gated rows (rule 2 drops 838 vs 682); both retain all 64 confirmed edits. So the
+    switch is recall-neutral but not free, and it stays opt-in until it is recalibrated rather than
+    being swapped in silently.
+    """
     df = df.copy()
-    df["cut_dist_min"] = cut
-    df["n_distinct_len"] = ndl
+    if cut_dist_source == "caller" and "min_cut_distance" in df.columns:
+        cut = pd.to_numeric(df.min_cut_distance, errors="coerce")
+        cut = cut.where(cut >= 0, np.nan)          # the caller writes -1 for "no real indel"
+    else:
+        cut = None
+    ndl_supplied = "n_distinct_len" in df.columns and not df.n_distinct_len.isna().any()
+
+    ndl = None
+    if cut is None or not ndl_supplied:
+        _cut, _ndl = [], []
+        for s in df.indel_info:
+            ev = parse_events(s)
+            if not ev:
+                _cut.append(np.nan)
+                _ndl.append(0)
+                continue
+            _cut.append(min(e[0] for e in ev))
+            _ndl.append(len({e[1] for e in ev}))
+        if cut is None:
+            cut = pd.Series(_cut, index=df.index)
+        if not ndl_supplied:
+            ndl = _ndl
+    # Assign in this order: cut_dist_min before n_distinct_len, matching the column layout every
+    # existing review_queue.tsv already has. Swapping them changes nothing but the header, and a
+    # gratuitous header change makes real diffs between runs harder to read.
+    df["cut_dist_min"] = cut.values if hasattr(cut, "values") else cut
+    if ndl is not None:
+        df["n_distinct_len"] = ndl
     return df
 
 
@@ -279,6 +317,11 @@ def main():
     ap.add_argument("--strict-fallback", action="store_true",
                     help="exit non-zero instead of warning when rule 4 has no usable source "
                          "(no --pon, no --noise-model, and only one guide in this invocation)")
+    ap.add_argument("--cut-dist-source", default="indel_info", choices=["indel_info", "caller"],
+                    help="which cut distance rule 2 uses. 'caller' takes the min_cut_distance "
+                         "column, which is the true min over both indel endpoints; 'indel_info' "
+                         "(default) derives the anchor-only value the 10bp threshold was "
+                         "calibrated against. They disagree on 162 of 1,498 gated rows")
     ap.add_argument("--keep-all", action="store_true",
                     help="emit every gated row with a why_dropped column instead of filtering")
     a = ap.parse_args()
@@ -291,7 +334,7 @@ def main():
     df = pd.concat(frames, ignore_index=True)
 
     gate = (df.indel_reads >= a.min_reads) & (df.indel_fraction >= a.min_vaf)
-    q = add_features(df[gate])
+    q = add_features(df[gate], a.cut_dist_source)
     if q.empty:
         pd.DataFrame(columns=list(df.columns)).to_csv(a.out, sep="\t", index=False)
         print("no rows cleared the gate; wrote an empty queue")
