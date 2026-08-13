@@ -1,5 +1,13 @@
 # Lowering the evidence gate — expected impact
 
+> **PARTLY SUPERSEDED (2026-08-13).** The gate change this document measures was adopted and is
+> still live (`review_min_reads = 2`, `review_min_vaf = 0.005`), and Finding 1 stands. But its
+> recommendations about the **panel of normals are no longer actionable: the PoN has been removed.**
+> Rule 4 is now a beta-binomial test against each sample's own control, so `pon_min_reads` /
+> `pon_min_donors` no longer exist and the gate-vs-panel asymmetry in Finding 2 cannot arise —
+> there is no read threshold on the panel side to fall out of step with the gate. Do not act on
+> recommendations 1 or 3 below. See `docs/NOISE_MODEL_EXPERIMENT.md`.
+
 **Change:** `indel_reads >= 10 & indel_fraction >= 0.05` → `indel_reads >= 2 & indel_fraction >= 0.005`
 (`review_min_reads`, `review_min_vaf` in `nextflow.config`).
 

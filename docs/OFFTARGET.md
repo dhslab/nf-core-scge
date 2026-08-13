@@ -35,7 +35,7 @@ Run the pipeline normally, then look in `<outdir>/review/`:
 ```
 review_queue.tsv       the sites to actually look at
 review_queue_all.tsv   every gated site + why_dropped  (the audit trail)
-offtarget_pon.tsv      the panel of normals this run built (reusable)
+bnd_review_queue.tsv   the same triage applied to breakends
 snapshots/             one PNG per site in review_queue.tsv
 ```
 
@@ -66,7 +66,7 @@ an alignment artifact.
 everything in the queue already has ≥10 reads. Don't reuse this rule to chase lower-VAF events — it
 quietly reimposes a read-count floor.
 
-**4. Not a known-bad site** — see [panel of normals](#panel-of-normals).
+**4. Not background noise** — see [the noise model](#the-noise-model).
 
 **5. Not in a repeat region**
 The candidate panel is built from sequence homology, so it's deliberately enriched for repetitive
@@ -74,25 +74,43 @@ and paralogous sequence — exactly where aligners invent indels.
 
 On-target sites are exempt from rules 4 and 5, since they're shared across samples by design.
 
-## Panel of normals
+## The noise model
 
-A PoN is a list of genomic **positions**. One built for a different guide covers none of a new
-guide's predicted sites and silently filters nothing.
+Rule 4 asks whether a call is *statistically distinguishable from this locus's background*, not
+whether it appears on a blacklist. That matters because a site can carry 1% background in the
+control and 40% signal in the treated sample; an existence test throws that edit away.
 
-**The pipeline handles this for you.** With `review_auto_pon` (on by default) it scores each run's
-own unedited control against that run's own target file. The control CRAM is already required, so
-this costs compute, not sequencing — and coverage is 100% by construction, including for a guide
-nobody has ever run before.
+    AQ = -10 log10 P(X >= k | n, background at this locus)
 
-Pass `--offtarget_pon` as well and it gets merged in and carried forward, so PoNs accumulate across
-runs while each panel keeps its own coverage.
+The background is an empirical-Bayes Beta posterior built from the control's own reads
+(`bin/noise_model.py`). `review_noise_model = 'matched'` (the default) uses **the sample's own
+matched control**, so it needs no cohort at all — which is the entire reason the old panel of
+normals could be deleted. On the 32-sample CAR-T cohort the two are equal: 64/64 confirmed edits
+retained, 9 human-rejected, precision 0.877, and the model does it without a cohort.
 
-The filter measures how much of the queue its PoN actually covers and warns below 50%, so a
-mismatched PoN reports `covers 0% of this queue` instead of quietly doing nothing.
+`review_aq_min` (default 5) is the cut. Measured with the depth floor on, 3-8 all reproduce the
+PoN result exactly; 10 starts costing confirmed edits.
+
+**The depth floor.** A control with no alt reads at depth *d* shows the background is below ~1/*d*,
+not that it is zero. Left alone the posterior collapses to 3.5e-5 against a 170x control, about
+100x beyond what 170 reads can support, and every call at a locus the control never sampled deeply
+starts looking significant. `review_depth_floor` (default true) bounds the posterior mean at
+1/control_depth. It is harmless at the current `VAF >= 0.005` gate and essential if that gate is
+ever lowered for a high-sensitivity run.
+
+**Germline falls out for free.** A germline het sits near 50% in the matched control, so a 50%
+observation in the treated sample is unsurprising and scores low. Measured: 0 of 132 germline-like
+sites survive the cut, with no dedicated germline rule.
+
+**Single guide and no noise model?** Rule 4 falls back to cross-guide recurrence, which needs >=2
+guides passed in ONE invocation and therefore **cannot fire for a single guide**. The filter prints
+a boxed `RULE 4 IS NOT ACTIVE` warning in that state; `--strict-fallback` /
+`review_strict_fallback` makes it a hard failure instead.
 
 **No unedited control at all?** Use rule 5 alone (`--review_repeat_beds`). Repeat annotation needs
-no controls, no cohort and no guide context. On this cohort it stands in for rule 4 at 64 rows /
-3 false positives — worse than a PoN, far better than nothing, and it works on day one.
+no controls, no cohort and no guide context, and `--snv-noise` adds the external DRAGEN panel.
+Both are weaker than the noise model — the DRAGEN panel has an indel-capable record for only 3.6%
+of queried loci, so an arbitrary floor decides the rest — but they work on day one.
 
 **What about the GATK panel of normals?** Tested and rejected. `1000g_pon.hg38.vcf.gz` catches 15
 of our artifacts but also hits **4 of the 61 real edits** — it's a Mutect2 SNV panel from blood
@@ -122,12 +140,15 @@ the assay exists to find. Dropping that feature raised AUC *and* moved that even
 | parameter | default | what it does |
 |---|---|---|
 | `review_filter` | `true` | run the filter at all |
-| `review_min_reads` / `review_min_vaf` | `10` / `0.05` | the entry gate |
+| `review_min_reads` / `review_min_vaf` | `2` / `0.005` | the entry gate |
 | `review_max_control_vaf` | `0.05` | rule 1 |
 | `review_max_cut_dist` | `10` | rule 2 |
 | `review_min_distinct_len` | `3` | rule 3 |
-| `review_auto_pon` | `true` | build the PoN from this run's controls |
-| `offtarget_pon` | `null` | a prebuilt PoN to merge in |
+| `review_noise_model` | `matched` | rule 4: beta-binomial vs the sample's own control |
+| `review_aq_min` | `5` | AQ below this is background |
+| `review_depth_floor` | `true` | bound the posterior at 1/control_depth |
+| `review_strict_fallback` | `false` | fail, not warn, when rule 4 has no source |
+| `review_snv_noise` | `null` | external DRAGEN noise panel for rule 6 |
 | `review_repeat_beds` | `null` | comma-separated repeat BEDs for rule 5 |
 | `review_snapshots` | `true` | render the snapshot packet |
 
@@ -135,8 +156,9 @@ Run it standalone on existing call tables:
 
 ```bash
 bin/review_filter.py results/*.offtarget_analysis.tsv \
-    --pon assets/offtarget_pon.tsv \
+    --noise-model matched \
     --repeats /path/rmsk.no_simple.bed /path/trf.bed \
+    --min-reads 2 --min-vaf 0.005 \
     -o review_queue.tsv
 ```
 

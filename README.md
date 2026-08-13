@@ -101,18 +101,21 @@ The default pipeline now shortlists its own off-target calls instead of handing 
 that clears the gate. On the 25-sample CAR-T WGS cohort this took the review queue from **238
 sites to 62, keeping all 61 real edits** (precision 0.256 → 0.984).
 
-Five rules — matched control clean, indel near a PAM position, several distinct indel lengths,
-not a known-bad site, not in a repeat. Results land in `<outdir>/review/`:
+Six rules — matched control clean, indel near a PAM position, several distinct indel lengths,
+not background noise, not in a repeat, not on a known systematic-noise locus. Results land in
+`<outdir>/review/`:
 
 ```
 review_queue.tsv       the sites to actually look at
 review_queue_all.tsv   every gated site + why_dropped (audit trail)
-offtarget_pon.tsv      the panel of normals this run built, reusable next time
+bnd_review_queue.tsv   the same triage applied to breakends
 snapshots/             one pileup image per site: edited on top, matched control below
 ```
 
-The panel of normals is built from each run's own unedited controls against its own target file,
-so it works for a guide that has never been run before. Full docs:
+**No panel of normals is needed.** Rule 4 is a beta-binomial test against each sample's *own*
+unedited control (`review_noise_model`, default `matched`), so a single-sample submission with one
+matched normal gets the same filtering a 32-sample cohort did — measured equal on the CAR-T cohort
+at precision 0.889 with every confirmed edit retained. Full docs:
 [`docs/OFFTARGET.md`](docs/OFFTARGET.md).
 
 ### Unified CRISPR Off-Target Workflow
