@@ -33,14 +33,14 @@ check below is a consistency guard that drops nothing on a current table. It use
 differently-computed threshold sharing the name, which disagreed with the caller's on 162 of 1,498
 gated rows.
 
-RULE 4 HAS THREE SOURCES, in order of preference:
+RULE 4 HAS TWO SOURCES:
   --noise-model matched   a beta-binomial test against the sample's OWN unedited control
                           (bin/noise_model.py). Needs no cohort. THE DEFAULT in the pipeline.
-                          Measured on the 32-sample CAR-T cohort it equals the panel of normals
-                          exactly: 64/64 confirmed retained, 9 rejected, precision 0.877.
-  --pon                   the old panel of normals. Superseded -- it needs a cohort of unedited
-                          samples to be worth building, which a single-sample submission has not
-                          got. Kept for material with no matched control at all.
+                          It replaced a panel of normals, which it matched exactly on the
+                          32-sample CAR-T cohort: 64/64 confirmed retained, 9 rejected,
+                          precision 0.877. The PoN has since been removed outright -- it needed
+                          a cohort of unedited samples that a single-sample submission does not
+                          have, and bought nothing the model does not.
   (auto)                  cross-guide recurrence -- a site under >=2 distinct guides is a bad
                           region. Needs several differently-guided samples in ONE invocation, so
                           it CANNOT fire for a single guide; the script says so loudly.
@@ -51,8 +51,8 @@ context or an unedited sample. The GATK 1000g PoN was tested for this role and r
 rather than an indel-artifact map.
 
 usage:
-  review_filter.py IN.tsv [IN2.tsv ...] -o queue.tsv [--pon assets/offtarget_pon.tsv]
-                   [--repeats rmsk.bed trf.bed]
+  review_filter.py IN.tsv [IN2.tsv ...] -o queue.tsv --noise-model matched
+                   [--repeats rmsk.bed trf.bed] [--snv-noise panel.bed.gz]
 """
 import argparse
 import bisect
@@ -284,15 +284,13 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="+", help="*.offtarget_analysis.tsv")
     ap.add_argument("-o", "--out", required=True, help="filtered review queue (TSV)")
-    ap.add_argument("--pon", help="panel-of-normals TSV from build_offtarget_pon.py "
-                                  "(single-guide safe; preferred over cross-guide recurrence)")
     ap.add_argument("--min-reads", type=int, default=GATE_READS)
     ap.add_argument("--min-vaf", type=float, default=GATE_VAF)
     ap.add_argument("--max-cut-dist", type=int, default=MAX_CUT_DIST)
     ap.add_argument("--min-distinct-len", type=int, default=MIN_DISTINCT_LEN)
     ap.add_argument("--max-guides", type=int, default=MAX_GUIDES,
                     help="off-target sites appearing in >= this many distinct guides are dropped "
-                         "(fallback only, ignored when --pon is given)")
+                         "(fallback only, ignored when --noise-model is set)")
     ap.add_argument("--max-control-vaf", type=float, default=MAX_CONTROL_VAF,
                     help="drop sites whose matched control carries indels at >= this fraction")
     ap.add_argument("--snv-noise", metavar="BED",
@@ -321,7 +319,7 @@ def main():
                          "control claim a background it has no power to support)")
     ap.add_argument("--strict-fallback", action="store_true",
                     help="exit non-zero instead of warning when rule 4 has no usable source "
-                         "(no --pon, no --noise-model, and only one guide in this invocation)")
+                         "(no --noise-model and only one guide in this invocation)")
     ap.add_argument("--keep-all", action="store_true",
                     help="emit every gated row with a why_dropped column instead of filtering")
     a = ap.parse_args()
@@ -356,7 +354,6 @@ def main():
 
     # Rule 4. On-target sites are exempt from both forms: they are shared by design.
     is_off = q.get("is_target", pd.Series(0, index=q.index)) == 0
-    pon_coverage = None
     if a.noise_model != "off":
         # Rule 4 as a statistical test rather than a blacklist. Imported lazily so that a run
         # without --noise-model never needs scipy.
@@ -378,19 +375,6 @@ def main():
         rule4 = f"beta-binomial vs {a.noise_model} control (AQ<{a.aq_min:g})"
         print(f"noise model           : prior Beta({a0:.4g},{b0:.4g}), "
               f"depth floor {'on' if a.depth_floor else 'OFF'} ({n_floored} rows raised)")
-    elif a.pon:
-        pon = pd.read_csv(a.pon, sep="\t")
-        # A PoN is specific to the guide panel it was built from. Applied to a different guide's
-        # sites it silently matches nothing, which is indistinguishable from a clean result --
-        # so measure how much of this queue the PoN actually covers before trusting it.
-        universe = set(zip(pon.chrom, pon.pos))
-        bad = set(zip(pon.loc[pon.get("blacklisted", 1) == 1, "chrom"],
-                      pon.loc[pon.get("blacklisted", 1) == 1, "pos"]))
-        in_universe = [(c, int(p)) in universe for c, p in zip(q.chrom, q.end)]
-        pon_coverage = float(np.mean(in_universe)) if len(q) else 0.0
-        known_bad = is_off & pd.Series([(c, int(p)) in bad for c, p in zip(q.chrom, q.end)],
-                                       index=q.index)
-        rule4 = "panel of normals"
     else:
         known_bad = is_off & (q.n_guides >= a.max_guides)
         rule4 = "cross-guide recurrence"
@@ -430,8 +414,7 @@ def main():
     print(f"input rows            : {len(df)}")
     print(f"cleared the gate      : {len(q)}   (reads>={a.min_reads}, VAF>={a.min_vaf})")
     print(f"samples / guides      : {q.sample_name.nunique()} / {n_guides_total}")
-    print(f"rule 4 source         : {rule4}"
-          + (f"  (covers {pon_coverage:.0%} of this queue)" if pon_coverage is not None else ""))
+    print(f"rule 4 source         : {rule4}")
     for lab, m in [("germline (in control)", ctrl), ("far from PAM", far & ~ctrl),
                    ("single indel length", mono & ~ctrl & ~far),
                    ("known-bad site", known_bad & ~ctrl & ~far & ~mono),
@@ -455,39 +438,29 @@ def main():
               "Re-run the caller;\n         the germline rule is the single biggest filter "
               "(238 -> 84 on its own).", file=sys.stderr)
 
-    if pon_coverage is not None and pon_coverage < 0.5:
-        print(f"\nWARNING: the supplied PoN covers only {pon_coverage:.0%} of the sites in this "
-              f"queue.\n         A panel of normals is specific to the guide panel it was built "
-              f"from -- this one\n         was almost certainly built for a different guide, so "
-              f"rule 4 is barely firing.\n         Score your unedited sample(s) against THIS "
-              f"guide's target file and rebuild:\n"
-              f"             build_offtarget_pon.py <unedited>.offtarget_analysis.tsv -o pon.tsv",
-              file=sys.stderr)
-
-    # Rule 4 has three possible sources and one dangerous hole. The hole is a SILENT one: with no
+    # Rule 4 has two possible sources and one dangerous hole. The hole is a SILENT one: with no
     # PoN, no noise model and a single guide in the invocation, cross-guide recurrence cannot fire
     # and the output looks identical to a clean result -- so the user reads an unfiltered queue as
     # a precise one. Say so loudly, and let a caller make it fatal.
     if a.noise_model != "off":
         pass                                            # rule 4 is covered by the statistical test
-    elif not a.pon and n_guides_total < 2:
+    elif n_guides_total < 2:
         msg = (f"\n{'=' * 78}\n"
-               f"WARNING: RULE 4 IS NOT ACTIVE. No --pon, no --noise-model, and only "
+               f"WARNING: RULE 4 IS NOT ACTIVE. No --noise-model, and only "
                f"{n_guides_total} guide in this\n"
                f"         invocation -- cross-guide recurrence needs >=2 guides passed TOGETHER,\n"
                f"         so it cannot fire. Known-bad sites are NOT being removed and this queue\n"
                f"         is less precise than it looks.\n"
                f"         Fix, in order of preference:\n"
                f"           --noise-model matched   (needs only this sample's own control)\n"
-               f"           --pon pon.tsv           (bin/build_offtarget_pon.py)\n"
                f"           pass all guides in ONE invocation\n"
                f"{'=' * 78}")
         print(msg, file=sys.stderr)
         if a.strict_fallback:
             sys.exit("ERROR: --strict-fallback set and rule 4 has no usable source")
-    elif not a.pon:
+    else:
         print(f"\nNOTE: using cross-guide recurrence for rule 4 across {n_guides_total} guides. "
-              f"A panel of\n      normals (--pon) or --noise-model matched is strictly better and "
+              f"--noise-model\n      matched is strictly better and "
               f"is not affected\n      by how many guides you pass in one invocation.",
               file=sys.stderr)
 

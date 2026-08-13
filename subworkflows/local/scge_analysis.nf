@@ -14,7 +14,6 @@ include { ANNOTATE_OFFTARGETS           } from '../../modules/local/annotate_off
 include { GET_INDELS                    } from '../../modules/local/get_indels.nf'
 include { REVIEW_FILTER                 } from '../../modules/local/review_filter.nf'
 include { REVIEW_FILTER_BND             } from '../../modules/local/review_filter_bnd.nf'
-include { PON_SCORE; BUILD_PON         } from '../../modules/local/pon_score.nf'
 include { REVIEW_SNAPSHOTS             } from '../../modules/local/review_snapshots.nf'
 include { GET_TRANSGENE_JUNCTIONS       } from '../../modules/local/get_transgene_junctions.nf'
 include { TRANSGENE_TO_VCF              } from '../../modules/local/transgene_to_vcf'
@@ -143,51 +142,10 @@ workflow SCGE_ANALYSIS {
     // Collapse the per-sample call tables into one short review queue. Every sample is staged
     // into a SINGLE call on purpose: the cross-guide fallback for rule 4 can only see recurrence
     // across whatever is passed together, so a per-sample invocation would silently disable it.
-    // With a panel of normals supplied this does not matter -- the PoN needs no guide context
-    // and is what makes the filter work for a single-guide submission.
+    // With review_noise_model set that fallback is not used at all -- the beta-binomial scores
+    // each sample against its OWN control, which is what makes a single-sample submission work.
     if (params.review_filter) {
         ch_no_file = Channel.fromPath("${projectDir}/assets/NO_FILE")
-
-        if (params.review_auto_pon) {
-            // Build the panel of normals from THIS run's own unedited controls, scored against
-            // THIS run's own target files. A PoN is a list of positions, so one built for a
-            // different guide covers none of a new guide's Cas-OFFinder sites and filters
-            // nothing; building it here gives 100% coverage for any guide, including a brand
-            // new one, with no extra sequencing.
-            //
-            // Deduplicated on (control CRAM, target file): a cohort typically shares one
-            // unedited control across many guides, and scoring it once per guide panel is
-            // enough. Without this, 21 CAR-T samples sharing one control would score it 21x.
-            ch_pon_input = ch_dragen_files
-                .join(ANNOTATE_OFFTARGETS.out.targetfile)
-                .map{ meta, dragenfiles, targetfile ->
-                    def ctrl = dragenfiles.findAll{ it ==~ /.*\.(cram)$/ }
-                                          .min{ it.toString().length() }
-                    [ "${ctrl?.getName()}|${targetfile?.getName()}".toString(),
-                      meta, dragenfiles, targetfile ]
-                }
-                .unique{ it[0] }
-                .map{ key, meta, dragenfiles, targetfile ->
-                    [ meta + [id: "${meta.id}_pon".toString()], dragenfiles, targetfile ]
-                }
-
-            PON_SCORE(ch_pon_input, ch_fasta_reference)
-            ch_versions = ch_versions.mix(PON_SCORE.out.versions)
-
-            BUILD_PON(
-                PON_SCORE.out.scored.map{ meta, tsv -> tsv }.collect(),
-                params.offtarget_pon
-                    ? Channel.fromPath(params.offtarget_pon, checkIfExists: true)
-                    : ch_no_file
-            )
-            ch_versions = ch_versions.mix(BUILD_PON.out.versions)
-            ch_offtarget_pon = BUILD_PON.out.pon
-        }
-        else {
-            ch_offtarget_pon = params.offtarget_pon
-                ? Channel.fromPath(params.offtarget_pon, checkIfExists: true)
-                : ch_no_file
-        }
 
         // Rule 5, repeat context. Needs no controls, no cohort and no guide information, so it
         // is the one rule that works on day one for a guide never run before.
@@ -206,7 +164,6 @@ workflow SCGE_ANALYSIS {
 
         REVIEW_FILTER(
             ch_analysis_tsvs,
-            ch_offtarget_pon,
             ch_repeats,
             ch_snv_noise
         )

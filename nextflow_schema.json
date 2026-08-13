@@ -746,31 +746,6 @@
                     "description": "Rule 3: distinct indel lengths required. Depth-sensitive - do not apply below the gate.",
                     "help_text": "Resampling real edits to 3 supporting reads leaves only ~49% passing this rule, so it silently reimposes a read-count floor if used at low VAF."
                 },
-                "review_auto_pon": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Rule 4 fallback: build a panel of normals from this run's own unedited controls. OFF by default -- review_noise_model supersedes it and needs no cohort.",
-                    "help_text": "A PoN is a list of genomic positions, so one built for a different guide covers none of a new guide's predicted sites and silently filters nothing. Building it from this run's controls against this run's target files gives full coverage for any guide, including a brand new one, at no extra sequencing cost."
-                },
-                "offtarget_pon": {
-                    "type": "string",
-                    "format": "file-path",
-                    "default": null,
-                    "description": "A prebuilt panel-of-normals TSV. Merged in and carried forward when review_auto_pon is set; used as-is otherwise."
-                },
-                "pon_min_reads": {
-                    "type": "integer",
-                    "default": 2,
-                    "minimum": 1,
-                    "description": "PoN: indel reads in an unedited sample for a site to be blacklisted.",
-                    "help_text": "Keep this at or below review_min_reads. If the panel needs more evidence than the gate that consumes it, there is a band where the filter admits a site the panel structurally cannot flag."
-                },
-                "pon_min_donors": {
-                    "type": "integer",
-                    "default": 1,
-                    "minimum": 1,
-                    "description": "PoN: distinct unedited samples that must show the site."
-                },
                 "pon_min_vaf": {
                     "type": "number",
                     "default": 0.02,
