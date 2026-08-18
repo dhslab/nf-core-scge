@@ -70,8 +70,18 @@ touches an indel record.
 
 ### Against the curated truth label
 
-279 rows join the curated WGS label (69 confirmed / 210 human-rejected). Used as a *standalone*
-filter — flagging means "call this an artifact":
+Scored as a *standalone* filter — flagging means "call this an artifact".
+
+> **Two populations, and it matters which one is quoted.** The label can be joined against every
+> site-row the caller emitted, or only against the rows that clear the gate. They answer different
+> questions and the panel looks materially different on each, so both are given. **`review_filter.py`
+> only ever runs this rule on gated rows**, so the second table is the operational one; the first
+> answers the broader "could this replace the noise model outright?". Note that
+> [`NOISE_MODEL.md` §6](NOISE_MODEL.md#what-it-is-worth-in-practice--reported-honestly) uses the
+> gated population (135 rows) for the cut-distance work — quoting a sensitivity from one table
+> against the other is the easy mistake here.
+
+**All site-rows** — 279 rows join the label (69 confirmed / 210 human-rejected):
 
 | definition | flagged | sensitivity | specificity | precision | real edits flagged |
 |---|---:|---:|---:|---:|---:|
@@ -80,12 +90,29 @@ filter — flagging means "call this an artifact":
 | indel-capable record | 36 | 0.171 | 1.000 | 1.000 | **0** |
 | shipped rule (≥3 donors & D/I) | 7 | 0.033 | 1.000 | 1.000 | **0** |
 
-Read this with the base rate in view: the labelled set is 75% negative, so a filter that flagged
-every row would already score precision 0.753. Against that line:
+**Gated rows only — the operational population** — 135 rows join (64 confirmed / 71 rejected):
 
-- **The panel is very safe and not very powerful.** Even the loosest definition flags only 1 of 69
-  confirmed edits; the two indel-aware definitions flag none. But sensitivity is 0.50 at best and
-  0.03 for the rule that ships.
+| definition | flagged | sensitivity | specificity | precision | real edits flagged |
+|---|---:|---:|---:|---:|---:|
+| *(flag everything)* | 135 | 1.000 | 0.000 | 0.526 | 64 |
+| any panel record | 53 | **0.732** | 0.984 | 0.981 | **1** |
+| indel-capable record | 31 | **0.437** | 1.000 | 1.000 | **0** |
+| shipped rule (≥3 donors & D/I) | 3 | 0.042 | 1.000 | 1.000 | **0** |
+
+**The panel is ~1.5× more sensitive on gated rows** (0.73 vs 0.50 at the loosest definition, 0.44
+vs 0.17 indel-capable). That is not the panel improving; it is the denominator changing. Gated rows
+are already enriched for the recurrent-locus artifacts a population panel can see, whereas the full
+table is dominated by sites carrying no indel evidence at all — artifacts the panel was never going
+to catch. Read the base-rate row first in both cases: at 75% negative the all-rows table hands a
+do-nothing filter precision 0.753, and at 53% negative the gated table hands it 0.526.
+
+The conclusions are the same under either denominator, which is the point:
+
+- **The panel is very safe and not very powerful.** Even the loosest definition flags exactly **1**
+  confirmed edit in both populations; the two indel-aware definitions flag **none** in both. But
+  sensitivity tops out at 0.73 even where the panel is strongest.
+- **The rule that actually ships catches almost nothing** — 0.033 and 0.042. On this cohort it
+  claims **zero** queue rows.
 - **It is a specificity instrument, not a sensitivity one.** That is a perfectly good thing to be —
   it is why the rule sits last in `review_filter.py`, where it can only claim rows the other five
   rules kept — but it means the panel cannot carry the filtering load on its own.

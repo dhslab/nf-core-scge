@@ -205,27 +205,41 @@ def snv_report(df, queue_all, snv_noise, truth_wgs, min_donors, out, cache=None)
         print("identical — no indel record is shadowed at any queried position on this run")
 
     # ---- truth ----
+    # Scored against TWO populations, because they answer different questions and the panel looks
+    # materially different on each. All site-rows asks "could this replace the noise model as a
+    # general filter?"; gated rows asks "what does it add where the pipeline actually applies it?"
+    # -- review_filter.py only ever runs this rule on gated rows, so the second is the operational
+    # number. Sensitivity is roughly 1.5x higher on gated rows, because those are already enriched
+    # for the recurrent-locus artifacts the panel can see, while the full table is dominated by
+    # sites carrying no indel evidence at all. Quoting one without naming it invites the reader to
+    # apply it to the other.
     if truth_wgs:
         lab = nm.wgs_curated_label(truth_wgs)
-        d = df.copy()
-        d["guide"] = d.sample_name.map(nm.guide_of)
-        d["chrom"] = d.chrom.astype(str)
-        m = d.merge(lab, on=["guide", "chrom", "start"], how="inner")
-        n_neg = int((m.curated_label == 0).sum())
-        print(f"\n-- the panel against the curated WGS label --")
-        print(f"joined {len(m)} labelled rows: {int((m.curated_label==1).sum())} confirmed / "
-              f"{n_neg} human-rejected")
-        # Precision on a 75%-negative set is flattered by prevalence, so print what a filter that
-        # flagged EVERY row would score. Anything at or below that line has learned nothing.
-        print(f"base rate: flagging every row would score precision {n_neg/len(m):.3f} "
-              f"at sensitivity 1.000")
-        any_, ind, ship = overlap_flags(hits_all, m.chrom, m.end.astype(int), min_donors)
-        for defn, flag in (("any panel record", any_), ("indel-capable record", ind),
-                           (f"shipped rule (>={min_donors} donors & D/I)", ship)):
-            c = confusion(flag, m.curated_label.values)
-            print(f"  {defn:38s} flagged {int(flag.sum()):4d}   "
-                  f"sens {c['sensitivity']:.3f}  spec {c['specificity']:.3f}  "
-                  f"prec {c['precision']:.3f}   (real edits flagged: {c['flagged_confirmed']})")
+        pops = [("ALL site-rows", df)]
+        if queue_all is not None:
+            pops.append(("GATED rows (operational)", queue_all))
+        for pop_name, frame in pops:
+            d = frame.copy()
+            d["guide"] = d.sample_name.map(nm.guide_of)
+            d["chrom"] = d.chrom.astype(str)
+            m = d.merge(lab, on=["guide", "chrom", "start"], how="inner")
+            if not len(m):
+                continue
+            n_neg = int((m.curated_label == 0).sum())
+            print(f"\n-- the panel against the curated WGS label: {pop_name} --")
+            print(f"joined {len(m)} labelled rows: {int((m.curated_label==1).sum())} confirmed / "
+                  f"{n_neg} human-rejected")
+            # Precision on a mostly-negative set is flattered by prevalence, so print what a filter
+            # that flagged EVERY row would score. Anything at or below that line has learned nothing.
+            print(f"base rate: flagging every row would score precision {n_neg/len(m):.3f} "
+                  f"at sensitivity 1.000")
+            any_, ind, ship = overlap_flags(hits_all, m.chrom, m.end.astype(int), min_donors)
+            for defn, flag in (("any panel record", any_), ("indel-capable record", ind),
+                               (f"shipped rule (>={min_donors} donors & D/I)", ship)):
+                c = confusion(flag, m.curated_label.values)
+                print(f"  {defn:38s} flagged {int(flag.sum()):4d}   "
+                      f"sens {c['sensitivity']:.3f}  spec {c['specificity']:.3f}  "
+                      f"prec {c['precision']:.3f}   (real edits flagged: {c['flagged_confirmed']})")
 
     # ---- the decomposition that settles the substitution question ----
     if queue_all is not None:
