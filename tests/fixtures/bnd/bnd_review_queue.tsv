@@ -1,0 +1,6 @@
+sample_name	chrom	pos	chrom2	pos2	strands	cut_dist	reads	control_reads_at_event	site_start	site_end	is_target	site_total_reads	bin	partner_bin	n_partners	span	interchromosomal	far_end_on_target	why_dropped	call
+BNDDEMO	chr1	2000	chr1	6000	-+	2	3	0	1980	2020	1	40	chr1:2	chr1:6	1	4000	False	1		multi-cut deletion
+BNDDEMO	chr1	2002	chr1	5999	+-	2	4	0	1982	2022	1	40	chr1:2	chr1:6	1	3997	False	1		multi-cut deletion
+BNDDEMO	chr1	5998	chr1	2001	-+	2	3	0	5978	6018	1	40	chr1:6	chr1:2	1	3997	False	1		multi-cut deletion
+BNDDEMO	chr1	6000	chr1	2000	-+	2	4	0	5980	6020	1	40	chr1:6	chr1:2	1	4000	False	1		multi-cut deletion
+BNDDEMO	chr1	6000	chr1	2001	+-	2	4	0	5980	6020	1	40	chr1:6	chr1:2	1	3999	False	1		multi-cut deletion

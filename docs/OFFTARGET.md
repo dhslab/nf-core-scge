@@ -37,6 +37,7 @@ review_queue.tsv       the sites to actually look at
 review_queue_all.tsv   every gated site + why_dropped  (the audit trail)
 bnd_review_queue.tsv   the same triage applied to breakends
 snapshots/             one PNG per site in review_queue.tsv
+bnd_snapshots/         one PNG per JUNCTION in bnd_review_queue.tsv (not per row)
 ```
 
 Each snapshot has two panels: **the edited sample on top, its matched unedited control below** —
@@ -74,6 +75,128 @@ and paralogous sequence — exactly where aligners invent indels.
 
 On-target sites are exempt from rules 4 and 5, since they're shared across samples by design.
 
+## Breakends
+
+An indel is one cut healed badly. A **breakend** is two cut sites joined to each other — and on
+this cohort that is overwhelmingly what survives triage: **23 of 25 queue rows are multi-cut
+deletions**, two cuts from the same guide's own target set with the segment between them excised.
+The pipeline has always emitted these. Until now it never labelled them and never drew them.
+
+`bin/review_filter_bnd.py` applies the breakend analogue of the indel filter. Three rules, not
+five, because a junction has two ends and no length spectrum:
+
+**1. At least 3 supporting reads.** Breakend support is thin — the cohort median is 1 read — so
+this is the single most discriminating cut available, and it does most of the work.
+
+**2. Within 10 bp of a PAM position.** Same rule as indels — and the caller has already applied
+the *same* 10 bp cutoff via `-d/--max-mutation-distance`, whose default is **10**, not 25;
+`get_indels.nf` passes no override. The two tests are not quite identical (the caller keeps an
+event if *either* end is within range, this rule tests one end), but on this cohort **no junction
+has a cut distance above 10 at all**, so rule 2 can never fire. Treat "0 dropped" here as
+structural, not as evidence the rule works.
+
+**3. The breakpoint is not promiscuous.** A breakpoint partnering with many unrelated loci is an
+alignment hub, not a junction. **On-target sites are exempt**, and that exemption is not optional:
+a real Cas9 cut generates junctions to many places, so the true cut sites are among the most
+promiscuous breakpoints in the cohort — 6 of the 10 breakpoints with ≥5 distinct partners are the
+intended TRAC, TRBC1, TRBC2 and B2M sites. Applying rule 3 without the exemption deletes the real
+edits.
+
+There is no rule 4 here. The matched-control test is applied per event *upstream*: the caller's
+`-x/--max-in-control` (default 0) drops any junction with control support before it ever reaches
+`bnd_info`.
+
+> ⚠️ Rule 3 is currently **non-binding** — on this cohort it drops nothing once rule 1 has run.
+> It is kept because it costs nothing and is the only defence against an alignment hub that
+> happens to be absent from the matched control. Do not read "0 dropped by rule 3" as broken.
+
+### From 1,022 breakends to 8 junctions
+
+The SV VCF holds 1,022 records and the queue holds 25 rows, and the gap between those numbers has
+been asked about more than once. **It is one threshold, not a cascade.**
+
+| stage | count | what removed the rest |
+|---|---:|---|
+| breakend entries in `bnd_info` (= VCF records) | **1,022** | — |
+| after rule 1, `reads ≥ 3` | **25** | 997 junctions with 1–2 reads |
+| after rules 2, 3, 4 | **25** | **nothing — all three dropped zero** |
+| collapsed to events | **8** | grouping, not filtering |
+
+Support is the whole story. The distribution of reads per junction:
+
+```
+reads:  1    2   3   4   5   6   7   8   9  13  15
+count: 981  16   6   5   1   3   5   1   2   1   1
+```
+
+**981 singletons and 16 doubletons — those 997 are the entire reduction.** The VCF is the *ungated*
+sibling of the queue: both read the same `bnd_info` column, and the VCF simply writes every entry
+without applying `--min-reads`. So 1,022 vs 25 is not two analyses disagreeing; it is one analysis
+before and after its only real threshold.
+
+The last step, 25 → 8, is grouping and is described below — it is not a filter.
+
+> **All 25 gated rows are `is_target == 1`**, and rules 3 and 4 exempt on-target sites. Both rules
+> were therefore *structurally* inert on this cohort, not merely inactive. "0 dropped" is not
+> evidence that they work.
+
+### A queue row is not an event
+
+**The 25 rows in `bnd_review_queue.tsv` are 8 junctions.** The caller reports each event from both
+ends, at a few bp of position jitter, and under both strand orientations, so one deletion arrives
+as three to five rows. Two consequences, and both have bitten:
+
+- **Never quote a row count as an event count.** 25 breakends across 8 samples means 8 events, one
+  per sample.
+- **Never quote a row's `reads` as the event's support.** ARID4A's rows say 3–4 reads each; the
+  junction carries 18 against 123–129× depth — a factor of 6.
+
+`bin/bnd_snapshots.py` collapses rows to junctions on `(sample, sorted([bin, partner_bin]))` — bins
+the filter already computes — and renders one figure each.
+
+### Reading a junction figure
+
+Each PNG in `review/bnd_snapshots/` is a to-scale schematic of the excision over a 2×2 grid: left
+and right breakpoint across, edited sample over its matched unedited control down. Per-column
+x-axes only — the two breakpoints have unrelated coordinates.
+
+**The evidence is the green reads.** A read spanning a junction aligns in two pieces: a primary
+clipped at one breakpoint and a supplementary segment at the partner, linked by an `SA` tag. Any
+read whose `SA` lands near the partner locus is drawn green, so a junction reads as a stack of
+green alignments all terminating on one base — present in the edited panel, absent from the
+control directly below it. That pairing is what makes the figure self-adjudicating, exactly as in
+the indel snapshots.
+
+⚠️ **This evidence used to be invisible.** `bin/pileup_snapshot.py` dropped `is_supplementary`
+unconditionally, which filtered out precisely the alignments that constitute a junction. It is now
+opt-in per caller (`keep_supplementary`), so indel snapshots are unchanged. The counts involved are
+not marginal: at ARID4A, 48 of 60 SA-tagged reads point at the partner locus; at PDCD4, 67 of 71.
+
+Note the two read counts in a figure header are different statistics and will not agree: the
+suptitle's *junction reads* is the caller's filtered support summed over the queue rows, while a
+panel's *reads with SA at partner* is every SA-tagged read at that breakpoint. The first is the
+conservative one.
+
+**Not shown: a coverage drop.** Considered and rejected on two independent grounds — these events
+are 6–20% VAF, so there is no visible dent, and the per-sample `tagged.bam` is region-limited, so
+coverage between the two target islands is zero whether or not anything was deleted. The panel
+would have read as a deletion that isn't there.
+
+| parameter | default | what it does |
+|---|---|---|
+| `review_filter_bnd` | `true` | run the breakend filter at all |
+| `review_bnd_min_reads` | `3` | rule 1 |
+| `review_bnd_max_cut_dist` | `10` | rule 2 |
+| `review_bnd_max_partners` | `5` | rule 3 |
+| `review_bnd_bin_size` | `1000` | bp bin used to group breakpoints |
+| `review_sv_noise` | `null` | external DRAGEN SV panel (BEDPE) |
+| `review_bnd_snapshots` | `true` | render the junction figures |
+| `review_bnd_snapshot_window` | `150` | bp either side of each breakpoint |
+| `review_bnd_max_junctions` | `200` | safety cap on figures rendered |
+
+⚠️ **Only `WGS_hg38_v3.1.0` is safe for `review_sv_noise`.** Measured: `IDPF_WGS v3.0.0` flags 25
+of 25 real junctions and `FF_Heme v3.1.0` flags 24 of 25 — either erases the entire result.
+
 ## The noise model
 
 Rule 4 asks whether a call is *statistically distinguishable from this locus's background*, not
@@ -85,8 +208,18 @@ control and 40% signal in the treated sample; an existence test throws that edit
 The background is an empirical-Bayes Beta posterior built from the control's own reads
 (`bin/noise_model.py`). `review_noise_model = 'matched'` (the default) uses **the sample's own
 matched control**, so it needs no cohort at all — which is the entire reason the old panel of
-normals could be deleted. On the 32-sample CAR-T cohort the two are equal: 64/64 confirmed edits
-retained, 9 human-rejected, precision 0.877, and the model does it without a cohort.
+normals could be deleted. On the 32-sample CAR-T cohort the two are equal: **64/64 confirmed edits
+retained, 9 human-rejected, precision 0.877** — that is the PoN-only arm (queue 88) against the
+32×single-sample arm (queue 91), `docs/NOISE_MODEL_EXPERIMENT.md` arms 2 and 6. Equal, and the
+matched model does it without a cohort.
+
+> **Which precision figure to quote.** 0.877/9-rejected above is the *PoN-vs-matched equivalence*
+> comparison. **Production is 0.889 with 8 rejected** (queue 96, 64/64 confirmed) — rule 1 on,
+> matched AQ, caller-derived cut distance, `NOISE_MODEL_EXPERIMENT.md` "rule 1 ON (production)".
+> Both numbers are measured on the same 32 tables and both are correct; they are different rows of
+> the same experiment, and the retained-edit count (64/64) is identical in every arm. Always name
+> the configuration — quoting either bare makes the two look like a contradiction, which is what an
+> earlier version of this file and `README.md` between them managed to do.
 
 `review_aq_min` (default 5) is the cut. Measured with the depth floor on, 3-8 all reproduce the
 PoN result exactly; 10 starts costing confirmed edits.
@@ -187,6 +320,45 @@ The fix moves the summation before the filter; old and new output differ in exac
 
 **Call tables made before the fix still have zeroed control columns.** `review_filter.py` detects
 this and warns. Re-run the caller to get rule 1 back.
+
+## A second one, in the VCF output
+
+Until now **every `*.offtarget_svs.vcf` this pipeline ever wrote contained zero records**.
+
+`bin/bnd_from_indels_to_vcf.py` had its tab and newline escapes written doubled — `'\\t'` and
+`'\\n'`, which in Python source is a backslash followed by a letter, not a control character. The
+header line was split on the two-character string backslash-t, never matched, so the `bnd_count`
+lookup failed, defaulted to `'0'`, and **every row took the `continue` branch**. The output was a
+single line of literal backslash-n text; `wc -l` reported 0. Nothing downstream checked, because a
+VCF with no records is exactly what a sample with no breakends should produce.
+
+Nothing was miscalled and no analysis is affected — the triaged breakend queue is produced by a
+different script from the same source column, and it was always correct. What was lost is a
+published output file: the per-sample breakend VCF was empty for every sample ever run.
+
+The fix also carries evidence that the old code discarded: `SR=` and `CTRL=` now report supporting
+and control read counts, and reciprocal junctions are linked with `MATEID` rather than emitted four
+times. On the 32-sample CAR-T cohort this is **1022 breakend records where there were 0**, verified
+in the 2026-08-17 run: 32/32 samples populated, 3–95 records each.
+
+Only the VCF step needs re-running, not the caller — the `bnd_info` column it reads from was never
+wrong.
+
+### What this fix does *not* do
+
+It does not put breakends in the HTML report, and an earlier draft of this section wrongly said it
+would. `COMPILE_REPORT_JSON` does consume the VCF, and the report JSON's `tables.bnd_vcf` is now
+populated for all 32 samples — but **`bin/make_scge_report.qmd` never references `bnd_vcf`** (grep
+it: zero hits), and neither does `bin/make_scge_excel.py`. The report's SV panel is driven by
+`tables.on_target_sv_transgene`, a transgene-junction annotation table that is a different thing
+entirely and is empty in **all 32** samples of this cohort — so that panel still reads "No on-target
+SV/transgene data available in the report", and did so for its own unrelated reason all along.
+
+Surfacing breakends in the report is therefore a template change, not a data change, and the data
+is now sitting there waiting for it. Two separate defects; only the first is fixed.
+
+> `bin/tsv_to_vcf.py` carries the same defect and is deliberately untouched: no module references
+> it. Fix it before wiring it to anything.
 
 ---
 

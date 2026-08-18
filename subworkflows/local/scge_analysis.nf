@@ -15,6 +15,7 @@ include { GET_INDELS                    } from '../../modules/local/get_indels.n
 include { REVIEW_FILTER                 } from '../../modules/local/review_filter.nf'
 include { REVIEW_FILTER_BND             } from '../../modules/local/review_filter_bnd.nf'
 include { REVIEW_SNAPSHOTS             } from '../../modules/local/review_snapshots.nf'
+include { REVIEW_BND_SNAPSHOTS         } from '../../modules/local/review_bnd_snapshots.nf'
 include { GET_TRANSGENE_JUNCTIONS       } from '../../modules/local/get_transgene_junctions.nf'
 include { TRANSGENE_TO_VCF              } from '../../modules/local/transgene_to_vcf'
 include { ANNOTATE_TRANSGENE_JUNCTIONS } from '../../modules/local/annotate_transgene_junctions.nf'
@@ -169,6 +170,30 @@ workflow SCGE_ANALYSIS {
         )
         ch_versions = ch_versions.mix(REVIEW_FILTER.out.versions)
 
+        // Review packet inputs, shared by the indel and breakend renderers. CRAM paths are
+        // passed as a map rather than staged -- the queue names arbitrary samples, and staging
+        // every cohort CRAM to draw a few dozen pictures would copy TBs.
+        def want_bnd_snaps = params.review_filter_bnd && params.review_bnd_snapshots
+        if (params.review_snapshots || want_bnd_snaps) {
+            ch_review_cram_map = ch_dragen_files
+                .map{ meta, dragenfiles ->
+                    def crams = dragenfiles.findAll{ it ==~ /.*\.(cram)$/ }
+                    def ed = crams.max{ it.toString().length() }
+                    def ct = crams.min{ it.toString().length() }
+                    "${meta.id}\t${ed}\t${ct}\n"
+                }
+                .collectFile(name: 'review_cram_map.tsv', sort: true)
+                .first()
+
+            // No .first() here: ch_fasta_reference is built with .collect(), so it is
+            // already a value channel and .first() would only earn a warning.
+            ch_review_fasta = ch_fasta_reference
+                .map{ it.find{ f -> f ==~ /.*\.(fasta|fa)$/ } }
+        }
+        // .first() on the cram map: collectFile() yields a QUEUE channel, and it now feeds
+        // two processes. A value channel is re-readable; a queue channel would let whichever
+        // renderer ran first consume the only item and leave the other waiting forever.
+
         // The same triage applied to breakends rather than indels. Separate process because the
         // rules differ: a junction has two ends, so promiscuity replaces length diversity and the
         // noise panel is a BEDPE rather than a BED.
@@ -182,25 +207,24 @@ workflow SCGE_ANALYSIS {
                 ch_sv_noise
             )
             ch_versions = ch_versions.mix(REVIEW_FILTER_BND.out.versions)
+
+            // One figure per junction, not per queue row -- see the module header.
+            if (params.review_bnd_snapshots) {
+                REVIEW_BND_SNAPSHOTS(
+                    REVIEW_FILTER_BND.out.queue,
+                    ch_review_cram_map,
+                    ch_review_fasta
+                )
+                ch_versions = ch_versions.mix(REVIEW_BND_SNAPSHOTS.out.versions)
+            }
         }
 
         // Review packet: an IGV-style pileup per surviving site, edited over matched control.
-        // CRAM paths are passed as a map rather than staged -- the queue names arbitrary
-        // samples, and staging every cohort CRAM to draw a few dozen pictures would copy TBs.
         if (params.review_snapshots) {
-            ch_review_cram_map = ch_dragen_files
-                .map{ meta, dragenfiles ->
-                    def crams = dragenfiles.findAll{ it ==~ /.*\.(cram)$/ }
-                    def ed = crams.max{ it.toString().length() }
-                    def ct = crams.min{ it.toString().length() }
-                    "${meta.id}\t${ed}\t${ct}\n"
-                }
-                .collectFile(name: 'review_cram_map.tsv', sort: true)
-
             REVIEW_SNAPSHOTS(
                 REVIEW_FILTER.out.queue,
                 ch_review_cram_map,
-                ch_fasta_reference.map{ it.find{ f -> f ==~ /.*\.(fasta|fa)$/ } }
+                ch_review_fasta
             )
             ch_versions = ch_versions.mix(REVIEW_SNAPSHOTS.out.versions)
         }

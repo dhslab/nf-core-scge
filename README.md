@@ -110,13 +110,24 @@ review_queue.tsv       the sites to actually look at
 review_queue_all.tsv   every gated site + why_dropped (audit trail)
 bnd_review_queue.tsv   the same triage applied to breakends
 snapshots/             one pileup image per site: edited on top, matched control below
+bnd_snapshots/         one image per breakend JUNCTION: the excision to scale over both
+                       breakpoints, edited over matched control, junction reads highlighted
 ```
+
+Breakends get their own triage and their own figures. Note that a queue *row* is not an event —
+the caller reports each junction from both ends with a few bp of jitter, so the CAR-T cohort's 25
+rows are **8 junctions**, 23 of them multi-cut deletions. See
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md#breakends).
 
 **No panel of normals is needed.** Rule 4 is a beta-binomial test against each sample's *own*
 unedited control (`review_noise_model`, default `matched`), so a single-sample submission with one
 matched normal gets the same filtering a 32-sample cohort did — measured equal on the CAR-T cohort
-at precision 0.889 with every confirmed edit retained. Full docs:
-[`docs/OFFTARGET.md`](docs/OFFTARGET.md).
+at **precision 0.877, 64/64 confirmed edits retained** (PoN-only arm vs 32×single-sample arm).
+The **production** configuration — rule 1 on, matched AQ, caller-derived cut distance — scores
+**0.889 with 8 rejected**, also at 64/64. Both are rows of the same experiment table; quote 0.889
+for what ships and 0.877 for the no-cohort equivalence, and always say which. Full docs:
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md), measurements in
+[`docs/NOISE_MODEL_EXPERIMENT.md`](docs/NOISE_MODEL_EXPERIMENT.md).
 
 ### Unified CRISPR Off-Target Workflow
 

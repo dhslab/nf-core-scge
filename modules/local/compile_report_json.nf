@@ -39,4 +39,23 @@ process COMPILE_REPORT_JSON {
         python: \$(python --version | sed 's/Python //g')
     END_VERSIONS
     """
-} 
+
+    stub:
+    // Without this, `-stub-run` executes the REAL script above against stub-generated
+    // (empty) inputs, compile_report_data.py exits on its required arguments, and the
+    // whole stub run dies here -- before it ever reaches the review arm downstream. That
+    // is why no stub run has ever exercised REVIEW_FILTER / REVIEW_FILTER_BND and their
+    // snapshot renderers.
+    //
+    // versions.yml must carry real content even in a stub: nf-core's
+    // processVersionsFromYAML does yaml.load(f).collectEntries{...}, and an empty file
+    // loads as null -> NPE at pipeline completion.
+    """
+    echo '{}' > ${meta.id}.scge_report.json
+
+    cat <<-END_VERSIONS > versions.yml
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
+    END_VERSIONS
+    """
+}

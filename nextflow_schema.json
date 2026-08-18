@@ -829,6 +829,25 @@
                     "minimum": 0,
                     "description": "bp tolerance when matching a junction to an SV noise panel record."
                 },
+                "review_bnd_snapshots": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Render a pileup figure for each junction in the breakend review queue.",
+                    "help_text": "One figure per JUNCTION, not per queue row: the queue reports each event from both ends and at a few bp of jitter, so on the 32-sample CAR-T cohort 25 rows collapse to 8 junctions. Each figure pairs a to-scale schematic of the excision with a 2x2 read grid (left/right breakpoint x edited/matched control); reads whose SA tag lands at the partner locus are drawn green."
+                },
+                "review_bnd_snapshot_window": {
+                    "type": "integer",
+                    "default": 150,
+                    "minimum": 10,
+                    "description": "bp either side of each breakpoint to show in a breakend figure.",
+                    "help_text": "Wider than review_snapshot_window on purpose: breakend evidence is a stack of soft clips terminating on one base, which needs flank to read as a stack."
+                },
+                "review_bnd_max_junctions": {
+                    "type": "integer",
+                    "default": 200,
+                    "minimum": 1,
+                    "description": "Safety cap on the number of breakend figures rendered."
+                },
                 "review_noise_model": {
                     "type": "string",
                     "default": "matched",

@@ -1,9 +1,14 @@
 // REVIEW_FILTER_BND — the breakend counterpart of REVIEW_FILTER.
 //
 // Wraps bin/review_filter_bnd.py. Reads the same *.offtarget_analysis.tsv tables as REVIEW_FILTER
-// and triages the BND calls rather than the indels. On the 32-sample CAR-T WGS cohort: 2,404
-// breakends -> 36 pass the evidence gate -> 25 reach the queue (23 multi-cut deletions across 7
-// samples spanning 413 bp to 125 kb, 2 deletions at a cut site, 0 off-target junctions).
+// and triages the BND calls rather than the indels. On the 32-sample CAR-T WGS cohort (the
+// 2026-08-17 run): 1,022 breakends -> 25 pass the evidence gate -> 25 reach the queue, i.e. rules
+// 2-4 drop nothing and the >= 3 read gate is the only filter that acts. Those 25 rows are 8
+// junctions (23 multi-cut deletion rows across 7 samples spanning 414 bp to 126 kb, 2 deletions at
+// a cut site, 0 off-target junctions). See docs/OFFTARGET.md for the full accounting.
+//
+// The earlier "2,404 -> 36 -> 25" in this header described the 2026-08-10 run, before the caller
+// changed; do not quote it against current output.
 //
 // The rules differ from the indel side because a junction has two ends. Length diversity is
 // meaningless here, so it is replaced by breakpoint promiscuity: a bin joining many distinct
