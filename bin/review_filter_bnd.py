@@ -10,7 +10,12 @@ which the pipeline has always emitted and never labelled.
   1. enough support            -- >= 3 reads. Breakend support is thin (cohort median 1 read), so
                                   this is the single most discriminating cut available.
   2. near the cut              -- within 10 bp of a PAM position, same rule as indels. The caller
-                                  has already capped this at 25 bp via -d/--max-mutation-distance.
+                                  applies the SAME 10 bp cutoff via -d/--max-mutation-distance
+                                  (default 10; get_indels.nf passes no override), so this rule is
+                                  very nearly redundant with it. Not exactly: the caller keeps an
+                                  event when EITHER end is in range, this tests one end. But on the
+                                  32-sample cohort no junction has a cut distance above 10 at all,
+                                  so rule 2 never fires. "0 dropped" here is structural.
   3. breakpoint not promiscuous-- a breakpoint partnering with many unrelated loci is an alignment
                                   hub, not a junction. On-target sites are EXEMPT (see below).
   4. matched control clean     -- NOT applied here. It is already applied per event upstream: the
@@ -88,17 +93,30 @@ def parse_bnds(df, sample):
 def load_sv_noise(path):
     """BEDPE -> {chrom: (starts, ends)} of merged breakpoint intervals, both ends pooled.
 
-    Measured on the 32-sample CAR-T cohort against the 36 gated junctions:
+    Re-measured on the 2026-08-17 32-sample CAR-T run (1,022 junctions, 25 gated) by
+    bin/panel_overlap.py, with the on-target exemption disabled so the panels can be compared at
+    all -- every gated junction here is is_target==1, so with the exemption on the answer is
+    trivially zero:
 
-        panel                                     real queue flagged   artifacts flagged
-        WGS_hg38_v3.1.0    (311k records)              0 / 25              11 / 11
-        IDPF_WGS_v3.0.0    (2.6M records)             25 / 25              11 / 11
-        WGS_FF_Heme_v3.1.0 (2.2M records)             24 / 25              11 / 11
+        panel                          genome covered   all 1,022   gated 25 (slop 50)
+        WGS_hg38_v3.1.0    (311k rec)   33.7 Mb  1.1%    58  ( 6%)      0 / 25
+        IDPF_WGS_v3.0.0    (2.6M rec)  1942.4 Mb 62.7%   852 (83%)     25 / 25
+        WGS_FF_Heme_v3.1.0 (2.2M rec)  1553.8 Mb 50.1%   709 (69%)     25 / 25
 
-    Only the small WGS panel discriminates. IDPF and FF_Heme flag the real junctions at a HIGHER
-    rate than the noise -- as a blacklist they preferentially delete findings, so they are not
-    merely useless here but actively harmful. Slop matters too: at 0 or 50 bp the WGS panel is
-    perfect, at 200 bp it starts flagging real junctions.
+    Only the small WGS panel discriminates, and COVERAGE is why: IDPF's intervals blanket 63% of
+    hg38, so a hit against it carries almost no information -- it flags 83% of everything, real and
+    artifactual alike. Slop matters too: at 0 or 50 bp the WGS panel flags no real junction, at
+    200 bp it flags 3.
+
+    A min_donors rule does NOT rescue the large panels, though the BEDPE hides the statistic needed
+    to check: it has no donor-count column and no ##PON SAMPLES header, but field 7 embeds the
+    donor, so donors per interval can be reconstructed. Doing so, all 25 of IDPF's hits on real
+    junctions carry >= 3 donors (max 17). These are genuinely recurrent loci in its baseline, not
+    one-donor coincidences, so no threshold helps. See docs/PANEL_AS_FILTER.md.
+
+    NOTE: the "11 / 11 artifacts" column of the earlier version of this table came from the
+    2026-08-10 run and is no longer reproducible -- no run on disk retains that artifact set, and
+    the current run drops zero junctions to rules 2-4, so it has none. Do not quote it.
     """
     iv = collections.defaultdict(list)
     op = gzip.open if path.endswith(".gz") else open
