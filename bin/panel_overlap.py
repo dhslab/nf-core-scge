@@ -351,6 +351,8 @@ def sv_report(junctions, panels, slops, extra_artifacts=None):
         sets.append(("dropped junctions (artifacts)", extra_artifacts))
 
     rows, donor_rows = [], []
+    cache = {}                      # path -> (name, merged, covered); the BEDPEs are 2.6M
+                                    # records and parsing one twice costs minutes
     gate_slop = rfb.SV_NOISE_SLOP
     for path in panels:
         name = os.path.basename(path).replace("_systematic_noise.sv.bedpe.gz", "")
@@ -358,6 +360,7 @@ def sv_report(junctions, panels, slops, extra_artifacts=None):
         merged = rfb.load_sv_noise(path)
         n_iv = sum(len(v[0]) for v in merged.values())
         dmerged, covered, n_rec = sv_donor_index(path)
+        cache[path] = (name, merged, covered)
         print(f"  {n_rec} BEDPE records -> {n_iv} merged breakpoint intervals over "
               f"{len(merged)} contigs")
         print(f"  genome covered by those intervals: {covered/1e6:.1f} Mb "
@@ -379,6 +382,51 @@ def sv_report(junctions, panels, slops, extra_artifacts=None):
                                single_donor=int((nd == 1).sum()),
                                ge2=int((nd >= 2).sum()), ge3=int((nd >= 3).sum()),
                                max_donors=int(nd.max()) if len(nd) else 0))
+
+    # --------------------------------------------------------------------------------------
+    # Is a hit INFORMATIVE? Two things have to be true, and the raw flag count shows neither.
+    #
+    # against the null   a junction has two endpoints, so a panel covering fraction c of the
+    #                    genome flags a randomly placed junction 1-(1-c)^2 of the time. At
+    #                    c = 0.63 that is 86% before any biology. A flag rate at the null is
+    #                    not evidence, however large it looks.
+    # right direction    a noise panel must flag ARTEFACTS more than REAL events. The closest
+    #                    contrast available here is off-target (mostly noise at these depths)
+    #                    vs on-target (a nominated cut site, so a genuine editing outcome).
+    #                    An odds ratio below 1 means the panel prefers the real edits, which
+    #                    is worse than useless -- and is survivable only because rule 4
+    #                    exempts on-target sites. That exemption is load-bearing, not tidying.
+    #
+    # The contrast is a PROXY, not ground truth: not every off-target row is an artefact and
+    # not every on-target row is real. It is sound for direction, not for a precision figure.
+    # --------------------------------------------------------------------------------------
+    print("\n-- is a hit informative? flag rate vs the coverage null, and which way it points --")
+    print(f"   {'panel':<22} {'cov':>7} {'null':>7} {'obs':>7} {'obs/null':>9} "
+          f"{'on-tgt':>8} {'off-tgt':>8} {'OR':>7} {'95% CI':>16}   direction")
+    on = (junctions.is_target == 1).to_numpy()
+    for path in panels:
+        name, merged, covered = cache[path]
+        cov = covered / 3.1e9
+        null = 1 - (1 - cov) ** 2
+        flag = np.array([rfb.in_noise(merged, c, p, gate_slop)
+                         or rfb.in_noise(merged, c2, p2, gate_slop)
+                         for c, p, c2, p2 in zip(junctions.chrom, junctions.pos,
+                                                 junctions.chrom2, junctions.pos2)])
+        obs = flag.mean()
+        a11, a10 = int((flag & ~on).sum()), int((~flag & ~on).sum())
+        a01, a00 = int((flag & on).sum()), int((~flag & on).sum())
+        h = 0.5 if min(a11, a10, a01, a00) == 0 else 0.0
+        lor = np.log(((a11 + h) * (a00 + h)) / ((a10 + h) * (a01 + h)))
+        se = np.sqrt(sum(1.0 / (x + h) for x in (a11, a10, a01, a00)))
+        lo, hi = np.exp(lor - 1.96 * se), np.exp(lor + 1.96 * se)
+        direction = ("enriches artefacts (useful)" if lo > 1 else
+                     "ENRICHES REAL EDITS (backwards)" if hi < 1 else
+                     "no discrimination (CI spans 1)")
+        print(f"   {name:<22} {cov*100:6.1f}% {null*100:6.1f}% {obs*100:6.1f}% "
+              f"{obs/max(null,1e-9):9.2f} {flag[on].mean()*100:7.1f}% "
+              f"{flag[~on].mean()*100:7.1f}% {np.exp(lor):7.2f} [{lo:5.2f},{hi:6.2f}]"
+              f"   {direction}")
+    print("   on-target n = %d, off-target n = %d" % (int(on.sum()), int((~on).sum())))
 
     tab = pd.DataFrame(rows)
     tab["pct"] = (tab.flagged / tab.n * 100).round(1)

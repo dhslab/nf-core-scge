@@ -190,6 +190,50 @@ This is a sharper explanation than the one in `CALLER_INTEGRATION_LOG.md`, which
 still arithmetically true, but the cause is not a population mismatch — it is that the panel's
 intervals blanket most of the genome, so almost everything hits.
 
+### Against the null, and in which direction — the measurement that settles it
+
+A raw flag rate cannot be read on its own, because a junction has **two** endpoints. A panel
+covering fraction `c` of the genome flags a randomly placed junction `1 − (1 − c)²` of the time.
+For IDPF at `c = 0.627` that null is **86.1%** before any biology whatsoever.
+
+Splitting the 1,022 records by target status gives the direction as well as the magnitude
+(`bin/panel_overlap.py`, slop 50, on-target n = 183, off-target n = 839):
+
+| panel | coverage | null (either end) | observed | obs/null | on-target flagged | off-target flagged | odds ratio | direction |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `WGS_hg38_v3.1.0` | 1.1% | 2.2% | 7.5% | **3.48×** | 4.4% | 8.2% | 1.96 [0.93, 4.15] | right way, CI spans 1 |
+| `IDPF_WGS_v3.0.0` | 62.7% | 86.1% | 85.9% | **1.00×** | **92.3%** | 84.5% | **0.45 [0.25, 0.80]** | **backwards** |
+| `WGS_FF_Heme_v3.1.0` | 50.1% | 75.1% | 72.9% | **0.97×** | **87.4%** | 69.7% | **0.33 [0.21, 0.53]** | **backwards** |
+
+Three things fall out, and the first two are worse than "uninformative":
+
+**IDPF's flag rate is its coverage.** 85.9% observed against an 86.1% null — a ratio of 1.00. The
+panel is not detecting anything. It is reporting how much of the genome it covers. A permutation
+null that preserves each junction's chromosomes and its inter-endpoint span (1,000 shifts) puts the
+baseline at 80.8% and the observed at 1.06× it; the enrichment is real but negligible, and the
+analytic null is the fairer comparison because the shift null cannot preserve mappability.
+
+**IDPF and FF_Heme point the wrong way.** Both flag *on-target* junctions — nominated cut sites,
+i.e. the genuine editing outcomes — **more** often than off-target ones. IDPF: 92.3% vs 84.5%,
+odds ratio 0.45, CI [0.25, 0.80], excluding 1. FF_Heme is worse at 0.33 [0.21, 0.53]. A noise panel
+is supposed to enrich for artifacts. These enrich for the results.
+
+> The on-target/off-target contrast is a **proxy** for real-vs-artifact, not ground truth: not
+> every off-target record is an artifact, and not every on-target record is real. It is sound for
+> establishing *direction*, which is what is at issue, and should not be read as a precision figure.
+
+**`WGS_hg38_v3.1.0` is the only one that behaves.** 3.48× the null, and off-target flagged nearly
+twice as often as on-target — the right direction. But its odds-ratio CI spans 1 (8 on-target hits
+against 69 off-target), so on this cohort the discrimination is **suggestive, not demonstrated**.
+It is the panel to use; the case for it rests on the coverage argument and on 0/25 real junctions
+flagged, not on this odds ratio.
+
+**Why the on-target exemption is load-bearing.** With the exemption disabled, IDPF flags **25 of
+25** real junctions at every slop tested (0, 50, 200) and FF_Heme 22–25 of 25; `WGS_hg38_v3.1.0`
+flags **0 of 25** at slop 0 and 50, and 3 at 200. So under the shipped default panel, rule 4 without
+the exemption would delete the entire breakend finding. The exemption is not a convenience — it is
+the only thing standing between the current default and a null result.
+
 ### Would a `min_donors` rule rescue the large panels? No.
 
 The BEDPE carries **no donor-count column and no `##PON SAMPLES:` header**, so there is no direct
@@ -222,9 +266,38 @@ Also worth noting: matching is a bare either-end interval hit
 passed to DRAGEN itself as `--sv-systematic-noise`. That is the panel measured above as covering
 63% of the genome and flagging 100% of the real junctions on the review side.
 
-The review-side default is already the safe panel (`review_sv_noise` in `logs/run_cart_bnd.sh`
-points at `WGS_hg38_v3.1.0`), so this is about what DRAGEN does upstream, which is a different
-question and out of scope here. **It is worth a decision.**
+**These are two different parameters and only one of them reaches rule 4.**
+
+| parameter | default | consumed by |
+|---|---|---|
+| `params.sv_noisefile` (`nextflow.config:208`) | **IDPF v3.0.0** | **DRAGEN**, as `--sv-systematic-noise` (`modules/local/dragen_scge.nf:52,112`) |
+| `params.review_sv_noise` (`nextflow.config:167`) | **`null` — off** | `review_filter_bnd.py --sv-noise`, i.e. rule 4 |
+
+So the 63%-coverage panel never reaches the breakend filter, and rule 4 is **off by default**. That
+has a consequence worth stating plainly: the `dropped, DRAGEN systematic noise : 0` line printed by
+every run so far means *the rule did not run*, not *nothing matched*. `logs/run_cart_bnd.sh` sets
+`review_sv_noise` to `WGS_hg38_v3.1.0` explicitly, which is why that run's zero is a real zero — but
+that is a run script, not the shipped default.
+
+On the DRAGEN side, `params.sv_noisefile` hands DRAGEN a panel covering 63% of hg38, which
+suppresses 55.8% of otherwise-passing DRAGEN SV calls.
+
+> **Decided 2026-08-20: `params.sv_noisefile` stays on IDPF v3.0.0.** This is the PI's call and the
+> question is closed — do not re-raise it or "fix" the default. The measurements above argued for
+> `WGS_hg38_v3.1.0`; they are retained as the record of what was known when the decision was made,
+> not as a standing recommendation.
+
+**What that decision does and does not touch.** It affects DRAGEN's own SV output — the
+`*.sv.annotated.vcf.gz` and the SV table in the per-sample report — where roughly half the
+otherwise-passing calls are suppressed. It does **not** touch the breakend arm or anything else in
+these docs, for two independent reasons: the breakend caller never consumes DRAGEN SV calls (it is
+SA-tag split reads only), and `params.sv_noisefile` is not the parameter rule 4 reads. Rule 4 reads
+`params.review_sv_noise`, which is `null`.
+
+**The one thing to protect.** Because IDPF is staying, the failure mode worth guarding is somebody
+later wiring *it* into `review_sv_noise` on the assumption that one SV panel is as good as another.
+That would flag 25 of 25 real junctions and erase the breakend finding entirely. The warning at
+`nextflow.config:160` says so at the point of use.
 
 ### Reproducibility note — an honest discrepancy
 
