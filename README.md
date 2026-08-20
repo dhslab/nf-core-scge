@@ -110,13 +110,14 @@ review_queue.tsv       the sites to actually look at
 review_queue_all.tsv   every gated site + why_dropped (audit trail)
 bnd_review_queue.tsv   the same triage applied to breakends
 snapshots/             one pileup image per site: edited on top, matched control below
-bnd_snapshots/         one image per breakend JUNCTION: the excision to scale over both
-                       breakpoints, edited over matched control, junction reads highlighted
+bnd_snapshots/         one image per breakend JUNCTION: the rearranged segment to scale over
+                       both breakpoints, edited over matched control, junction reads highlighted
 ```
 
 Breakends get their own triage and their own figures. Note that a queue *row* is not an event —
 the caller reports each junction from both ends with a few bp of jitter, so the CAR-T cohort's 25
-rows are **8 junctions**, 23 of them multi-cut deletions. See
+rows are **8 junctions**, and on this cohort every one is a multi-cut **inversion** — the
+segment between two cuts flipped and re-ligated, not excised. See
 [`docs/OFFTARGET.md`](docs/OFFTARGET.md#breakends).
 
 **No panel of normals is needed.** Rule 4 is a beta-binomial test against each sample's *own*

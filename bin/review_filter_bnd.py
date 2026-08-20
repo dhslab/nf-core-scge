@@ -3,9 +3,11 @@
 
 Takes find_edited_reads.py output (*.offtarget_analysis.tsv), expands the `bnd_info` column into one
 row per junction, and applies the breakend analogue of the indel review filter. The interesting
-output is not only the shortlist: on this cohort most surviving junctions are **multi-cut
-deletions** -- two cuts from the same guide's target set with the intervening segment excised --
-which the pipeline has always emitted and never labelled.
+output is not only the shortlist: on this cohort every surviving junction is a **multi-cut
+inversion** -- two cuts from the same guide's target set with the intervening segment flipped and
+re-ligated -- which the pipeline has always emitted and never labelled correctly. Orientation is
+read from `strands`; see the classification block for why a same-chromosome junction in this queue
+can only ever be inverted.
 
   1. enough support            -- >= 3 reads. Breakend support is thin (cohort median 1 read), so
                                   this is the single most discriminating cut available.
@@ -237,21 +239,43 @@ def main():
                                   "DRAGEN systematic noise"], default="")
     keep = q.why_dropped == ""
 
-    # Classify what survives. `is_target` describes the NEAR end -- the site the junction was found
-    # at -- so a junction anchored at a cut site is an on-target editing outcome even when its far
-    # end is nowhere in particular. Only a junction whose near end is not a cut site is off-target.
+    # Classify what survives, on TWO axes: where the ends are, and how they are oriented.
     #
-    #   both ends at cut sites, same chrom -> the segment between two cuts was excised
-    #   near end at a cut site, same chrom -> one cut, resected and joined further out
-    #   near end at a cut site, other chrom -> one cut joined to another chromosome
-    #   near end not a cut site            -> genuinely off-target
+    # `is_target` describes the NEAR end -- the site the junction was found at -- so a junction
+    # anchored at a cut site is an on-target editing outcome even when its far end is nowhere in
+    # particular. Only a junction whose near end is not a cut site is off-target.
+    #
+    # ORIENTATION IS NOT OPTIONAL, and leaving it out is how this labelled a cohort of inversions
+    # "multi-cut deletion" for three releases. `strands` is the pair (near, far) recorded by
+    # find_edited_reads.py:call_sv_from_split_read from the two aligned segments of the split read:
+    #
+    #   ++ / --   collinear. The two retained flanks keep their original orientation, which is
+    #             what a deletion (or a tandem duplication) looks like.
+    #   +- / -+   the far segment is inverted relative to the near one. That is an INVERSION
+    #             junction, and a balanced inversion produces TWO of them between the same cut
+    #             pair -- one per end of the flipped segment -- in opposite orientations.
+    #
+    # Note which of these can actually arrive here: a same-chromosome, same-strand split read is
+    # resolved to DEL/DUP/INS by call_sv_from_split_read (find_edited_reads.py:420) and never
+    # becomes a BND at all. So on the same chromosome this queue only ever sees +-/-+, and a
+    # "deletion" label on a same-chromosome junction was unreachable-by-construction wrong. The
+    # collinear branches below are kept because interchromosomal junctions do reach them.
     at_cut = q.is_target == 1
+    inverted = q.strands.astype(str).isin(["+-", "-+"])
+    same_chrom = q.interchromosomal == 0
+    both_ends = q.far_end_on_target == 1
+
+    q["orientation"] = np.where(inverted, "inverted", "collinear")
     q["call"] = np.select(
-        [keep & at_cut & (q.far_end_on_target == 1) & (q.interchromosomal == 0),
-         keep & at_cut & (q.interchromosomal == 0),
+        [keep & at_cut & both_ends & same_chrom & inverted,
+         keep & at_cut & same_chrom & inverted,
+         keep & at_cut & both_ends & same_chrom,
+         keep & at_cut & same_chrom,
          keep & at_cut,
          keep],
-        ["multi-cut deletion",
+        ["multi-cut inversion",
+         "inversion at cut site",
+         "multi-cut deletion",
          "deletion at cut site",
          "translocation at cut site",
          "off-target junction"],
@@ -268,15 +292,25 @@ def main():
     if int((hub & ~far).sum()) == 0:
         print("           (rule 3 is currently non-binding on this data -- see the module docstring)")
     print(f"BREAKEND QUEUE        : {int(keep.sum())}  -> {a.out}")
-    for lab in ("multi-cut deletion", "deletion at cut site", "translocation at cut site",
-                "off-target junction"):
+    for lab in ("multi-cut inversion", "inversion at cut site", "multi-cut deletion",
+                "deletion at cut site", "translocation at cut site", "off-target junction"):
         sub = q[keep & (q.call == lab)]
         if len(sub):
             extra = ""
-            if lab.endswith("deletion") and sub.span.notna().any():
+            if (lab.endswith("deletion") or lab.endswith("inversion")) and sub.span.notna().any():
                 sp = pd.to_numeric(sub.span, errors="coerce").dropna()
-                extra = f"   span {int(sp.min()):,}-{int(sp.max()):,} bp"
-            print(f"    {lab:22s}: {len(sub):4d} in {sub.sample_name.nunique()} sample(s){extra}")
+                noun = "span" if lab.endswith("deletion") else "segment"
+                extra = f"   {noun} {int(sp.min()):,}-{int(sp.max()):,} bp"
+            print(f"    {lab:24s}: {len(sub):4d} in {sub.sample_name.nunique()} sample(s){extra}")
+
+    # An inversion is reported from both of its junctions, so the sample-level count of DISTINCT
+    # rearrangements is smaller than the row count. Say so here rather than let a reader multiply.
+    inv = q[keep & q.call.str.contains("inversion", na=False)]
+    if len(inv):
+        pairs = inv.groupby("sample_name").strands.nunique()
+        both = int((pairs >= 2).sum())
+        print(f"    of the inversions, {both} sample(s) show BOTH junctions of the pair "
+              f"(+- and -+), the signature of a balanced inversion")
 
     if int((q.control_reads_at_event > 0).sum()) == 0:
         print("\nNote: control support is 0 on every junction, as expected -- the caller's "

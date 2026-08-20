@@ -8,8 +8,12 @@ exists to show.
 
     chr1, 8 kb
     left  breakpoint @ 2000   (1-based)
-    right breakpoint @ 6000   -- a 4,000 bp "deletion", the multi-cut case
-                                 seen 8 times in the CAR-T cohort
+    right breakpoint @ 6000   -- a 4,000 bp INVERSION, the multi-cut case seen 8
+                                 times in the CAR-T cohort. The rows carry +-/-+,
+                                 the inverted adjacency, so the label must be
+                                 "multi-cut inversion" -- this fixture said
+                                 "deletion" until 2026-08-20, mirroring the bug in
+                                 review_filter_bnd.py's classifier.
 
     edited.cram
         20 clean pairs spanning each breakpoint          -> the background
@@ -167,7 +171,7 @@ def write_queue(path):
             fh.write("\t".join(str(x) for x in [
                 SAMPLE, CHROM, pos, CHROM, pos2, strands, 2, reads, 0,
                 pos - 20, pos + 20, 1, 40, b, pb, 1, abs(pos2 - pos),
-                "False", 1, "", "multi-cut deletion"]) + "\n")
+                "False", 1, "", "multi-cut inversion"]) + "\n")
 
 
 def main():

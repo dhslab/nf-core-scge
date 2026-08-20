@@ -85,6 +85,45 @@ class BinomialGlobal:
         return binom.sf(k, n, self.p), binom.pmf(k, n, self.p)
 
 
+class BinomialPlugin:
+    """A Binomial whose rate is the locus's OWN observed control fraction -- "we have the actual
+    probability of indels, so why not just use it?".
+
+    We do not have it. We have an estimate from ~157 reads, and at a rate of 1e-3 that control
+    expects 0.157 alt reads, so observing zero is the NORM rather than evidence of a zero rate.
+    The plug-in takes that zero literally: p_hat = 0 makes P(X >= k) = 0 for any k >= 1, i.e.
+    EVERY alt read in the edited sample becomes infinitely significant. On this cohort that is
+    86 of the 89 rows the AQ rule actually sees.
+
+    MIN_P exists only so the model can be scored at all; without it the log-likelihood is -inf
+    wherever the control saw nothing, which is most of the genome. Note that the floor is doing
+    the prior's job -- badly, and with an arbitrary constant instead of a fitted one. That is the
+    whole argument for the Beta-Binomial in one line: it is this model with the plug-in replaced
+    by an integral over the uncertainty in p_hat, and it converges to this model as depth -> inf.
+    """
+    name = "Binomial, plug-in per-locus p"
+    MIN_P = 1e-9
+
+    def fit(self, k, n):
+        self.p_global = float(k.sum() / max(n.sum(), 1))
+        return self
+
+    def describe(self):
+        return f"p_hat = control_alt/control_depth per locus, floored at {self.MIN_P:g}"
+
+    def logpmf(self, k, n):
+        # No pooling: with nothing held out, the best a plug-in can do on a NEW observation is
+        # the global rate. Scoring it with each row's own p_hat would be scoring the training set.
+        return binom.logpmf(k, n, self.p_global)
+
+    def posterior(self, K, N):
+        return max(K / N, self.MIN_P) if N > 0 else self.p_global
+
+    def tail(self, k, n, state):
+        p = self.p_global if state is None else state
+        return binom.sf(k, n, p), binom.pmf(k, n, p)
+
+
 class BetaBinomMOM:
     """The shipped model: Beta prior by method of moments, conjugate per-locus update."""
     name = "Beta-Binomial, MOM prior (SHIPPED)"
@@ -271,6 +310,66 @@ def homopolymer_len(fa, chrom, pos, pad=HP_WINDOW, margin=40):
     return best
 
 
+def ks_parametric_bootstrap(obs_locus, obs_n, a0, b0, d_observed, n_boot=200, seed=0):
+    """Empirical null distribution of the KS statistic, for the test as it is actually run.
+
+    The classical KS null is wrong here for two reasons that pull in OPPOSITE directions:
+
+      dependence          71,755 observations come from 6,876 loci, and each is scored against a
+                          background built from the other donors AT THAT LOCUS. Positive coupling
+                          lets the empirical CDF wander further from uniform, INFLATING D.
+      estimated params    a0, b0 are fitted by method of moments on the same observations the test
+                          then scores (the Lilliefors problem). A fitted distribution tracks its
+                          own data too closely, DEFLATING D.
+
+    Neither the magnitude nor the net direction is knowable analytically, which is what the
+    locus-level critical value in the main output can only bound conservatively. So: simulate
+    under the fitted model, PRESERVING the locus structure (one shared rate per locus, exactly
+    the dependence the null claims) and REPEATING the method-of-moments fit on every synthetic
+    dataset (so the estimation bias is reproduced too). The resulting spread of D is the null
+    this test actually has, and both problems are handled at once.
+
+    Vectorised: the per-observation betabinom evaluation is the whole cost, and it accepts arrays,
+    so an iteration is ~2 s rather than the ~90 s a Python loop would take.
+    """
+    rng = np.random.default_rng(seed)
+    n_loci = int(obs_locus.max()) + 1
+    obs_n = obs_n.astype(int)
+    Ds = np.empty(n_boot)
+    for i in range(n_boot):
+        # 1. one true rate per locus -- this IS the dependence structure the model asserts
+        p_loc = rng.beta(a0, b0, size=n_loci)
+        k = rng.binomial(obs_n, p_loc[obs_locus])
+        # 2. refit the prior on the synthetic data, exactly as the real analysis does
+        a_s, b_s = fit_prior_mom(k, obs_n)
+        # 3. the same leave-one-donor-out scoring
+        tot_k = np.bincount(obs_locus, weights=k, minlength=n_loci)
+        tot_n = np.bincount(obs_locus, weights=obs_n, minlength=n_loci)
+        K = tot_k[obs_locus] - k
+        N = tot_n[obs_locus] - obs_n
+        al = a_s + K
+        be = b_s + np.maximum(N - K, 0.0)
+        sf = betabinom.sf(k, obs_n, al, be)
+        pm = betabinom.pmf(k, obs_n, al, be)
+        pv = np.clip(sf + rng.random(len(sf)) * pm, 0.0, 1.0)
+        Ds[i] = kstest(pv, "uniform").statistic
+    p_boot = float((Ds >= d_observed).mean())
+    return Ds, p_boot
+
+
+def fit_prior_mom(k, n):
+    """nm.fit_global_prior on plain arrays, so the bootstrap can refit without a DataFrame."""
+    return nm.fit_global_prior(np.asarray(k, float), np.asarray(n, float))
+
+
+def poisson_ci(k, conf=0.95):
+    """Exact (Garwood) Poisson interval on a count. Wide at small k, which is the whole point."""
+    from scipy.stats import chi2
+    lo = 0.0 if k == 0 else chi2.ppf((1 - conf) / 2, 2 * k) / 2
+    hi = chi2.ppf(1 - (1 - conf) / 2, 2 * (k + 1)) / 2
+    return lo, hi
+
+
 def qq(ax, p, label):
     p = np.sort(p[np.isfinite(p)])
     if not len(p):
@@ -287,6 +386,11 @@ def main():
     ap.add_argument("--truth-wgs")
     ap.add_argument("--fasta")
     ap.add_argument("--figdir")
+    ap.add_argument("--ks-bootstrap", type=int, default=0, metavar="N",
+                    help="parametric-bootstrap iterations for the KS null (0 = off, 200 is "
+                         "plenty). Simulates under the fitted model preserving locus structure "
+                         "and refits the prior each time, so BOTH the dependence and the "
+                         "estimated-parameter bias are accounted for. ~2 s per iteration.")
     ap.add_argument("--calib-seeds", type=int, default=20,
                     help="randomised-p-value seeds to sweep in the calibration test. The KS "
                          "p-value is one draw per seed; D is what is stable. Default 20.")
@@ -358,7 +462,8 @@ def main():
     print(f"train {int((~held).sum())} observations / test {int(held.sum())}, "
           f"{len(set(loci))} distinct loci")
 
-    models = [BinomialGlobal(), BetaBinomMOM(), BetaBinomMML(), ZeroInflatedBB()]
+    models = [BinomialGlobal(), BinomialPlugin(), BetaBinomMOM(), BetaBinomMML(),
+              ZeroInflatedBB()]
     fitted = []
     for m in models:
         m.fit(k[~held], n[~held])
@@ -398,9 +503,18 @@ def main():
         obs[(c, int(e))].append((kk, nn))
     multi = {key: v for key, v in obs.items() if len(v) >= 2}
     print(f"loci with >= 2 donors: {len(multi)}   observations: {sum(len(v) for v in multi.values())}")
+    # Flat (locus index, depth) arrays describing the SAME design, for the parametric bootstrap.
+    boot_locus, boot_n = [], []
+    for li, (_, obs) in enumerate(multi.items()):
+        for _kk, nn in obs:
+            boot_locus.append(li)
+            boot_n.append(nn)
+    boot_locus = np.asarray(boot_locus, dtype=int)
+    boot_n = np.asarray(boot_n, dtype=float)
     print("p-values are RANDOMISED; see randomised_tails() for why the plain sf cannot be used.")
 
     pv = {}
+    a0_all, b0_all = nm.fit_global_prior(k, n)   # the production prior, reused by 3c below
     for m in models:
         m.fit(k, n)                          # refit on everything for the calibration test
         sf, pm, dep, nd = randomised_tails(m, multi)
@@ -432,6 +546,173 @@ def main():
               f"  max {Ds.max():.4f}")
         print(f"                     KS p  min {ps.min():.3f}  median {np.median(ps):.3f}"
               f"  max {ps.max():.3f}   rejects at 0.05: {(ps<0.05).sum()}/{a.calib_seeds}")
+        # The KS null assumes INDEPENDENT observations, and these are not: every locus contributes
+        # one observation per donor, and each is scored against a background built from the other
+        # donors AT THAT LOCUS. The locus, not the observation, is the independent unit. Print the
+        # critical value both ways -- the verdict should not depend on which one you believe.
+        n_obs, n_loc = len(sf), len(multi)
+        d_obs, d_loc = 1.358 / np.sqrt(n_obs), 1.358 / np.sqrt(n_loc)
+        worst = Ds.max()
+        print(f"  KS D_crit(0.05): {d_obs:.4f} treating all {n_obs} observations as independent, "
+              f"{d_loc:.4f} treating the {n_loc} loci as the unit")
+        print(f"    worst seed D = {worst:.4f}  ->  {'REJECT' if worst > d_obs else 'pass'} "
+              f"(naive)   {'REJECT' if worst > d_loc else 'pass'} (locus-level, "
+              f"{d_loc/max(worst,1e-9):.1f}x margin)")
+        if a.ks_bootstrap and isinstance(m, BetaBinomMOM) and not isinstance(m, BetaBinomMML):
+            d_med = float(np.median(Ds))
+            boot, p_boot = ks_parametric_bootstrap(
+                boot_locus, boot_n, m.a, m.b, d_med, n_boot=a.ks_bootstrap)
+            crit = float(np.quantile(boot, 0.95))
+            print(f"  parametric bootstrap ({a.ks_bootstrap} sims under the fitted model, "
+                  f"locus structure preserved, prior refit each time):")
+            print(f"    null D: median {np.median(boot):.4f}  95th pct {crit:.4f}  "
+                  f"max {boot.max():.4f}")
+            print(f"    observed D (median seed) {d_med:.4f}  ->  bootstrap p = {p_boot:.3f}  "
+                  f"({'REJECT' if d_med > crit else 'pass'})")
+            print(f"    for reference the analytic criticals were {d_obs:.4f} (naive) and "
+                  f"{d_loc:.4f} (locus-level)")
+
+    # -----------------------------------------------------------------------------------------
+    # 3b. Does the predicted rate match the observed rate? (the direct gut check)
+    #
+    # Must be OUT-OF-SAMPLE. Scoring a locus against a posterior built from that same locus's
+    # control is circular -- the model would be graded on data it already absorbed. So the
+    # prediction for each donor uses only the OTHER donors at that locus, exactly as the
+    # calibration null does.
+    # -----------------------------------------------------------------------------------------
+    print("\n" + "=" * 94)
+    print("3b. PREDICTED vs OBSERVED RATE — leave-one-donor-out, so nothing is graded on itself")
+    print("=" * 94)
+    shipped = [m for m in models if isinstance(m, BetaBinomMOM)
+               and not isinstance(m, BetaBinomMML)][0]
+    rel_k, rel_n, rel_pred = [], [], []
+    for _, obs in multi.items():
+        tot_k = sum(o[0] for o in obs)
+        tot_n = sum(o[1] for o in obs)
+        for kk, nn in obs:
+            K, N = tot_k - kk, tot_n - nn
+            al, be = shipped.posterior(K, N)
+            rel_k.append(kk)
+            rel_n.append(nn)
+            rel_pred.append(al / (al + be))
+    rel_k = np.asarray(rel_k, float)
+    rel_n = np.asarray(rel_n, float)
+    rel_pred = np.asarray(rel_pred, float)
+    exp_ct = rel_n * rel_pred
+
+    tot_exp, tot_obs = exp_ct.sum(), rel_k.sum()
+    se = np.sqrt(max(tot_obs, 1.0))                       # Poisson se on the observed total
+    print(f"aggregate: predicted {tot_exp:,.1f} alt reads   observed {tot_obs:,.0f}   "
+          f"ratio {tot_obs/tot_exp:.3f}  (+/- {se/tot_exp:.3f} Poisson)")
+
+    # Bin by PREDICTED EXPECTED COUNT, not by rate: a rate bin can hold thousands of observations
+    # carrying no events at all, and a ratio computed there is noise wearing a number's clothes.
+    edges = np.array([0, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0, 1e9])
+    idx = np.digitize(exp_ct, edges[1:-1])
+    print(f"\n{'expected alt reads/obs':>26}  {'n':>7} {'pred':>9} {'obs':>7} "
+          f"{'ratio':>7}  {'95% Poisson CI on ratio':>26}")
+    rel_bins = []
+    for b in range(len(edges) - 1):
+        m_ = idx == b
+        if not m_.sum():
+            continue
+        pe, po = exp_ct[m_].sum(), rel_k[m_].sum()
+        if pe <= 0:
+            continue
+        ratio = po / pe
+        lo, hi = poisson_ci(po)
+        rel_bins.append((edges[b], edges[b + 1], int(m_.sum()), pe, po, ratio, lo / pe, hi / pe))
+        print(f"  [{edges[b]:.0e},{edges[b+1]:.0e})".rjust(26) +
+              f"  {int(m_.sum()):7d} {pe:9.1f} {po:7.0f} {ratio:7.2f}"
+              f"  [{lo/pe:8.2f}, {hi/pe:8.2f}]")
+    print("\n  A bin whose CI spans 1.0 is consistent with the model. Bins built on a handful of")
+    print("  events have enormous CIs -- that is the point of showing them rather than the ratio.")
+
+    # Posterior-predictive check: simulate under the fitted model and compare the SHAPE of the
+    # count distribution, not just its total. A model can get the mean right and the tail wrong.
+    print("\n-- posterior-predictive check (simulate k ~ BetaBinom(n, alpha, beta) per locus) --")
+    rng_pp = np.random.default_rng(0)
+    al_pp, be_pp = [], []
+    for _, obs in multi.items():
+        tot_k = sum(o[0] for o in obs)
+        tot_n = sum(o[1] for o in obs)
+        for kk, nn in obs:
+            al, be = shipped.posterior(tot_k - kk, tot_n - nn)
+            al_pp.append(al)
+            be_pp.append(be)
+    al_pp, be_pp = np.asarray(al_pp), np.asarray(be_pp)
+    sims = np.array([betabinom.rvs(rel_n.astype(int), al_pp, be_pp, random_state=rng_pp)
+                     for _ in range(20)])
+    stats = [("fraction k == 0", lambda x: float((x == 0).mean())),
+             ("fraction k >= 1", lambda x: float((x >= 1).mean())),
+             ("fraction k >= 2", lambda x: float((x >= 2).mean())),
+             ("fraction k >= 5", lambda x: float((x >= 5).mean())),
+             ("mean k", lambda x: float(x.mean())),
+             ("max k", lambda x: float(x.max()))]
+    print(f"  {'statistic':<18} {'observed':>10} {'simulated (20 draws)':>26}   verdict")
+    pp_rows = []
+    for lab, fn in stats:
+        o = fn(rel_k)
+        sim = np.array([fn(row) for row in sims])
+        lo, hi = np.percentile(sim, [2.5, 97.5])
+        ok = lo <= o <= hi
+        pp_rows.append((lab, o, sim.mean(), lo, hi, ok))
+        print(f"  {lab:<18} {o:10.5f} {sim.mean():12.5f} [{lo:.5f}, {hi:.5f}]   "
+              f"{'ok' if ok else 'OUTSIDE'}")
+
+    # -----------------------------------------------------------------------------------------
+    # 3c. Do the EDITED and CONTROL libraries actually share a background rate?
+    #
+    # This is the assumption the whole model rests on -- alpha,beta are built entirely from control
+    # counts and applied unmodified as the null for edited counts -- and nothing else in this
+    # script tests it. The calibration null above is control-vs-control across donors, a different
+    # comparison. Here we score the EDITED counts against that sample's OWN matched control at
+    # loci with no nominated cut site, where no edit is expected. Under the assumption those
+    # randomised p-values are Uniform(0,1).
+    # -----------------------------------------------------------------------------------------
+    print("\n" + "=" * 94)
+    print("3c. ASSUMPTION CHECK — do the edited and control libraries share a background rate?")
+    print("=" * 94)
+    if "is_target" not in df.columns:
+        print("no is_target column; skipped")
+    else:
+        e = df[(df.control_reads > 0) & (df.is_target == 0) & (df.total_reads > 0)].copy()
+        e["control_indel_reads"] = np.minimum(e.control_indel_reads, e.control_reads)
+        ca = e.control_indel_reads.values.astype(float)
+        cn = e.control_reads.values.astype(float)
+        ek = e.indel_reads.values.astype(int)
+        en = e.total_reads.values.astype(int)
+        evaf = np.divide(ek, np.maximum(en, 1), dtype=float)
+        # Rows that could never be called are background by construction of the gate, so they
+        # bound how much of any miscalibration could be real off-target editing.
+        callable_ = (ek >= 2) & (evaf >= 0.005)
+        rng_a8 = np.random.default_rng(0)
+        print(f"no-target rows with control depth: {len(e)}  "
+              f"(of which {int(callable_.sum())} could be called at all)")
+        for floor_on in (False, True):
+            al = a0_all + ca
+            be = b0_all + np.maximum(cn - ca, 0.0)
+            if floor_on:
+                al, be, n_lift = nm.apply_depth_floor(al, be, cn)
+            sf_e = betabinom.sf(ek, en, al, be)
+            pm_e = betabinom.pmf(ek, en, al, be)
+            pv_e = sf_e + rng_a8.random(len(sf_e)) * pm_e
+            fin = np.isfinite(pv_e)
+            lab = "WITH depth floor (production)" if floor_on else "RAW posterior (the model)"
+            print(f"\n  -- {lab} --" + (f"   floor raised {n_lift}" if floor_on else ""))
+            for pop, msk in (("all no-target", fin), ("sub-gate only", fin & ~callable_)):
+                q_ = np.clip(pv_e[msk], 0.0, 1.0)
+                if not len(q_):
+                    continue
+                D_ = kstest(q_, "uniform").statistic
+                pred = float((en * (al / (al + be)))[msk].sum())
+                obs = float(ek[msk].sum())
+                print(f"     {pop:<14} n={len(q_):6d}  KS D={D_:.4f}  "
+                      f"p<0.001 = {(q_ < 0.001).mean():.5f} ({(q_ < 0.001).mean()/0.001:.1f}x)  "
+                      f"obs/pred = {obs/max(pred, 1e-9):.3f}")
+        print("\n  Uniform p-values would mean the two libraries share a background. They do not:")
+        print("  the raw posterior is far too aggressive at clean loci, and the depth floor")
+        print("  over-corrects. AQ is a conservative bound, not a calibrated edited-vs-control p.")
 
     # -----------------------------------------------------------------------------------------
     # 4. Is the rate context-dependent?
@@ -631,7 +912,44 @@ def main():
         fig.tight_layout()
         p2 = os.path.join(a.figdir, "noise_calibration_qq.png")
         fig.savefig(p2, dpi=150)
-        print(f"\nwrote {p1}\nwrote {p2}")
+
+        # Reliability: predicted vs observed alt counts, out-of-sample, with Poisson intervals.
+        fig, (axL, axR) = plt.subplots(1, 2, figsize=(11, 4.6))
+        if rel_bins:
+            xs = np.array([r[3] for r in rel_bins])          # predicted count in the bin
+            ys = np.array([r[4] for r in rel_bins])          # observed count
+            lo = np.array([r[6] * r[3] for r in rel_bins])
+            hi = np.array([r[7] * r[3] for r in rel_bins])
+            axL.errorbar(xs, ys, yerr=[ys - lo, hi - ys], fmt="o", ms=6, lw=1.2,
+                         capsize=3, color="#0b5394", label="LOO bins (95% Poisson)")
+            span = [min(xs.min(), ys.min()) * 0.5, max(xs.max(), ys.max()) * 2]
+            axL.plot(span, span, "k--", lw=1, label="perfect calibration")
+            axL.set_xscale("log"); axL.set_yscale("log")
+            axL.set_xlabel("predicted alt reads (out-of-sample)")
+            axL.set_ylabel("observed alt reads")
+            axL.set_title(f"reliability: aggregate ratio {tot_obs/tot_exp:.3f}")
+            axL.legend(fontsize=8, loc="upper left")
+            axL.grid(alpha=.25, which="both")
+        labs = [r[0] for r in pp_rows[:4]]
+        obs_v = [r[1] for r in pp_rows[:4]]
+        sim_v = [r[2] for r in pp_rows[:4]]
+        sim_lo = [r[1] - r[3] for r in pp_rows[:4]]
+        sim_hi = [r[4] - r[1] for r in pp_rows[:4]]
+        xpos = np.arange(len(labs))
+        axR.bar(xpos - .18, obs_v, .36, label="observed", color="#0b5394")
+        axR.bar(xpos + .18, sim_v, .36, label="simulated", color="#9dc3e6",
+                yerr=[np.abs(sim_lo), np.abs(sim_hi)], capsize=3, ecolor="#444")
+        axR.set_xticks(xpos)
+        axR.set_xticklabels([l.replace("fraction ", "") for l in labs], fontsize=8)
+        axR.set_yscale("log")
+        axR.set_ylabel("fraction of observations")
+        axR.set_title("posterior-predictive check")
+        axR.legend(fontsize=8)
+        axR.grid(alpha=.25, axis="y")
+        fig.tight_layout()
+        p3 = os.path.join(a.figdir, "noise_reliability.png")
+        fig.savefig(p3, dpi=150)
+        print(f"\nwrote {p1}\nwrote {p2}\nwrote {p3}")
 
 
 if __name__ == "__main__":

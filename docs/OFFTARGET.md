@@ -79,8 +79,19 @@ On-target sites are exempt from rules 4 and 5, since they're shared across sampl
 
 An indel is one cut healed badly. A **breakend** is two cut sites joined to each other — and on
 this cohort that is overwhelmingly what survives triage: **23 of 25 queue rows are multi-cut
-deletions**, two cuts from the same guide's own target set with the segment between them excised.
-The pipeline has always emitted these. Until now it never labelled them and never drew them.
+inversions**, two cuts from the same guide's own target set with the segment between them flipped
+end-for-end and re-ligated at both cuts. The pipeline has always emitted these. Until now it never
+labelled them and never drew them.
+
+> **Orientation is what separates an inversion from a deletion, and it is not optional.** Every
+> queue row is `+-` or `-+`: the two joined segments run in opposite directions. A deletion joins
+> its flanks *collinearly* (`++`/`--`) and makes ONE junction; an inversion makes a reciprocal
+> PAIR, one per end of the flipped segment. All eight events here show both junctions of the pair,
+> and across every raw breakend record at these eight cut pairs there are **zero** collinear
+> (deletion-type) junctions, so the deletion product is absent rather than merely sub-threshold.
+> Note also that a same-chromosome, same-strand split read never becomes a BND at all — it is
+> resolved to DEL/DUP/INS at `find_edited_reads.py:420` — so a "deletion" label on a
+> same-chromosome row in this queue was wrong by construction. It read that way until 2026-08-20.
 
 `bin/review_filter_bnd.py` applies the breakend analogue of the indel filter. Three rules, not
 five, because a junction has two ends and no length spectrum:
@@ -156,9 +167,11 @@ the filter already computes — and renders one figure each.
 
 ### Reading a junction figure
 
-Each PNG in `review/bnd_snapshots/` is a to-scale schematic of the excision over a 2×2 grid: left
-and right breakpoint across, edited sample over its matched unedited control down. Per-column
-x-axes only — the two breakpoints have unrelated coordinates.
+Each PNG in `review/bnd_snapshots/` is a to-scale schematic of the rearrangement over a 2×2 grid:
+left and right breakpoint across, edited sample over its matched unedited control down. Per-column
+x-axes only — the two breakpoints have unrelated coordinates. The schematic branches on
+orientation: an inverted junction is drawn with the segment **retained and its direction reversed**,
+a collinear one as an excision.
 
 **The evidence is the green reads.** A read spanning a junction aligns in two pieces: a primary
 clipped at one breakpoint and a supplementary segment at the partner, linked by an `SA` tag. Any

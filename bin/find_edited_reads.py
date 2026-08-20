@@ -865,7 +865,11 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
             'alt_len': len(alt),
             'refseq': ref_seq,
             'altseq': alt_seq,
-            'control_alt_counts': 0
+            # Supporting FRAGMENT names, not a read tally. Depth below is len(total_reads), a set
+            # of query_name, so it counts fragments; counting alt per read made an overlapping
+            # mate pair contribute 2 to the numerator and 1 to the denominator, biasing the
+            # background upward wherever mates overlap. Both sides are fragments now.
+            'control_alt_frags': set()
         })
 
     total_reads = set()
@@ -910,7 +914,7 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
             if has_indel:
                 vcf_dict = get_cigar_indel_vcf(read, fasta, v['pos'])
                 if vcf_dict and vcf_dict['pos'] == v['pos'] and vcf_dict['ref'] == v['ref'] and vcf_dict['alt'] == v['alt']:
-                    v['control_alt_counts'] += 1
+                    v['control_alt_frags'].add(read.query_name)
                     continue
 
             # Fast string search
@@ -918,7 +922,7 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
                 continue
 
             if read_seq in v['altseq']:
-                v['control_alt_counts'] += 1
+                v['control_alt_frags'].add(read.query_name)
                 continue
 
             # Expensive alignments (only reached if all fast filters fail)
@@ -949,14 +953,14 @@ def add_normal_counts(df, reads, fasta, flank=300, debug=False):
                     is_alt = True
 
                 if is_alt:
-                    v['control_alt_counts'] += 1
+                    v['control_alt_frags'].add(read.query_name)
                     if debug:
                         print(f"\tFound control alt count for {v['chrom']}:{v['pos']}:{v['ref']}:{v['alt']}:{ref_D}:{alt_D}:{ref_I}:{alt_I}:{read.query_name}:{read_seq}", file=sys.stderr)
 
     # 4. REBUILD DATAFRAME: Map calculated data directly back to new columns
     df['refseq'] = [v['refseq'] for v in variants]
     df['altseq'] = [v['altseq'] for v in variants]
-    df['control_alt_counts'] = [v['control_alt_counts'] for v in variants]
+    df['control_alt_counts'] = [len(v['control_alt_frags']) for v in variants]
     df['control_total_counts'] = len(total_reads)
 
     return df.copy()

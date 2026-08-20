@@ -3,9 +3,10 @@
 // One PNG per JUNCTION, not per queue row: bnd_review_queue.tsv reports each event from
 // both ends and at a few bp of jitter, so the rows outnumber the junctions several-fold
 // (25 rows / 8 junctions on the CAR-T cohort). Each figure is a to-scale schematic of
-// the excision over a 2x2 read grid — left and right breakpoint, each with the edited
+// the rearrangement over a 2x2 read grid — left and right breakpoint, each with the edited
 // sample above its matched unedited control — with reads whose SA tag lands at the
-// partner locus drawn green.
+// partner locus drawn green. The schematic branches on orientation: an inverted junction is
+// drawn with the segment retained and reversed, not excised.
 //
 // Same CRAM-map-by-absolute-path convention as REVIEW_SNAPSHOTS, and the same reason:
 // the queue names arbitrary samples, and staging every cohort CRAM to draw a handful of

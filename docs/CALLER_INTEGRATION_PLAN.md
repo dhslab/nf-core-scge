@@ -147,6 +147,12 @@ These are **multi-cut deletions**: two cuts from the same guide's target set, wi
 segment excised. The pipeline has been emitting them all along without interpreting them. They
 should be reported as an editing outcome in their own right, not as off-target candidates.
 
+> **Superseded 2026-08-20 — these are inversions.** Two cuts from the same guide's target set, with
+> the intervening segment **flipped and re-ligated** rather than excised. Every queue row is the
+> inverted adjacency (`+-`/`-+`), each event shows both junctions of the reciprocal pair, and no
+> collinear (deletion-type) junction exists at any of the eight cut pairs. The conclusion that they
+> are an editing outcome in their own right, and not off-target candidates, is unchanged.
+
 ### Acceptance
 
 - Promiscuity is computed per run and written alongside the BND table.

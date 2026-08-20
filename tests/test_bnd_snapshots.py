@@ -3,7 +3,7 @@
 The breakend queue reports one physical event several times: once from each end, at a
 few bp of position jitter, and under both strand orientations. On the 32-sample CAR-T
 cohort that is 25 rows describing 8 junctions. Rendering per row would produce 25
-figures, three of which are the same deletion drawn from opposite directions, and the
+figures, three of which are the same inversion drawn from opposite directions, and the
 per-row read counts (3, 4, 3, 4, 4) would understate an event carrying 18 reads.
 
 So `collapse()` is not a convenience -- it is the difference between a figure that says
@@ -74,7 +74,7 @@ def test_rows_reported_from_opposite_ends_land_in_one_junction(junctions):
     """ARID4A is the clean case: 2 rows call it chr14:58301->58330, 3 call it the reverse.
 
     A key that did not sort its two bins would produce two junctions here, and the figure
-    would draw the same deletion twice, mirrored.
+    would draw the same inversion twice, mirrored.
     """
     j = by_sample(junctions)["ARID4A-KO-DNA"]
     assert j["n_rows"] == 5
@@ -156,11 +156,23 @@ def test_ordering_is_independent_of_row_order(queue):
 
 def test_metadata_passthrough(junctions):
     j = by_sample(junctions)["BRAF-KO-CART-DNA"]
-    assert j["call"] == "deletion at cut site"
+    assert j["call"] == "inversion at cut site"
     assert j["interchrom"] is False
     assert set(j["strands"].split(",")) == {"-+", "+-"}
 
-    assert by_sample(junctions)["ARID4A-KO-DNA"]["call"] == "multi-cut deletion"
+    assert by_sample(junctions)["ARID4A-KO-DNA"]["call"] == "multi-cut inversion"
+
+
+def test_opposite_strands_are_flagged_inverted(junctions):
+    """collapse() must carry orientation, because the schematic branches on it.
+
+    +-/-+ means the two joined segments run in opposite directions: the segment between the
+    cuts was flipped, not removed. Drawing the excision cartoon for one of those is worse
+    than drawing nothing, since a reader trusts the picture over the caption -- which is
+    exactly what shipped until 2026-08-20.
+    """
+    for j in junctions:
+        assert j["inverted"] is True, f"{j['sample']} lost its orientation"
 
 
 # --------------------------------------------------------------------------------

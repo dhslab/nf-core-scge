@@ -43,6 +43,12 @@ per model and only the uniform draw is repeated, so raising it is nearly free. R
 | 5 | Is the depth floor a patch? | Yes in origin — but the explicit alternative is unidentifiable, so it stays. |
 | 6 | Does any of it move the queue? | **No.** Every Beta-Binomial variant drops the same 1 row. |
 
+Every assumption behind these answers — including two that turn out to be violated with measurable
+consequences — is enumerated in [`NOISE_MODEL_ASSUMPTIONS.md`](NOISE_MODEL_ASSUMPTIONS.md). Two
+results there qualify what follows: the model **under-predicts the background at clean loci by
+~12×** (CI excludes 1), and its count distribution has the wrong *shape* despite an exactly correct
+mean.
+
 **The headline, stated plainly:** the objection is physically right and statistically inert on this
 cohort. The two populations are real and visible; the sequence-context effect is real and large;
 but the shipped prior's *shape* already absorbs both well enough that no candidate replacement
@@ -168,12 +174,19 @@ deviation from Uniform is D ≈ 0.003–0.006 depending on the draw, against **0
 Binomial — a **35× gap that is stable at every seed**, and the part of this result that carries no
 caveat at all. That is the finding: it did not go the way the objection predicted.
 
-**What cannot be claimed is a clean pass on the p-value.** One seed in 20 rejects at α = 0.05 for
-the shipped model — which is exactly the false-positive rate a *correct* model should show, but it
-means "p = 0.08, it does not reject" was never a property of the model, only of seed 0. At
-n = 71,755 a KS test resolves deviations far too small to matter, so a marginal p here reflects
-sample size, not misfit. **Quote D, not p.** An earlier version of this table quoted a single
-seed's p-value and is superseded.
+**What cannot be claimed is a clean pass on the naive p-value.** One seed in 20 rejects at
+α = 0.05 — so "p = 0.08, it does not reject" was never a property of the model, only of seed 0.
+**Quote D, not p.** An earlier version of this table quoted a single seed's p-value and is
+superseded.
+
+> **That marginality has since been explained, and it is an artifact.** The KS null assumes
+> independent observations; these are not. 71,755 observations come from 6,876 loci, and each is
+> scored against a background built from the other donors *at that same locus*. Using the locus as
+> the independent unit, `D_crit(0.05) = 1.358/√6876 = 0.0164` — the shipped model's **worst** seed
+> is 0.0062, so it passes at every seed with 2.7× margin, while the Binomial (0.1414) still fails
+> by 8.6×. The verdict does not depend on the accounting; only the comfort does. Full treatment,
+> along with the other two KS assumptions, in
+> [`NOISE_MODEL_ASSUMPTIONS.md`](NOISE_MODEL_ASSUMPTIONS.md#q1--what-does-the-kolmogorovsmirnov-test-assume).
 
 > **A correction this exposed.** That earlier table also showed MML at D = 0.0025 against MOM's
 > 0.0047 and bolded MML as the best-calibrated model. That gap was **an artifact of the random

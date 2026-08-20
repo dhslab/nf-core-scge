@@ -5,6 +5,11 @@ bnd_snapshots.py -- render a review packet for BREAKENDS, one figure per junctio
 The breakend sibling of review_snapshots.py, and deliberately not the same picture.
 Three things make a junction different from an indel site:
 
+0. The picture must match the ORIENTATION. A +-/-+ junction is an inversion -- the segment
+   between the cuts is flipped and re-ligated, not removed -- and drawing the excision cartoon for
+   one is worse than drawing nothing, because a reader trusts the picture over the caption. The
+   schematic branches on `inverted`, set from `strands` in collapse().
+
 1. A junction has TWO loci. review_snapshots.py draws one, and its
    `int(r.get("end", r.get("start")))` idiom does not even parse the breakend schema
    (which is chrom/pos + chrom2/pos2). So this is a 2x2 grid: left and right breakpoint,
@@ -109,6 +114,10 @@ def collapse(q):
                                          errors="coerce").fillna(0).max()),
             "call": str(top.get("call", "") or "breakend"),
             "strands": ",".join(sorted(set(g["strands"].astype(str)))),
+            # Orientation decides which cartoon to draw. +-/-+ means the far segment is inverted
+            # relative to the near one, so the segment was flipped, not excised -- drawing an
+            # excision there is simply the wrong picture. See review_filter_bnd.py's classifier.
+            "inverted": bool(set(g["strands"].astype(str)) & {"+-", "-+"}),
             "span": None if c1 != c2 else abs(p2 - p1),
             "interchrom": c1 != c2,
             "far_on_target": int(pd.to_numeric(g["far_end_on_target"],
@@ -176,15 +185,35 @@ def draw_schematic(ax, j):
     xl, xr = 0.30, 0.70
     ax.add_patch(Rectangle((0.04, y - 0.05), xl - 0.04, 0.10, color=grey))
     ax.add_patch(Rectangle((xr, y - 0.05), 0.96 - xr, 0.10, color=grey))
-    ax.add_patch(Rectangle((xl, y - 0.05), xr - xl, 0.10,
-                           facecolor=gone, edgecolor=cut, hatch="///", lw=0.8))
     for x in (xl, xr):
         ax.plot([x], [y + 0.16], marker="v", color=cut, ms=9)
     span = j["span"]
-    ax.text(0.5, y + 0.30, f"excised {span:,} bp" if span is not None else "excised",
-            ha="center", fontsize=8, color=cut)
     ax.text(xl, y - 0.22, f"{c1}:{p1:,}", ha="center", fontsize=8)
     ax.text(xr, y - 0.22, f"{c2}:{p2:,}", ha="center", fontsize=8)
+
+    if j.get("inverted"):
+        # The segment is still there, reversed. Draw it retained, with the direction arrow
+        # pointing back the other way, because the excision cartoon is the wrong picture and a
+        # reader takes the picture more seriously than the caption.
+        ax.add_patch(Rectangle((xl, y - 0.05), xr - xl, 0.10,
+                               facecolor="#ffffff", edgecolor=cut, hatch="\\\\", lw=0.9))
+        ax.annotate("", xy=(xl + 0.03, y), xytext=(xr - 0.03, y),
+                    arrowprops=dict(arrowstyle="-|>", color=cut, lw=1.6,
+                                    mutation_scale=13))
+        ax.text(0.5, y + 0.30,
+                f"{span:,} bp inverted" if span is not None else "segment inverted",
+                ha="center", fontsize=8, color=cut)
+        ax.text(0.5, y - 0.52, "flipped and re-ligated at both ends", ha="center",
+                fontsize=8, color=cut)
+        # Both junctions of the pair, so the two-per-event accounting is visible.
+        ax.text(0.5, y - 0.72, f"strands {j['strands']}  —  both junctions of the pair",
+                ha="center", fontsize=7, color="#777777")
+        return
+
+    ax.add_patch(Rectangle((xl, y - 0.05), xr - xl, 0.10,
+                           facecolor=gone, edgecolor=cut, hatch="///", lw=0.8))
+    ax.text(0.5, y + 0.30, f"excised {span:,} bp" if span is not None else "excised",
+            ha="center", fontsize=8, color=cut)
     ax.annotate("", xy=(xr, y - 0.36), xytext=(xl, y - 0.36),
                 arrowprops=dict(arrowstyle="-", color=cut, lw=1.2,
                                 connectionstyle="bar,fraction=-0.25"))

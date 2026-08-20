@@ -456,6 +456,16 @@ deletion, not an off-target. Final taxonomy:
 | near end at a cut site, other chrom | translocation at cut site |
 | near end not a cut site | off-target junction |
 
+> **Superseded 2026-08-20 — these are inversions, not deletions.** The taxonomy above classifies on
+> position only and never reads `strands`. Every same-chromosome row in this queue is `+-`/`-+`,
+> the inverted adjacency; a deletion is collinear (`++`/`--`) and, on the same chromosome, is
+> resolved to DEL/DUP/INS by `find_edited_reads.py:420` and never reaches the BND queue at all — so
+> the two "deletion" rows were unreachable-by-construction wrong. Confirmed two ways: all eight
+> events carry both junctions of the reciprocal pair (a deletion makes one), and there are zero
+> collinear junctions at any of the eight cut pairs even unfiltered. The shipped labels are now
+> `multi-cut inversion` / `inversion at cut site`. Kept here as written for the record.
+
+
 ### Not done
 
 - Not wired into the Nextflow pipeline. It runs standalone over `*.offtarget_analysis.tsv`.
