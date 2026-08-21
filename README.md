@@ -26,7 +26,8 @@ The pipeline has **two entry points**:
    worklist. Validated end-to-end on a real AAVS1 run: the on-target is recovered from WGS alone, as
    is the one confirmed off-target we have (PLCB2 chr12:32,679,410, 90% VAF). Real off-targets are
    rare and high-VAF in both cohorts, so a sub-5% floor is unproven — trust WGS-only calls at
-   hotspots **≥5% VAF**. Full details in [`docs/OFFTARGET.md`](docs/OFFTARGET.md).
+   hotspots **≥5% VAF**. Full details in [`docs/OFFTARGET.md`](docs/OFFTARGET.md); how to run it, the
+   landmines and the open threads are in [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
 ## Pipeline summary
 
