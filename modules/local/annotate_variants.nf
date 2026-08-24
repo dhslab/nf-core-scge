@@ -14,13 +14,8 @@ process ANNOTATE_VARIANTS {
     path("versions.yml")                        , emit: versions
 
     script:
-    // Use params directly for vep_cache to ensure absolute path is used
-    def vep_cache_dir = params.vepcache 
-        ? params.vepcache.toString().replaceAll(/\/$/, '') 
-        : (vep_cache ? vep_cache.toString() : "")
-
     def annotate_args = [
-        vep_cache_dir                             ? "--dir ${vep_cache_dir}"   : "",
+        vep_cache                             ? "--dir ${vep_cache}"   : "",
         reference.find{ it ==~ /.*\.(fasta|fa)$/ }?.with{ "--fasta $it" } ?: "",
         dragen_files.find{ it ==~ /.*\.hard-filtered.vcf.gz$/ }?.with{ "-i $it" } ?: ""
     ].join(' ').trim()

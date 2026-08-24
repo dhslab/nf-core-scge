@@ -23,7 +23,6 @@ def parse_offtarget_file(file_path):
             records.append(row_dict)
     return records
 
-
 def parse_coverage_file(file_path):
     """Parse a coverage file and return the coverage value."""
     if not file_path:
@@ -34,7 +33,6 @@ def parse_coverage_file(file_path):
             return float(line.split(',')[-1])
     except (IOError, ValueError, IndexError):
         return None
-
 
 def parse_vcf_file(file_path):
     """Parse a VCF file and return a list of dictionaries."""
@@ -70,34 +68,33 @@ def main():
     """
     parser = argparse.ArgumentParser(description="Compile data for Quarto report.")
     parser.add_argument("--sample_id", required=True, help="Sample ID.")
-    parser.add_argument("--transgene", required=True, help="Transgene description string.")
-    parser.add_argument("--cna_plot", required=False, default=None, help="Path to CNA plot PNG.")
-    parser.add_argument("--baf_plot", required=False, default=None, help="Path to BAF plot PNG.")
-    parser.add_argument("--circos_plot", required=False, default=None, help="Path to Circos plot PNG.")
-    parser.add_argument("--hotspot_file", required=False, default=None, help="Path to hotspot CSV file.")
-    parser.add_argument("--on_target_sv_transgene", required=True, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
-    parser.add_argument("--vcf_tsv", required=True, help="Path to VEP-annotated small variant TSV for targeted gene mutations.")
-    parser.add_argument("--off_target_indels", required=True, help="Path to off-target indel analysis file.")
-    parser.add_argument("--bnd_vcf", required=False, help="Path to BND VCF file from indels.")
-    parser.add_argument("--control_sample", required=False, default="N/A", help="Control/normal sample identifier.")
+    parser.add_argument("--control_id", required=False, default="N/A", help="Control/normal sample identifier.")
     parser.add_argument("--grnas", required=False, default="", help="Comma-separated list of gRNAs.")
     parser.add_argument("--tumor_coverage", required=False, help="Path to tumor coverage metrics file.")
     parser.add_argument("--normal_coverage", required=False, help="Path to normal coverage metrics file.")
+    parser.add_argument("--cna_plot", required=False, default=None, help="Path to CNA plot PNG.")
+    parser.add_argument("--baf_plot", required=False, default=None, help="Path to BAF plot PNG.")
+    parser.add_argument("--circos_plot", required=False, default=None, help="Path to Circos plot PNG.")
+    parser.add_argument("--transgene_insertions", required=False, help="Path to VEP-annotated on-target SV and transgene integration TSV.")
+    parser.add_argument("--transgene_name", required=False, help="Transgene description string.")
+    parser.add_argument("--somatic_variants", required=True, help="Path to VEP-annotated small variant TSV for targeted gene mutations.")
+    parser.add_argument("--offtarget_indels", required=True, help="Path to off-target indel analysis file.")
+    parser.add_argument("--offtarget_svs", required=False, help="Path to BND VCF file from indels.")
     parser.add_argument("-o", "--output", required=True, help="Output JSON file path.")
     
     args = parser.parse_args()
 
     # Parse the off-target indel file
-    off_target_data = parse_offtarget_file(args.off_target_indels)
+    off_target_data = parse_offtarget_file(args.offtarget_indels)
 
     # Parse the BND VCF file
-    bnd_vcf_data = parse_vcf_file(args.bnd_vcf)
+    bnd_vcf_data = parse_vcf_file(args.offtarget_svs)
 
     # Parse the on-target SV and transgene data
-    on_target_sv_transgene_data = []
-    if args.on_target_sv_transgene and os.path.exists(args.on_target_sv_transgene):
+    transgene_insertions = []
+    if args.transgene_insertions and os.path.exists(args.transgene_insertions):
         lines = []
-        with open(args.on_target_sv_transgene, 'r') as f:
+        with open(args.transgene_insertions, 'r') as f:
             for line in f:
                 # Skip VEP header comments
                 if line.startswith('##'):
@@ -111,13 +108,13 @@ def main():
             df = pd.read_csv(StringIO(data_str), sep='\\t', engine='python')
             # Clean the leading '#' from the first column name
             df.rename(columns={df.columns[0]: df.columns[0].lstrip('#')}, inplace=True)
-            on_target_sv_transgene_data = df.to_dict('records')
+            transgene_insertions = df.to_dict('records')
 
     # Parse targeted gene mutations (small variants) TSV if present
     targeted_gene_mutations = []
     try:
         sv_df = pd.read_csv(
-            args.vcf_tsv,
+            args.somatic_variants,
             sep='	',
             comment='#',
             keep_default_na=False,
@@ -160,22 +157,22 @@ def main():
     # Create a dictionary to hold all the report data.
     report_data = {
         "sample_id": args.sample_id,
-        "transgene_description": args.transgene,
+        "transgene_description": args.transgene_name,
         "plots": {
             "cna": args.cna_plot,
             "baf": args.baf_plot,
             "circos": args.circos_plot
         },
         "tables": {
-            "on_target_sv_transgene": on_target_sv_transgene_data,
+            "on_target_sv_transgene": transgene_insertions,
             "off_target_indels": off_target_data,
             "targeted_gene_mutations": targeted_gene_mutations,
             "bnd_vcf": bnd_vcf_data
         },
         "metadata": {
             "drug_product": args.sample_id,
-            "hotspot_file": args.hotspot_file,
-            "control_sample": args.control_sample,
+#            "hotspot_file": args.hotspot_file,
+            "control_sample": args.control_id,
             "assay": "WGS",
             "grnas": [s.strip() for s in args.grnas.split(",") if s.strip()],
             "mean_coverage": {
@@ -201,6 +198,7 @@ def main():
         require(["plots","cna"], report_data)
     if args.baf_plot is not None:
         require(["plots","baf"], report_data)
+
     require(["tables","on_target_sv_transgene"], report_data)
     require(["tables","off_target_indels"], report_data)
     require(["metadata","drug_product"], report_data)

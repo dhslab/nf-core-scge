@@ -1,5 +1,5 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema",
+    "$schema": "https://json-schema.org/draft-07/schema",
     "$id": "https://raw.githubusercontent.com/nf-core/scge/master/nextflow_schema.json",
     "title": "nf-core/scge pipeline parameters",
     "description": "Nextflow implementation of scge workflow",
@@ -12,71 +12,390 @@
             "properties": {
                 "transgene_name": {
                     "type": "string",
-                    "description": "Name of the transgene contig"
+                    "default": "PLVM_CD19_CARv4_cd34",
+                    "description": "Name of the transgene contig in the reference FASTA"
                 },
-                "editing_targets": {
+                "transgene_match_coordinates": {
                     "type": "string",
-                    "description": "Editing targets file"
+                    "default": "3130,5930",
+                    "description": "Comma-separated start,end coordinates of the transgene match region"
+                },
+                "target_file": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Nominated editing-target VCF used for on/off-target indel calling"
                 },
                 "off_target_threshold": {
                     "type": "number",
-                    "description": "Off-target threshold"
+                    "default": 1.0,
+                    "description": "ML score threshold for calling an off-target edit"
                 },
-                "window": {
+                "hotspot_window_size": {
                     "type": "integer",
-                    "description": "Window size"
+                    "default": 200,
+                    "description": "Window (bp) around a hotspot used when building the hotspot VCF"
                 },
-                "user_group": {
-                    "type": "string",
-                    "description": "User group for cluster submission"
+                "max_filter_sv_length": {
+                    "type": "integer",
+                    "default": 150000000,
+                    "description": "Structural variants longer than this are filtered out"
                 },
-                "queue": {
-                    "type": "string",
-                    "description": "Queue for cluster submission"
+                "sv_annotation_distance": {
+                    "type": "integer",
+                    "default": 20000,
+                    "description": "Distance (bp) within which to annotate genes against an SV breakend"
                 },
-                "job_group_name": {
-                    "type": "string",
-                    "description": "Job group name for cluster submission"
-                },
-                "run_dragen": {
+                "run_alignment": {
                     "type": "boolean",
-                    "description": "Whether to run DRAGEN"
+                    "default": true,
+                    "description": "Run the DRAGEN alignment/calling half of the pipeline",
+                    "help_text": "Set to false to run analysis only from existing DRAGEN output directories. This is the low-barrier path: no DRAGEN licence or FPGA hardware required."
                 },
                 "run_analysis": {
                     "type": "boolean",
-                    "description": "Whether to run analysis"
+                    "default": true,
+                    "description": "Run the annotation/report half of the pipeline"
                 },
                 "transgene_analysis": {
                     "type": "boolean",
-                    "description": "Whether to run transgene analysis"
-                },
-                "targetfile": {
-                    "type": "string",
-                    "description": "Target file"
+                    "default": true,
+                    "description": "Run transgene integration-junction analysis"
                 },
                 "hotspot_bed": {
                     "type": "string",
-                    "description": "Hotspot BED file"
-                },
-                "hotspot_csv": {
-                    "type": "string",
-                    "description": "Hotspot CSV file"
+                    "format": "file-path",
+                    "description": "Hotspot BED file used for hotspot annotation"
                 },
                 "alignment_file_format": {
                     "type": "string",
-                    "description": "Alignment file format"
+                    "default": "CRAM",
+                    "enum": [
+                        "CRAM",
+                        "BAM"
+                    ],
+                    "description": "Alignment file format emitted by DRAGEN"
                 },
-                "mark_duplicates": {
-                    "type": "boolean",
-                    "description": "Whether to mark duplicates"
+                "user_group": {
+                    "type": "string",
+                    "default": "compute-dspencer",
+                    "description": "LSF user group for cluster submission (RIS Compute1)",
+                    "hidden": true
+                },
+                "queue": {
+                    "type": "string",
+                    "default": "dspencer",
+                    "description": "LSF queue for cluster submission (RIS Compute1)",
+                    "hidden": true
+                },
+                "job_group_name": {
+                    "type": "string",
+                    "default": "/dspencer/adhoc",
+                    "description": "LSF job group name for cluster submission (RIS Compute1)",
+                    "hidden": true
+                },
+                "host": {
+                    "type": "string",
+                    "description": "Restrict LSF submission to a specific host (RIS Compute1)",
+                    "hidden": true
+                },
+                "slurm_partition": {
+                    "type": "string",
+                    "default": "general-cpu",
+                    "description": "SLURM partition for cluster submission (RIS Compute2)",
+                    "hidden": true
+                },
+                "slurm_account": {
+                    "type": "string",
+                    "default": "compute2-dspencer",
+                    "description": "SLURM account for cluster submission (RIS Compute2)",
+                    "hidden": true
                 },
                 "scge_report_qmd": {
                     "type": "string",
-                    "description": "Path to SCGE report QMD file"
+                    "format": "file-path",
+                    "description": "Quarto document used to render the per-sample HTML report"
                 },
                 "crispr_model": {
                     "type": "string",
-                    "description": "Path to CRISPR model file"
+                    "format": "file-path",
+                    "description": "CRISPR_ML edit-classification model consumed by GET_INDELS"
+                }
+            }
+        },
+        "offtarget_options": {
+            "title": "Off-target workflow options",
+            "type": "object",
+            "fa_icon": "fas fa-crosshairs",
+            "description": "Unified CRISPR Off-Target Workflow (-entry OFFTARGET).",
+            "help_text": "These options only take effect under `-entry OFFTARGET`. See docs/OFFTARGET.md for the full description of the two arms (ECS truth and WGS discovery) and the validated VAF floor.",
+            "properties": {
+                "offtarget_shape_model": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Pileup shape-ranker model applied to WGS candidates",
+                    "help_text": "A fixed asset by design. Retrain with `-entry TRAIN` and deploy the result by pointing this parameter at the new .pkl."
+                },
+                "offtarget_homology_table": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Optional Cas-OFFinder table used for min_mm/is_target annotation only"
+                },
+                "offtarget_min_af": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "DRAGEN tumour allele-fraction floor for candidate indels"
+                },
+                "offtarget_min_span": {
+                    "type": "integer",
+                    "default": 8,
+                    "description": "Minimum spanning-read coverage for a locus to be evaluated"
+                },
+                "offtarget_top": {
+                    "type": "integer",
+                    "default": 60,
+                    "description": "Number of top-ranked candidates to print and snapshot"
+                },
+                "offtarget_snapshots": {
+                    "type": "boolean",
+                    "description": "Render IGV-style edited-vs-normal pileup PNGs for every LIKELY EDIT",
+                    "help_text": "Off by default because it writes one image per hit."
+                },
+                "offtarget_ecs_unevaluable_log": {
+                    "type": "boolean",
+                    "description": "Write the per-read unevaluable-reads debug log from ECS_INDELS",
+                    "help_text": "Off by default. This log reaches roughly 0.1-1 TB per sample and was the sole cause of work-directory ENOSPC failures; enable only when debugging read evaluation.",
+                    "hidden": true
+                },
+                "offtarget_tagged_bam": {
+                    "type": "boolean",
+                    "description": "Emit a per-read tagged BAM from the ECS caller for review in IGV",
+                    "help_text": "Off by default. Writes <id>.tagged.bam(.bai) in which every read carries an XC string tag naming how the caller classified it (Edited_Deletion_5bp, Unedited_WT, Skipped_LowMapQ, ...), so a reviewer can load it in IGV and use Color alignments by -> tag -> XC. Output is restricted to the target windows (target +/- 150 bp), not the whole genome, but it still scales with target count and depth: one AAVS1 site14 ECS sample (1149 targets, ~11000x) produced a 800 MB BAM of 21.8 M reads and pushed ECS_INDELS from 1.4 GB to 6.3 GB peak RSS, so the process is given 24 GB instead of 8 GB while this is set. Check the size on one sample before enabling it across a cohort. See docs/OFFTARGET.md."
+                },
+                "offtarget_ecs_edit_threshold": {
+                    "type": "number",
+                    "default": 0.0,
+                    "description": "ECS indel_fraction strictly above this counts as an ECS edit"
+                },
+                "offtarget_germline_max_ctrl_if": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "Matched-normal indel fraction above this marks a site germline, not a somatic edit",
+                    "help_text": "Sites exceeding this are demoted to label 0 in training.tsv even when ECS shows an indel."
+                },
+                "offtarget_hi_score": {
+                    "type": "number",
+                    "default": 0.6,
+                    "description": "Shape score at or above which a locus counts as detected in the recall curve"
+                },
+                "offtarget_target_recall": {
+                    "type": "number",
+                    "default": 0.8,
+                    "description": "Recall level whose VAF floor is reported by the recall curve"
+                },
+                "offtarget_hotspot_pad": {
+                    "type": "integer",
+                    "default": 25,
+                    "description": "Window (bp) for matching a worklist candidate to a predicted hotspot"
+                },
+                "offtarget_rescue": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Call LIKELY EDIT on unambiguous somatic indel evidence even when the shape model under-scores it",
+                    "help_text": "The shape model is a ranker, not a detector, and demotes some clear edits. The rescue runs AFTER the low-MAPQ and matched-normal vetoes, so it can only override the model score, never the evidence. Set false to call on the model score alone. See docs/OFFTARGET.md."
+                },
+                "offtarget_rescue_min_ifrac": {
+                    "type": "number",
+                    "default": 0.15,
+                    "description": "Rescue: minimum indel fraction in the edited sample"
+                },
+                "offtarget_rescue_min_conc": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "Rescue: minimum positional concordance (clonality) of the indel reads"
+                },
+                "offtarget_rescue_min_span": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Rescue: minimum spanning reads required before the evidence counts"
+                },
+                "offtarget_min_ecs_vaf": {
+                    "type": "number",
+                    "default": 0.005,
+                    "description": "Recall denominator: ECS VAF floor below which a call is assay noise rather than a real edit",
+                    "help_text": "The raw ECS label counts any nonzero indel fraction as an edit, which at ECS depth is overwhelmingly noise and makes the recall curve meaningless. Set 0 to keep every ECS call."
+                },
+                "offtarget_min_ecs_reads": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Recall denominator: ECS indel reads required to believe a site is a real edit",
+                    "help_text": "VAF alone cannot separate a genuine low-VAF edit at high depth from a few stray reads; read support can. Set 0 to disable."
+                },
+                "offtarget_metrics_betas": {
+                    "type": "string",
+                    "default": "2,5",
+                    "description": "Comma-separated F-beta weights for the clinical metrics report",
+                    "help_text": "F_beta weights recall beta^2 times more than precision (beta=2 -> 4x, beta=5 -> 25x). F_beta is monotone in beta, so F1 is always an endpoint of the reported set, never the middle value."
+                },
+                "offtarget_metrics_negatives": {
+                    "type": "string",
+                    "default": "ecs_negative",
+                    "enum": [
+                        "ecs_negative",
+                        "all_label0"
+                    ],
+                    "description": "Negative set for PR-AUC: ECS-negative hotspots only, or all label==0 rows",
+                    "help_text": "label==0 is two populations: genuine ECS-negatives (ecs_is_edit==0) and ECS edits demoted because the indel is in the matched normal. The germline-demoted rows carry a real indel, so the shape ranker correctly scores them high and germline rejection is a separate downstream gate; including them charges the ranker with a job it does not do. Either way the alternative is reported as a labelled sensitivity block."
+                },
+                "offtarget_max_cut_dist": {
+                    "type": "number",
+                    "description": "Demote LIKELY EDIT calls whose indel sits further than this many bp from the predicted cut site",
+                    "help_text": "Off by default (report only): cut_dist is always emitted as a column, but nothing is demoted unless this is set. Cas9 cuts ~3 bp from the PAM, so a genuine edit sits within a few bp of the predicted site. Measured on the AAVS1 cohort: the two curated on-target edits are 2 bp and 4 bp away, while sites called LIKELY EDIT that curation marked negative run to a median of 24 bp (max 94). Setting 10 dropped 23 of 28 false positives without losing either edit. Demotion, not deletion - the row and its score stay in the table."
+                },
+                "offtarget_wgs_tagged_bam": {
+                    "type": "boolean",
+                    "description": "Emit per-read XC-tagged BAMs for the WGS arm at called sites, for IGV review",
+                    "help_text": "Off by default. The WGS analogue of --offtarget_tagged_bam, using the same XC tag names so one IGV colour scheme (Color alignments by -> tag -> XC) serves both arms. Windows cover only the LIKELY EDIT sites, so unlike the ECS tagged BAMs these stay small. Reads excluded by the caller's own filters are written and labelled Skipped_Duplicate / Skipped_LowMapQ / Skipped_Mismatches / Skipped_NoSpan, so a reviewer can audit the denominator rather than trust it."
+                }
+            }
+        },
+        "hotspot_finder_options": {
+            "title": "Auto-hotspot finder options",
+            "type": "object",
+            "fa_icon": "fas fa-crosshairs",
+            "description": "gRNA -> predicted off-target sites (-entry HOTSPOTS).",
+            "properties": {
+                "offtarget_pam": {
+                    "type": "string",
+                    "default": "NGG",
+                    "description": "SpCas9 PAM used for off-target search"
+                },
+                "offtarget_mismatches": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Max mismatches to enumerate"
+                },
+                "offtarget_bulges": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Max DNA/RNA bulge size to enumerate"
+                },
+                "casoffinder_2bit": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Prebuilt .2bit for Cas-OFFinder; null builds it from --fasta with faToTwoBit"
+                },
+                "run_crisprme": {
+                    "type": "boolean",
+                    "description": "Also run CRISPRme (needs --crisprme_index_dir); default is Cas-OFFinder only"
+                },
+                "run_idt": {
+                    "type": "boolean",
+                    "description": "Include a per-guide IDT off-target export (.xlsx via the samplesheet 'idt' column) in the combine"
+                },
+                "crisprme_index_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Prebuilt CRISPRme index directory (built offline by bin/build_crisprme_index.sh)"
+                }
+            }
+        },
+        "offtarget_train_options": {
+            "title": "Off-target model trainer options",
+            "type": "object",
+            "fa_icon": "fas fa-brain",
+            "description": "Offline shape-model trainer (-entry TRAIN).",
+            "help_text": "These options only take effect under `-entry TRAIN`, which fits a new wgs_shape_model.pkl from a training.tsv produced by `-entry OFFTARGET`. Training is deliberately kept out of the OFFTARGET DAG.",
+            "properties": {
+                "offtarget_train_learning_rate": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "HistGradientBoostingClassifier learning rate"
+                },
+                "offtarget_train_max_iter": {
+                    "type": "integer",
+                    "default": 200,
+                    "description": "Number of boosting iterations"
+                },
+                "offtarget_train_max_depth": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Maximum tree depth"
+                },
+                "offtarget_train_holdout_frac": {
+                    "type": "number",
+                    "default": 0.25,
+                    "description": "Stratified holdout fraction used for the reported AUC/AP (0 trains on all rows)"
+                },
+                "offtarget_train_seed": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Random seed, for reproducible fits"
+                }
+            }
+        },
+        "dragen_options": {
+            "title": "DRAGEN options",
+            "type": "object",
+            "fa_icon": "fas fa-microchip",
+            "description": "Inputs and containers for the DRAGEN alignment/calling half.",
+            "help_text": "Only used when `--run_alignment true` together with the `dragen4` or `dragenaws` profile.",
+            "properties": {
+                "intermediate_dir": {
+                    "type": "string",
+                    "default": "/staging/intermediate-results-dir",
+                    "description": "DRAGEN intermediate results directory",
+                    "hidden": true
+                },
+                "refdir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "DRAGEN reference hash table directory"
+                },
+                "dbsnp": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "dbSNP VCF passed to DRAGEN"
+                },
+                "adapter1": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Read 1 adapter FASTA",
+                    "hidden": true
+                },
+                "adapter2": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Read 2 adapter FASTA",
+                    "hidden": true
+                },
+                "snv_noisefile": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Systematic-noise BED for SNV calling",
+                    "hidden": true
+                },
+                "sv_noisefile": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Systematic-noise BEDPE for SV calling",
+                    "hidden": true
+                },
+                "mark_duplicates": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Mark duplicate reads during DRAGEN alignment"
+                },
+                "aws_dragen_container": {
+                    "type": "string",
+                    "default": "job-definition://dragen_v4-4-6",
+                    "description": "AWS Batch job definition used by the dragenaws profile",
+                    "hidden": true
+                },
+                "local_dragen_container": {
+                    "type": "string",
+                    "default": "apldx/oracle8-dragen-4.3.6",
+                    "description": "Container image used by the local dragen4 profile",
+                    "hidden": true
                 }
             }
         },
@@ -94,10 +413,9 @@
                     "type": "string",
                     "format": "file-path",
                     "exists": true,
-                    "mimetype": "text/csv",
-                    "pattern": "^\\S+\\.csv$",
-                    "description": "Path to comma-separated file containing information about the samples in the experiment.",
-                    "help_text": "You will need to create a design file with information about the samples in your experiment before running the pipeline. Use this parameter to specify its location. It has to be a comma-separated file with 3 columns, and a header row. See [usage docs](https://nf-co.re/scge/usage#samplesheet-input).",
+                    "pattern": "^\\S+\\.(csv|tsv|xlsx)$",
+                    "description": "Path to the samplesheet describing the samples in the experiment.",
+                    "help_text": "Accepts .csv, .tsv or .xlsx. The expected columns depend on the entry point: the default SCGE workflow takes a mastersheet (`id,uid,sample_type,fastq_list,hotspot_file`, or `id,dragen_path,target_file` when running with `--run_alignment false`); `-entry OFFTARGET` takes `sample,datatype,guide,edited_cram,control_cram,target_file,vcf` (template at assets/offtarget_samplesheet_template.csv); `-entry TRAIN` takes a training.tsv emitted by BUILD_TRAINING_TABLE.",
                     "fa_icon": "fas fa-file-csv"
                 },
                 "outdir": {
@@ -124,7 +442,58 @@
             "title": "Reference genome options",
             "type": "object",
             "fa_icon": "fas fa-dna",
-            "description": "Reference genome related files and options required for the workflow."
+            "description": "Reference genome related files and options required for the workflow.",
+            "properties": {
+                "fasta": {
+                    "type": "string",
+                    "format": "file-path",
+                    "mimetype": "text/plain",
+                    "pattern": "^\\S+\\.fn?a(sta)?(\\.gz)?$",
+                    "description": "Reference genome FASTA, including the CAR/transgene contig",
+                    "fa_icon": "far fa-file-code"
+                },
+                "cram_reference": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Reference FASTA used to decode input CRAMs",
+                    "help_text": "Normally the same file as --fasta. Set it separately only when existing CRAMs were written against a different reference."
+                },
+                "vepcache": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "VEP annotation cache directory"
+                },
+                "nirvana_path": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Optional Nirvana annotation data directory",
+                    "hidden": true
+                },
+                "nirvana_assembly": {
+                    "type": "string",
+                    "description": "Genome assembly name passed to Nirvana, e.g. GRCh38",
+                    "hidden": true
+                },
+                "cytobands": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Cytoband BED used for the Circos and CNA/BAF plots",
+                    "hidden": true
+                },
+                "genome": {
+                    "type": "string",
+                    "description": "iGenomes reference key",
+                    "help_text": "This pipeline normally uses an explicit --fasta rather than iGenomes; leave unset unless you know you need it.",
+                    "fa_icon": "fas fa-book",
+                    "hidden": true
+                },
+                "igenomes_ignore": {
+                    "type": "boolean",
+                    "description": "Do not load the iGenomes reference config",
+                    "fa_icon": "fas fa-ban",
+                    "hidden": true
+                }
+            }
         },
         "institutional_config_options": {
             "title": "Institutional config options",
@@ -292,6 +661,12 @@
                     "fa_icon": "fas fa-image",
                     "hidden": true
                 },
+                "ch_multiqc_logo": {
+                    "type": "string",
+                    "description": "Internal placeholder for the resolved MultiQC logo. Not intended to be set by users.",
+                    "fa_icon": "fas fa-image",
+                    "hidden": true
+                },
                 "multiqc_methods_description": {
                     "type": "string",
                     "description": "Custom MultiQC yaml file containing HTML including a methods description.",
@@ -326,6 +701,184 @@
                     "help_text": "Allows string values that are parseable as numbers or booleans. For further information see [JSONSchema docs](https://github.com/everit-org/json-schema#lenient-mode)."
                 }
             }
+        },
+        "review_filter_options": {
+            "title": "Automated review filter options",
+            "type": "object",
+            "description": "Turn the raw off-target call table into the short list a human reviews.",
+            "help_text": "Six rules, first match wins, applied to sites clearing the review gate: the matched control must be clean, the indel must sit near a PAM position, it must show several distinct indel lengths, the site must not already be known bad, it must not lie in a repeat, and it must not sit on a recurrent indel-noise locus in the external DRAGEN panel. On the 32-sample CAR-T WGS cohort this takes 1,498 gated rows to an 88-site queue (87 with rule 6 enabled) while retaining all 81 on-target edits. A companion process, REVIEW_FILTER_BND, applies the same idea to breakends.",
+            "properties": {
+                "review_filter": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Run REVIEW_FILTER after GET_INDELS."
+                },
+                "review_min_reads": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "Gate: supporting indel reads required to enter the review queue."
+                },
+                "review_min_vaf": {
+                    "type": "number",
+                    "default": 0.005,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Gate: indel fraction required to enter the review queue."
+                },
+                "review_max_control_vaf": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Rule 1: drop sites whose matched unedited control carries indels at or above this fraction."
+                },
+                "review_max_cut_dist": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Rule 2: the indel must lie within this many bp of a PAM position."
+                },
+                "review_min_distinct_len": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Rule 3: distinct indel lengths required. Depth-sensitive - do not apply below the gate.",
+                    "help_text": "Resampling real edits to 3 supporting reads leaves only ~49% passing this rule, so it silently reimposes a read-count floor if used at low VAF."
+                },
+                "pon_min_vaf": {
+                    "type": "number",
+                    "default": 0.02,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "PoN: indel fraction required as well as the read count.",
+                    "help_text": "A read count alone is not depth-robust: 3 reads is ~5% VAF at WGS depth but ~0.15% at ECS depth, which would blacklist over half an ECS panel as noise."
+                },
+                "review_repeat_beds": {
+                    "type": "string",
+                    "default": null,
+                    "description": "Comma-separated repeat-annotation BEDs; off-target sites inside one are dropped (rule 5).",
+                    "help_text": "Measured on the CAR-T cohort: RepeatMasker flags 100 of 177 artifacts and 0 of 61 real edits. Needs no controls, cohort or guide context, so it is the only rule that works on day one for a guide never run before."
+                },
+                "review_snv_noise": {
+                    "type": "string",
+                    "format": "file-path",
+                    "default": null,
+                    "description": "Rule 6: DRAGEN systematic-noise BED (systematic_noise.snv.bed.gz). Unset disables the rule.",
+                    "help_text": "An external panel of normals built from hundreds of donors, so unlike rule 4 it needs no controls of our own. A bare interval hit is not usable as the rule: it flags 33.1% of artifacts but also 1.2% of real on-target edits. The rule therefore also requires the locus to recur in several panel donors and to involve an insertion or deletion. Despite the filename the panel carries 1,299,670 D and 892,925 I records. The file is ~1 GB and unindexed, and REVIEW_FILTER runs the script twice, so enabling this adds roughly 6 minutes."
+                },
+                "review_snv_noise_min_donors": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Rule 6: distinct panel donors required before a locus counts as systematic noise."
+                },
+                "review_snapshots": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Render an IGV-style pileup image for each surviving review site.",
+                    "help_text": "Each figure pairs the edited sample over its matched unedited control at the same locus, which is what lets a reviewer settle most calls without opening IGV."
+                },
+                "review_snapshot_window": {
+                    "type": "integer",
+                    "default": 80,
+                    "minimum": 10,
+                    "description": "bp either side of the site to show in each snapshot."
+                },
+                "review_filter_bnd": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Run REVIEW_FILTER_BND, the breakend counterpart of the review filter.",
+                    "help_text": "Reads the same *.offtarget_analysis.tsv tables and triages BND calls. On the 32-sample cohort: 2,404 breakends to 36 gated to a 25-site queue."
+                },
+                "review_bnd_min_reads": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "description": "Breakend gate: reads supporting the junction."
+                },
+                "review_bnd_max_cut_dist": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Breakend rule: the junction must lie within this many bp of a PAM position."
+                },
+                "review_bnd_max_partners": {
+                    "type": "integer",
+                    "default": 5,
+                    "minimum": 2,
+                    "description": "Breakend rule: drop bins joining this many or more distinct partners as mapping hubs.",
+                    "help_text": "The real cut sites are exempt. Currently non-binding: fixing the BND off-by-one in find_edited_reads.py dropped the worst hub from 25 partners to 3. Kept as insurance for future cohorts."
+                },
+                "review_bnd_bin_size": {
+                    "type": "integer",
+                    "default": 1000,
+                    "minimum": 1,
+                    "description": "bp bin used to group breakpoints when counting partners."
+                },
+                "review_sv_noise": {
+                    "type": "string",
+                    "format": "file-path",
+                    "default": null,
+                    "description": "Breakend rule: DRAGEN systematic-noise BEDPE. Use ONLY the WGS v3.1.0 panel.",
+                    "help_text": "Measured against the 25 real junctions of the 32-sample cohort: WGS_hg38_v3.1.0 flags 0 of 25 real junctions and 11 of 11 artifacts. IDPF_WGS_hg38_v3.0.0 flags 25 of 25 real, and WGS_FF_Heme_hg38_v3.1.0 flags 24 of 25 - either would erase the entire result. If the breakend queue collapses toward zero, the wrong BEDPE is wired here."
+                },
+                "review_sv_noise_slop": {
+                    "type": "integer",
+                    "default": 50,
+                    "minimum": 0,
+                    "description": "bp tolerance when matching a junction to an SV noise panel record."
+                },
+                "review_bnd_snapshots": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Render a pileup figure for each junction in the breakend review queue.",
+                    "help_text": "One figure per JUNCTION, not per queue row: the queue reports each event from both ends and at a few bp of jitter, so on the 32-sample CAR-T cohort 25 rows collapse to 8 junctions. Each figure pairs a to-scale schematic of the excision with a 2x2 read grid (left/right breakpoint x edited/matched control); reads whose SA tag lands at the partner locus are drawn green."
+                },
+                "review_bnd_snapshot_window": {
+                    "type": "integer",
+                    "default": 150,
+                    "minimum": 10,
+                    "description": "bp either side of each breakpoint to show in a breakend figure.",
+                    "help_text": "Wider than review_snapshot_window on purpose: breakend evidence is a stack of soft clips terminating on one base, which needs flank to read as a stack."
+                },
+                "review_bnd_max_junctions": {
+                    "type": "integer",
+                    "default": 200,
+                    "minimum": 1,
+                    "description": "Safety cap on the number of breakend figures rendered."
+                },
+                "review_noise_model": {
+                    "type": "string",
+                    "default": "matched",
+                    "enum": [
+                        "off",
+                        "matched",
+                        "loo",
+                        "both"
+                    ],
+                    "description": "Rule 4: beta-binomial test against a control-derived background, replacing the boolean panel of normals.",
+                    "help_text": "'matched' uses only the sample's own unedited control and needs no cohort, yet matches the PoN's measured performance on the 32-sample CAR-T cohort (64/64 confirmed retained, 9 human-rejected, precision 0.877). 'loo' uses the other samples' controls, 'both' pools them. Default 'off' keeps the PoN so existing runs are unchanged."
+                },
+                "review_aq_min": {
+                    "type": "number",
+                    "default": 5,
+                    "description": "AQ below which a site is called background under review_noise_model.",
+                    "help_text": "AQ = -10log10 P(X >= k | n, background). With review_depth_floor on, 3-8 all reproduce the panel-of-normals result exactly; 10 begins costing confirmed edits."
+                },
+                "review_depth_floor": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Floor the posterior background at 1/control_depth so the model cannot claim more resolution than the control has.",
+                    "help_text": "A control with zero alt reads at depth d shows background is below ~1/d, not that it is zero. Without the floor the posterior collapses to 3.5e-5 against a 170x control. Harmless at the current VAF>=0.005 gate, unsafe if that gate is lowered."
+                },
+                "review_strict_fallback": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Fail instead of warning when rule 4 has no usable source.",
+                    "help_text": "With no PoN, no noise model and a single guide in one invocation, cross-guide recurrence cannot fire and the unfiltered queue looks deceptively clean."
+                }
+            }
         }
     },
     "allOf": [
@@ -339,6 +892,18 @@
             "$ref": "#/definitions/scge_options"
         },
         {
+            "$ref": "#/definitions/offtarget_options"
+        },
+        {
+            "$ref": "#/definitions/hotspot_finder_options"
+        },
+        {
+            "$ref": "#/definitions/offtarget_train_options"
+        },
+        {
+            "$ref": "#/definitions/dragen_options"
+        },
+        {
             "$ref": "#/definitions/institutional_config_options"
         },
         {
@@ -346,6 +911,9 @@
         },
         {
             "$ref": "#/definitions/generic_options"
+        },
+        {
+            "$ref": "#/definitions/review_filter_options"
         }
     ]
 }

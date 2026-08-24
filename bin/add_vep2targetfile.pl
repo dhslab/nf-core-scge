@@ -1,57 +1,85 @@
 #!/usr/bin/env perl
+
 use strict;
 use warnings;
 
-# This script reformats VEP tabular output to be compatible with extract_variant_reads_ML.py
-# 1. Splits Location into chromosome, start, end
-# 2. Moves Uploaded_variation (which contains source info) to the last column
-# 3. Prints a compatible header using the provided argument as the last column name
+# Main loop: reads line-by-line from STDIN (pipe) or input files
+while (my $line = <>) {
+    chomp $line;
 
-my $last_col_header = $ARGV[0] or die "Usage: $0 <last_column_header>\n";
+    # Skip VEP header lines starting with #
+    next if $line =~ /^#/;
 
-# Print Header
-# extract_variant_reads_ML.py expects: #chromosome, start, end, ... [KeyString]
-print "#chromosome\tstart\tend\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tcDNA_position\tCDS_position\tProtein_position\tAmino_acids\tCodons\tExisting_variation\tExtra\t$last_col_header\n";
+    # Split the VEP line by tabs
+    # $F[0] is the ID, $F[3] is Gene, $F[13] is Extra, etc.
+    my @fields = split(/\t/, $line);
 
-while (<STDIN>) {
-    # Skip VEP headers
-    next if /^#/;
-    chomp;
-    
-    my @cols = split /\t/;
-    
-    # Safety check for column count
-    if (scalar @cols < 2) {
-        next;
-    }
+    my $chrom  = $fields[0];
+    my $start  = $fields[1] + 1;
 
-    my $info = $cols[0];
-    my $loc = $cols[1];
+    my $full_id = $fields[2] // "";  # Prevent undef warning if column 2 is missing
+    my $strand = (defined $full_id && $full_id =~ /\+/) ? "+" : "-";
+
+    my $extra_info = $fields[7];
+    my $end   = extract_tag($extra_info, 'END');
+    my $vep = extract_tag($extra_info, 'CSQ');
     
-    # Parse Location: chr:start-end or chr:start
-    my ($chr, $pos_str) = split /:/, $loc;
-    my ($start, $end);
+    # 5. Print the final Tab-Separated line
+    print join("\t", $chrom, $start, $end, "INS", $strand, $full_id) . ';' . sort_vep_string($vep) . "\n";
+}
+
+# --- Subroutines ---
+
+sub extract_tag {
+    my ($text, $tag_name) = @_;
     
-    if (defined $pos_str && $pos_str =~ /-/) {
-        ($start, $end) = split /-/, $pos_str;
-    } elsif (defined $pos_str) {
-        $start = $pos_str;
-        $end = $pos_str;
-    } else {
-        # Fallback if location format is unexpected
-        $chr = $loc;
-        $start = 0;
-        $end = 0;
+    # Attempt to match "TAG_NAME=value" up to the next semicolon or end of string
+    if ($text =~ /$tag_name=([^;]+)/) {
+        return $1;
     }
     
-    # Output: chr, start, end, [All cols except first], Info
-    print "$chr\t$start\t$end\t";
+    # Return dot if not found or empty
+    return ".";
+}
+
+sub sort_vep_string {
+    my ($input_string) = @_;
     
-    # Print cols 1 to end (skipping Uploaded_variation which is at index 0)
-    if (scalar @cols > 1) {
-        print join("\t", @cols[1..$#cols]);
+    return "" unless defined $input_string;
+
+    # 1. Split by comma
+    my @items = split(/,/, $input_string);
+
+    # 2. Sort numerically
+    my @sorted = sort {
+        # Extract number from A
+        my ($num_a) = extract_number($a);
+        
+        # Extract number from B
+        my ($num_b) = extract_number($b);
+
+        # Compare (Ascending)
+        $num_a <=> $num_b
+    } @items;
+
+    # 3. Join back together
+    return join(',', @sorted);
+}
+
+sub extract_number {
+    my ($str) = @_;
+    
+    # Split by pipe
+    my @cols = split(/\|/, $str);
+    
+    # Look for the first field that is purely digits
+    # This handles both cases: "|ENSG|Type|668|" and "Gene|ENSG|Type|...|"
+    foreach my $col (@cols) {
+        if ($col =~ /^\d+$/) {
+            return $col; 
+        }
     }
     
-    # Print Info at the end
-    print "\t$info\n";
+    # RETURN -1 IF NO NUMBER FOUND (Forces these to the front)
+    return -1; 
 }

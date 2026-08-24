@@ -5,57 +5,57 @@ process COMPILE_REPORT_JSON {
     container 'ghcr.io/dhslab/docker-baseimage:latest'
 
     input:
-    tuple val(meta),
-          path(cna_plot),
-          path(baf_plot),
-          val(circos_plot),
-          path(on_target_sv_transgene),
-          path(vcf_tsv),
-          path(off_target_indels),
-          path(bnd_vcf),
-          path(tumor_cov),
-          path(normal_cov),
-          val(timestamp)
+    tuple val(meta), path(files)
+    val(timestamp)
 
     output:
-    tuple val(meta), path("report_input.json"), emit: json
-    path "versions.yml"                      , emit: versions
+    tuple val(meta), path("${meta.id}.scge_report.json"), emit: json
+    path "versions.yml"                                 , emit: versions
 
-    when:
-    task.ext.when == null || task.ext.when
 
     script:
     def args = task.ext.args ?: ''
-    def transgene_str = params.transgene ?: (meta.transgene ?: "N/A")
-    def control_sample = params.control_sample ?: (meta.normal ?: "N/A")
-    def grnas_str = params.grnas ?: meta.id
-    def hotspot_file_arg = meta.hotspot_file ? "--hotspot_file ${meta.hotspot_file}" : ""
-    def circos_arg = (circos_plot && circos_plot.toString().endsWith(".png") && file(circos_plot).exists()) ? "--circos_plot ${circos_plot}" : ""
-    def tumor_coverage_arg = tumor_cov ? "--tumor_coverage ${tumor_cov}" : ""
-    def normal_coverage_arg = normal_cov ? "--normal_coverage ${normal_cov}" : ""
+    def input = [
+        files.find{ it ==~ /.*\.wgs_overall_mean_cov_tumor\.csv$/ }?.with{ "--tumor_coverage $it" } ?: "",
+        files.find{ it ==~ /.*\.wgs_overall_mean_cov_normal\.csv$/ }?.with{ "--normal_coverage $it" } ?: "",
+        files.find{ it ==~ /.*\.cna_plot\.png$/ }?.with{ "--cna_plot $it" } ?: "",
+        files.find{ it ==~ /.*\.baf_plot\.png$/ }?.with{ "--baf_plot $it" } ?: "",
+        files.find{ it ==~ /.*\.annotated_transgene_insertions\.tsv$/ }?.with{ "--transgene_insertions $it" } ?: "",
+        files.find{ it ==~ /.*\.transgene_insertions_circos\.png$/ }?.with{ "--circos_plot $it" } ?: "",
+        files.find{ it ==~ /.*\.hard-filtered\.annotated\.tsv$/ }?.with{ "--somatic_variants $it" } ?: "",
+        files.find{ it ==~ /.*\.offtarget_analysis\.tsv$/ }?.with{ "--offtarget_indels $it" } ?: "",
+        files.find{ it ==~ /.*\.offtarget_svs\.vcf$/ }?.with{ "--offtarget_svs $it" } ?: "",
+    ].join(' ').trim()
+
     """
-    export PATH=/usr/local/bin:\$PATH
-    python3 ${projectDir}/bin/compile_report_data.py \\
+    compile_report_data.py \\
         --sample_id ${meta.id} \\
-        --transgene "${transgene_str}" \\
-        --control_sample "${control_sample}" \\
-        --grnas "${grnas_str}" \\
-        ${hotspot_file_arg} \\
-        --cna_plot ${cna_plot} \\
-        --baf_plot ${baf_plot} \\
-        ${circos_arg} \\
-        --on_target_sv_transgene ${on_target_sv_transgene} \\
-        --vcf_tsv ${vcf_tsv} \\
-        --off_target_indels ${off_target_indels} \\
-        --bnd_vcf ${bnd_vcf} \\
-        ${tumor_coverage_arg} \\
-        ${normal_coverage_arg} \\
-        --output report_input.json
+        --control_id "${meta.normal_id}" \\
+        ${input} \\
+        --output ${meta.id}.scge_report.json
 
     cat <<-END_VERSIONS > versions.yml
     ${task.process}:
         python: \$(python --version | sed 's/Python //g')
-        pandas: \$(python -c "import pandas; print(pandas.__version__)")
     END_VERSIONS
     """
-} 
+
+    stub:
+    // Without this, `-stub-run` executes the REAL script above against stub-generated
+    // (empty) inputs, compile_report_data.py exits on its required arguments, and the
+    // whole stub run dies here -- before it ever reaches the review arm downstream. That
+    // is why no stub run has ever exercised REVIEW_FILTER / REVIEW_FILTER_BND and their
+    // snapshot renderers.
+    //
+    // versions.yml must carry real content even in a stub: nf-core's
+    // processVersionsFromYAML does yaml.load(f).collectEntries{...}, and an empty file
+    // loads as null -> NPE at pipeline completion.
+    """
+    echo '{}' > ${meta.id}.scge_report.json
+
+    cat <<-END_VERSIONS > versions.yml
+    ${task.process}:
+        python: \$(python --version | sed 's/Python //g')
+    END_VERSIONS
+    """
+}

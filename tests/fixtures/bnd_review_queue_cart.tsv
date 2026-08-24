@@ -1,0 +1,26 @@
+sample_name	chrom	pos	chrom2	pos2	strands	cut_dist	reads	control_reads_at_event	site_start	site_end	is_target	site_total_reads	bin	partner_bin	n_partners	span	interchromosomal	far_end_on_target	why_dropped	orientation	call
+ARID4A-KO-DNA	chr14	58301619	chr14	58330081	-+	1	3	0	58301616	58301617	1	123	chr14:58301	chr14:58330	4	28462	0	1		inverted	multi-cut inversion
+ARID4A-KO-DNA	chr14	58301623	chr14	58330079	+-	5	4	0	58301616	58301617	1	123	chr14:58301	chr14:58330	4	28456	0	1		inverted	multi-cut inversion
+ARID4A-KO-DNA	chr14	58330078	chr14	58301622	-+	2	3	0	58330078	58330079	1	129	chr14:58330	chr14:58301	1	28456	0	1		inverted	multi-cut inversion
+ARID4A-KO-DNA	chr14	58330082	chr14	58301619	-+	2	4	0	58330078	58330079	1	129	chr14:58330	chr14:58301	1	28463	0	1		inverted	multi-cut inversion
+ARID4A-KO-DNA	chr14	58330082	chr14	58301620	+-	2	4	0	58330078	58330079	1	129	chr14:58330	chr14:58301	1	28462	0	1		inverted	multi-cut inversion
+BRAF-KO-CART-DNA	chr7	140801459	chr7	140834644	-+	3	3	0	140801460	140801463	1	165	chr7:140801	chr7:140834	1	33185	0	0		inverted	inversion at cut site
+BRAF-KO-CART-DNA	chr7	140801460	chr7	140834645	+-	2	7	0	140801460	140801463	1	165	chr7:140801	chr7:140834	1	33185	0	0		inverted	inversion at cut site
+IKZF2-KO-DNA	chr2	213147792	chr2	213022045	-+	1	5	0	213147788	213147790	1	176	chr2:213147	chr2:213022	1	125747	0	1		inverted	multi-cut inversion
+IKZF2-KO-DNA	chr2	213147793	chr2	213022046	+-	2	7	0	213147788	213147790	1	176	chr2:213147	chr2:213022	1	125747	0	1		inverted	multi-cut inversion
+KLF12-KO-DNA	chr13	73845933	chr13	73846348	-+	3	6	0	73845934	73845937	1	206	chr13:73845	chr13:73846	1	415	0	1		inverted	multi-cut inversion
+KLF12-KO-DNA	chr13	73846347	chr13	73845934	-+	0	7	0	73846345	73846346	1	186	chr13:73846	chr13:73845	2	413	0	1		inverted	multi-cut inversion
+KLF12-KO-DNA	chr13	73846349	chr13	73845933	+-	2	4	0	73846345	73846346	1	186	chr13:73846	chr13:73845	2	416	0	1		inverted	multi-cut inversion
+KLF12-KO-DNA	chr13	73846349	chr13	73845934	+-	2	3	0	73846345	73846346	1	186	chr13:73846	chr13:73845	2	415	0	1		inverted	multi-cut inversion
+PDCD4-KO-CART	chr10	110887715	chr10	110890582	-+	1	15	0	110887712	110887713	1	176	chr10:110887	chr10:110890	3	2867	0	1		inverted	multi-cut inversion
+PDCD4-KO-CART	chr10	110887716	chr10	110890582	+-	2	13	0	110887712	110887713	1	176	chr10:110887	chr10:110890	3	2866	0	1		inverted	multi-cut inversion
+PDCD4-KO-CART	chr10	110890582	chr10	110887716	+-	2	7	0	110890578	110890579	1	145	chr10:110890	chr10:110887	1	2866	0	1		inverted	multi-cut inversion
+PDE7A-KO-DNA	chr8	65782787	chr8	65779781	-+	1	3	0	65782784	65782785	1	171	chr8:65782	chr8:65779	1	3006	0	1		inverted	multi-cut inversion
+PDE7A-KO-DNA	chr8	65782788	chr8	65779781	-+	2	3	0	65782784	65782785	1	171	chr8:65782	chr8:65779	1	3007	0	1		inverted	multi-cut inversion
+PDE7A-KO-DNA	chr8	65782789	chr8	65779781	+-	3	4	0	65782784	65782785	1	171	chr8:65782	chr8:65779	1	3008	0	1		inverted	multi-cut inversion
+RXRB-KO-DNA	chr6	33197861	chr6	33198326	-+	1	8	0	33197857	33197859	1	203	chr6:33197	chr6:33198	3	465	0	1		inverted	multi-cut inversion
+RXRB-KO-DNA	chr6	33197862	chr6	33198327	+-	2	9	0	33197857	33197859	1	203	chr6:33197	chr6:33198	3	465	0	1		inverted	multi-cut inversion
+RXRB-KO-DNA	chr6	33198327	chr6	33197862	+-	1	6	0	33198322	33198325	1	218	chr6:33198	chr6:33197	1	465	0	1		inverted	multi-cut inversion
+ZEB2-KO-DNA	chr2	144399459	chr2	144429936	-+	4	9	0	144399461	144399463	1	272	chr2:144399	chr2:144429	2	30477	0	1		inverted	multi-cut inversion
+ZEB2-KO-DNA	chr2	144399460	chr2	144429937	+-	3	7	0	144399461	144399463	1	272	chr2:144399	chr2:144429	2	30477	0	1		inverted	multi-cut inversion
+ZEB2-KO-DNA	chr2	144429936	chr2	144399459	-+	1	6	0	144429933	144429934	1	197	chr2:144429	chr2:144399	3	30477	0	1		inverted	multi-cut inversion

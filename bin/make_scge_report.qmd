@@ -2,6 +2,10 @@
 params:
   report_json: ""
   off_target_threshold: 1.0
+  cna_plot_file: ""
+  baf_plot_file: ""
+  circos_plot_file: ""
+  transgene_name: ""
 execute:
   echo: false
   warning: false
@@ -37,6 +41,70 @@ include-in-header:
         text-align: left;
         width: auto;
       }
+      /* Restore original table styles */
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        table-layout: fixed;
+        border: 1px solid #6495ED;
+        border-spacing: 0;
+      }
+      th {
+        background-color: #6495ED;
+        color: white;
+        font-size: 1.2em;
+        border-bottom: 1px solid #6495ED;
+        padding: 8px;
+        text-align: left;
+      }
+      td {
+        background-color: #E6F3FF;
+        padding: 8px;
+        border-right: 1px solid #6495ED;
+        vertical-align: top;
+      }
+      td:last-child, th:last-child {
+        border-right: none;
+      }
+      
+      /* White background tables for content */
+      .white-background-table td {
+        background-color: white;
+        text-align: center;
+      }
+      .white-background-table th {
+        background-color: #E6F3FF;
+        color: black;
+        border-top: 2px solid #6495ED;
+        border-bottom: 2px solid #6495ED;
+      }
+      
+      .equal-size-img {
+        width: 100%;
+        height: auto;
+        max-width: 100%;
+        display: block;
+        margin: 0 auto;
+      }
+      
+      .plot-unavailable {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+        font-style: italic;
+      }
+      
+      /* Off-target subtable fixes */
+      .off-target-subtable {
+        margin: 0;
+      }
+      .off-target-subtable td {
+        padding: 4px;
+        font-size: 0.9em;
+        word-wrap: break-word;
+        white-space: normal;
+        max-width: 300px;
+      }
       </style>
 ---
 ```{r}
@@ -51,24 +119,54 @@ library(dplyr)
 library(tidyr)
 library(knitr)
 
-# Read JSON data
-report_data <- fromJSON(params$report_json)
-off_target_threshold_value <- as.numeric(params$off_target_threshold)
-report_json_path <- params$report_json
+# -- Params Handling --
+if (!exists("params")) {
+  if (file.exists("params.yml")) {
+    lines <- readLines("params.yml")
+    params <- list()
+    for (line in lines) {
+      if (grepl(":", line)) {
+        parts <- strsplit(line, ":", fixed = TRUE)[[1]]
+        key <- trimws(parts[1])
+        value <- trimws(paste(parts[-1], collapse = ":"))
+        value <- gsub('^"|"$', "", value)
+        params[[key]] <- value
+      }
+    }
+  } else {
+    # Last ditch
+    params <- list()
+  }
+}
 
-# Extract target gene from sample ID, assuming "GENE-KO-DNA" format
+report_json_path <- params$report_json
+# Fallback if params failed
+if (is.null(report_json_path) && exists("report_json")) report_json_path <- report_json
+
+if (is.null(report_json_path)) stop("report_json parameter not found")
+
+off_target_threshold_value <- as.numeric(params$off_target_threshold)
+if (is.na(off_target_threshold_value)) off_target_threshold_value <- 1.0
+
+transgene_name_param <- params$transgene_name
+if (is.null(transgene_name_param)) transgene_name_param <- ""
+
+# Load data
+report_data <- fromJSON(report_json_path)
+
+# Extract target gene
 target_gene_symbol <- sub("-KO-DNA", "", report_data$sample_id)
 
-# Read hotspot file to get gRNA display string
+# gRNA display string
 hotspot_file_path <- report_data$metadata$hotspot_file
-grna_display_string <- target_gene_symbol # Default to gene name
+grna_display_string <- target_gene_symbol 
 
 if (!is.null(hotspot_file_path) && file.exists(hotspot_file_path)) {
   try({
     hotspot_data <- read.csv(hotspot_file_path)
     if ("On_target" %in% colnames(hotspot_data)) {
       on_target_grnas <- subset(hotspot_data, On_target == 1)
-      if (nrow(on_target_grnas) > 0 && "Chromosome" %in% colnames(on_target_grnas) && "Start" %in% colnames(on_target_grnas)) {
+      if (nrow(on_target_grnas) > 0) {
         grna_locations <- paste0(on_target_grnas$Chromosome, ":", on_target_grnas$Start)
         grna_locations_str <- paste(unique(grna_locations), collapse=", ")
         if (nchar(grna_locations_str) > 0) {
@@ -79,134 +177,111 @@ if (!is.null(hotspot_file_path) && file.exists(hotspot_file_path)) {
   }, silent = TRUE)
 }
 
-# -- Prepare On- and Off-Target Coding Sequence Variants Tables --
+# -- Prepare SV Table --
 sv_table_html <- "<p>No on-target SV/transgene data available in the report.</p>"
 transgene_df <- report_data$tables$on_target_sv_transgene
 
-# The data is already parsed into a data frame from the JSON.
 if ((is.data.frame(transgene_df) && nrow(transgene_df) > 0) || (is.list(transgene_df) && length(transgene_df) > 0)) {
-    # Coerce to data.frame if it's a list (fromJSON behavior)
     if (is.list(transgene_df) && !is.data.frame(transgene_df)) {
         transgene_df <- dplyr::bind_rows(transgene_df)
     }
-
-    # Filter for coding variants using a broad set of terms
     coding_terms <- c("coding_sequence", "frameshift", "missense", "inframe_insertion", "inframe_deletion", "stop_gained")
     coding_pattern <- paste(coding_terms, collapse = "|")
     
-    # Ensure the required columns exist
     if ("Consequence" %in% colnames(transgene_df) && "SYMBOL" %in% colnames(transgene_df)) {
         coding_variants <- transgene_df[grepl(coding_pattern, transgene_df$Consequence, ignore.case = TRUE), ]
-        
         if (nrow(coding_variants) > 0) {
-            # Handle multiple transcript annotations for a single variant
-            # Prioritize annotations with an EXON number and then de-duplicate.
             sv_display_data <- coding_variants %>%
               arrange(Location, desc(EXON != "-")) %>%
               distinct(Location, .keep_all = TRUE) %>%
               select(Location, SYMBOL, EXON)
-
             colnames(sv_display_data) <- c("Location", "Gene Symbol", "Exon")
-            
-            # Generate HTML table
-            sv_table_html <- knitr::kable(sv_display_data, format = "html", row.names = FALSE, escape = FALSE, table.attr = 'class="table table-bordered"')
+            sv_table_html <- knitr::kable(sv_display_data, format = "html", row.names = FALSE, table.attr = 'class="table table-bordered variant-sub-table"')
         } else {
             sv_table_html <- "<p style='text-align:center;'>No coding variants found</p>"
         }
-    } else {
-        sv_table_html <- paste0(
-            "<p>Required columns not found in the data.</p>",
-            "<p>Available: ", paste(colnames(transgene_df), collapse=", "), "</p>"
-        )
     }
 }
 
-# -- Prepare Circos plot HTML --
-circos_html <- ""
-# The sv_data object is needed for the circos plot logic, so we must recreate it here.
-sv_data <- report_data$tables$on_target_sv_transgene
-if (!is.null(report_data$plots$circos) && file.exists(report_data$plots$circos)) {
-  file.copy(from = report_data$plots$circos, to = "circos.png", overwrite = TRUE)
-  img_tag <- '<img src="circos.png" alt="circos plot" class="equal-size-img">'
-  p_tag <- paste0('<p style="text-align: center; margin-top: 8px;">All Transgene Integrations</p>')
-  circos_html <- paste0(img_tag, p_tag)
+# -- Determine Image Paths --
+# We don't generate HTML here, just check existence
+circos_file <- params$circos_plot_file
+# Handle empty/placeholder file
+if (is.null(circos_file) || circos_file == "" || !file.exists(circos_file)) {
+    # Try finding by pattern in current dir
+    found_files <- list.files(pattern = ".*\\.transgene_insertions_circos\\.png$")
+    if (length(found_files) > 0) {
+        circos_file <- found_files[1]
+    } else {
+        circos_from_json <- report_data$plots$circos
+        if (!is.null(circos_from_json) && file.exists(basename(circos_from_json))) {
+            circos_file <- basename(circos_from_json)
+        } else {
+            circos_file <- NULL
+        }
+    }
+} else if (file.info(circos_file)$size == 0) {
+    circos_file <- NULL
 }
 
-# -- Prepare CNA/BAF plots HTML --
-cna_plot_html <- if (!is.null(report_data$plots$cna) && file.exists(report_data$plots$cna) && file.info(report_data$plots$cna)$size > 0) {
-  paste0('<img src="', report_data$plots$cna, '" alt="CNA Plot" class="equal-size-img">')
-} else {
-  '<div class="plot-unavailable"><p>CNA plot not available</p></div>'
-}
-baf_plot_html <- if (!is.null(report_data$plots$baf) && file.exists(report_data$plots$baf) && file.info(report_data$plots$baf)$size > 0) {
-  paste0('<img src="', report_data$plots$baf, '" alt="BAF Plot" class="equal-size-img">')
-} else {
-  '<div class="plot-unavailable"><p>BAF plot not available</p></div>'
-}
+cna_file <- params$cna_plot_file
+if (is.null(cna_file) || !file.exists(cna_file)) cna_file <- NULL
 
-# -- Prepare Targeted Gene Mutations table HTML --
+baf_file <- params$baf_plot_file
+if (is.null(baf_file) || !file.exists(baf_file)) baf_file <- NULL
+
+# -- Prepare Targeted Gene Mutations --
 targeted_gene_mutations_html <- ""
+tgm <- NULL
 if (!is.null(report_data$tables$targeted_gene_mutations)) {
   tgm <- as.data.frame(report_data$tables$targeted_gene_mutations)
-  if (nrow(tgm) > 0 && all(c('gene','result') %in% colnames(tgm))) {
-    for (i in 1:nrow(tgm)) {
-      targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', tgm[i, 'gene'], '</td><td>', tgm[i, 'result'], '</td></tr>')
-    }
-  } else {
-    default_genes <- c('TP53','DNMT3A','RUNX1','TET2')
-    for (g in default_genes) {
-      targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', g, '</td><td>no data</td></tr>')
-    }
-  }
-} else {
-  default_genes <- c('TP53','DNMT3A','RUNX1','TET2')
-  for (g in default_genes) {
-    targeted_gene_mutations_html <- paste0(targeted_gene_mutations_html, '<tr><td>', g, '</td><td>no data</td></tr>')
-  }
+}
+if (is.null(tgm) || nrow(tgm) == 0) {
+    # Default rows if missing
+    tgm <- data.frame(gene = c("TP53", "DNMT3A", "RUNX1", "TET2"), result = "no data")
+}
+# Construct rows manually for the nested table structure if needed, or use kable
+rows_html <- ""
+for(i in 1:nrow(tgm)) {
+    rows_html <- paste0(rows_html, "<tr><td>", tgm$gene[i], "</td><td>", tgm$result[i], "</td></tr>")
 }
 ```
+
 <!-- Python code makes on target editing bar plot, and off target sites plot -->
 ```{python}
 #| include: false
 import json
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 
-# Load JSON directly to avoid R<->Python type conversion edge cases
+# Load JSON
 report_json_path = r['report_json_path']
 with open(report_json_path, 'r') as _fh:
     report_data = json.load(_fh)
 
 def parse_offtarget_data(data):
-    """Parse the off-target data and return x and y values."""
     x_values, y_values = [], []
     for record in data:
-        if not isinstance(record, dict):
-            continue
+        if not isinstance(record, dict): continue
         try:
             chrom, start, end = record['chrom'], record['start'], record['end']
             indel_fraction = float(record.get('indel_fraction', 0) or 0)
-            is_target = int(record.get('is_target', record.get('is_target_site', 0)) or 0)
-            
-            if indel_fraction == 0:
-                continue
-
+            if indel_fraction == 0: continue
             loci = f"{chrom}:{start}-{end}"
             x_values.append(loci)
-            y_values.append(indel_fraction * 100)  # Convert to percentage
-        except (ValueError, IndexError, KeyError):
-            continue
+            y_values.append(indel_fraction * 100)
+        except (ValueError, IndexError, KeyError): continue
     return x_values, y_values
 
 offtarget_list = report_data.get('tables', {}).get('off_target_indels', [])
-on_target_records = [rec for rec in offtarget_list if isinstance(rec, dict) and str(rec.get('is_target', rec.get('is_target_site', '0'))) == '1']
-off_target_records = [rec for rec in offtarget_list if isinstance(rec, dict) and str(rec.get('is_target', rec.get('is_target_site', '0'))) == '0']
+on_target_records = [rec for rec in offtarget_list if str(rec.get('is_target', rec.get('is_target_site', '0'))) == '1']
+off_target_records = [rec for rec in offtarget_list if str(rec.get('is_target', rec.get('is_target_site', '0'))) == '0']
 
 on_target_x, on_target_y = parse_offtarget_data(on_target_records)
 off_target_x, off_target_y = parse_offtarget_data(off_target_records)
 
-def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type, highlight_line=None):
-    """Create and save a bar chart."""
+def plot_bar_chart(x_values, y_values, xlabel, ylabel, output_file, type, highlight_line=None):
     if type == 'on target':
         plt.figure(figsize=(9, 9.5))
     else:
@@ -216,270 +291,210 @@ def plot_bar_chart(x_values, y_values, xlabel, ylabel, title, output_file, type,
         plt.axhline(y=highlight_line['value'], color=highlight_line['color'], linestyle='-', linewidth=2)
         plt.text(x=len(x_values)-0.5, y=highlight_line['value'], s=highlight_line['label'], 
                  color=highlight_line['color'], fontsize=12, va='bottom', ha='right')
-    plt.xlabel(rf"{xlabel}", fontsize=20)
-    plt.ylabel(rf"{ylabel}", fontsize=20)
-    plt.xticks([])
+    plt.xlabel(rf"{xlabel}", fontsize=14)
+    plt.ylabel(rf"{ylabel}", fontsize=14)
+    plt.xticks(rotation=90)
     plt.tight_layout()
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
 
 if on_target_x:
-    plot_bar_chart(on_target_x, on_target_y, 'On-target loci', 'Indel frequency (%)', 'On-target editing', 'indel_freq.png', 'on target')
+    plot_bar_chart(on_target_x, on_target_y, 'On-target loci', 'Indel frequency (%)', 'indel_freq.png', 'on target')
 
 if off_target_x:
     thr = float(r['off_target_threshold_value'])
-    plot_bar_chart(
-        off_target_x,
-        off_target_y,
-        'Predicted off-target sites',
-        'Indel frequency (%)',
-        'Off-target sites',
-        'off_targets.png',
-        'off target',
-        {'value': thr, 'color': 'red', 'label': f"{thr}%"}
-    )
+    plot_bar_chart(off_target_x, off_target_y, 'Predicted off-target sites', 'Indel frequency (%)', 'off_targets.png', 'off target', {'value': thr, 'color': 'red', 'label': f"{thr}%"})
 ```
+
 <div class="callout-box" style="background-color: #E6F3FF; text-align: center; padding: 8px; font-size: 1.2em;">
   <h1>Somatic Editing Genome Report</h1>
 </div>
 <br>
+
 ```{r}
 #| echo: false
 #| results: 'asis'
 cat("<table>")
 cat("<tr><th>Drug Product</th><th>Control Sample</th><th>Modifications</th></tr>")
 control_sample <- ifelse(!is.null(report_data$metadata$control_sample), report_data$metadata$control_sample, "N/A")
-cat(paste0("<tr><td>", report_data$sample_id, "</td><td>", control_sample, "</td><td><strong>Transgene:</strong></td></tr>"))
+
+# Use transgene_name_param if available, otherwise description from report_data
+transgene_label <- ifelse(nchar(transgene_name_param) > 0, transgene_name_param, report_data$transgene_description)
+if (is.null(transgene_label)) transgene_label <- ""
+
+cat(paste0("<tr><td>", report_data$sample_id, "</td><td>", control_sample, "</td><td><strong>Transgene:</strong> ", transgene_label, "</td></tr>"))
 tumor_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$tumor), paste0("Mean coverage: ", report_data$metadata$mean_coverage$tumor, "x"), "Mean coverage: N/A")
 normal_cov <- ifelse(!is.null(report_data$metadata$mean_coverage$normal), paste0("Mean coverage: ", report_data$metadata$mean_coverage$normal, "x"), "Mean coverage: N/A")
-cat(paste0("<tr><td>", tumor_cov, "</td><td>", normal_cov, "</td><td>", report_data$transgene_description, "</td></tr>"))
+cat(paste0("<tr><td>", tumor_cov, "</td><td>", normal_cov, "</td><td></td></tr>"))
 cat("<tr><td></td><td></td><td><strong>gRNA:</strong></td></tr>")
 cat(paste0("<tr><td></td><td></td><td>", grna_display_string, "</td></tr>"))
 cat("</table>")
 ```
+
 <h1 style="margin-bottom: 0;"><em>On-target editing (`r target_gene_symbol`)</em></h1>
 
-<style>
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    table-layout: fixed;  /* Makes columns equal width */
-    border: 1px solid #6495ED;  /* Add border around the entire table */
-    border-spacing: 0;  /* Removes space between cells */
-  }
-
-  td, th {
-    padding: 8px;  /* Increased from 2px to 8px */
-    text-align: left;  /* Changed from center to left */
-    border-right: 1px solid #6495ED;
-    width: 33.33%;  /* Makes each column take up exactly 1/3 of the table width */
-    line-height: 1.2;  /* Reduces line height */
-    margin: 0;  /* Removes any margin */
-  }
-
-  th {
-    background-color: #6495ED;
-    color: white;
-    font-size: 1.2em;
-    border-bottom: 1px solid #6495ED;  /* Add bottom border to header cells */
-  }
-
-  td {
-    background-color: #E6F3FF;
-  }
-
-  /* Remove the right border from the last column */
-  td:last-child, th:last-child {
-    border-right: none;
-  }
-
-  /* Remove any extra space from paragraphs inside cells */
-  td p {
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Style for the off-target subtable */
-  .off-target-subtable td {
-    padding: 2px 4px;  /* 2px vertical, 4px horizontal padding */
-    line-height: 1.0;
-    text-align: center;
-  }
-
-  .off-target-subtable {
-    margin: 0;
-    border-spacing: 0;  /* Remove space between cells */
-    border-collapse: collapse;  /* Ensure borders touch */
-  }
-
-  .off-target-subtable td:first-child {
-    padding-right: 2px;  /* Less space after first column */
-  }
-
-  .off-target-subtable td:last-child {
-    padding-left: 2px;  /* Less space before last column */
-  }
-
-  .off-target-subtable img {
-    width: 100%; /* Ensures images fit perfectly within the columns */
-    height: auto;
-  }
-
-  .blue-bottom-border {
-    border-bottom: 2px solid #6495ED;
-  }
-
-  .equal-size-img {
-    width: 100%; /* Make the image as wide as its container */
-    height: auto; /* Maintain the aspect ratio */
-  }
-
-  /* Style for the nested table in the middle column */
-  .white-background-table .white-background-table td {
-    padding: 8px;  /* Reduced from 20px to 8px */
-    line-height: 1.4;  /* Reduced from 2.0 to 1.4 */
-    text-align: center;  /* Center align the text */
-  }
-
-  /* Add spacing for the middle column text */
-  .variant-text {
-    line-height: 1.4;  /* Reduced from 1.8 to 1.4 */
-    margin-bottom: 4px;  /* Reduced from 8px to 4px */
-  }
-
-  .variant-text p {
-    margin: 0;
-    padding: 0;
-  }
-
-  h1 {
-    margin-top: 10px;  /* Reduced space above headers */
-    margin-bottom: 10px;  /* Reduced space below headers */
-  }
-
-  /* Add header borders to subtables with smaller text */
-  .off-target-subtable th {
-    border-bottom: 2px solid #6495ED; /* Add a blue bottom border */
-    background-color: #E6F3FF; /* Optional: Match the background color */
-    color: black; /* Optional: Set text color */
-    padding: 4px; /* Adjust padding for better spacing */
-    font-size: 0.9em; /* Make the text smaller */
-  }
-  .genome-wide-subtable th {
-    border-top: 2px solid #6495ED; /* Add a blue top border */
-    border-bottom: 2px solid #6495ED; /* Add a blue bottom border */
-    background-color: #E6F3FF; /* Optional: Match the background color */
-    color: black; /* Optional: Set text color */
-    padding: 4px; /* Adjust padding for better spacing */
-    font-size: 0.9em; /* Make the text smaller */
-  }
-</style>
-
 <table class="white-background-table blue-bottom-border">
-  <tr>
-    <th>Indel frequency</th>
-    <th>Transgene integrations</th>
-    <th>Coding Sequence Variants</th>
-  </tr>
-  <tr>
-    <td><img src="indel_freq.png" alt="Indel Frequency" class="equal-size-img"></td>
-    <td>`r knitr::asis_output(circos_html)`</td>
-    <td>`r knitr::asis_output(sv_table_html)`</td>
-  </tr>
+<tr>
+<th>Indel frequency</th>
+<th>Transgene integrations</th>
+<th>Coding Sequence Variants</th>
+</tr>
+<tr>
+<td>
+```{r}
+#| echo: false
+#| results: "asis"
+#| out.extra: 'class="equal-size-img"'
+if (file.exists("indel_freq.png")) {
+  knitr::include_graphics("indel_freq.png")
+} else {
+  cat('<div class="plot-unavailable">Indel Frequency not available</div>')
+}
+```
+</td>
+<td>
+```{r}
+#| echo: false
+#| results: "asis"
+#| out.extra: 'class="equal-size-img"'
+if (!is.null(circos_file)) {
+  # Use standard markdown image syntax instead of knitr::include_graphics to avoid potential display issues
+  cat(paste0('<p style="text-align: center;"><img src="', circos_file, '" class="equal-size-img" style="max-width: 100%; height: auto;"></p>'))
+  cat('<p style="text-align: center; margin-top: 8px;">All Transgene Integrations</p>')
+} else {
+  cat('<div class="plot-unavailable">Circos Plot not available</div>')
+}
+```
+</td>
+<td>`r knitr::asis_output(sv_table_html)`</td>
+</tr>
 </table>
+
 <h1 style="margin-bottom: 0;"><em>Off-target mutations (`r nrow(as.data.frame(report_data$tables$off_target_indels))` sites screened)</em></h1>
+
 <table class="white-background-table blue-bottom-border">
-  <tr>
-    <th>Off target sites</th>
-    <th>Off-target sites > `r off_target_threshold_value`% indel frequency</th>
-  </tr>
-  <tr>
-    <td><img src="off_targets.png" alt="Sample Image" class="equal-size-img"></td>
-    <td>
+<tr>
+<th>Off target sites</th>
+<th>Off-target sites > `r off_target_threshold_value`% indel frequency</th>
+</tr>
+<tr>
+<td>
+```{r}
+#| echo: false
+#| results: "asis"
+#| out.extra: 'class="equal-size-img"'
+if (file.exists("off_targets.png")) {
+  knitr::include_graphics("off_targets.png")
+} else {
+  cat('<div class="plot-unavailable">Off Target Sites not available</div>')
+}
+```
+</td>
+<td>
 ```{r}
 #| echo: false
 #| results: 'asis'
 off_target_df <- as.data.frame(report_data$tables$off_target_indels)
 
 if (is.data.frame(off_target_df) && nrow(off_target_df) > 0) {
-    is_target_col_name <- if("is_target" %in% colnames(off_target_df)) "is_target" else "is_target_site"
-    
-    if(is_target_col_name %in% colnames(off_target_df)) {
-        off_target_df[[is_target_col_name]] <- as.character(off_target_df[[is_target_col_name]])
+    if("is_target" %in% colnames(off_target_df)) {
+        off_target_df$is_target <- as.character(off_target_df$is_target)
     } else {
-        off_target_df[[is_target_col_name]] <- '0' 
-    }
-
-    on_target_sites <- off_target_df[off_target_df[[is_target_col_name]] == '1', ]
-    potential_off_targets <- off_target_df[off_target_df[[is_target_col_name]] == '0', ]
-
-    is_proximal_to_on_target <- function(chrom, start, on_targets) {
-        if(nrow(on_targets) == 0) return(FALSE)
-        same_chrom_on_targets <- on_targets[on_targets$chrom == chrom, ]
-        if(nrow(same_chrom_on_targets) == 0) return(FALSE)
-        min_dist <- min(abs(as.numeric(same_chrom_on_targets$start) - as.numeric(start)))
-        return(min_dist <= 3)
-    }
-
-    if (nrow(potential_off_targets) > 0 && nrow(on_target_sites) > 0) {
-        proximal_mask <- mapply(is_proximal_to_on_target,
-                                   potential_off_targets$chrom,
-                                   potential_off_targets$start,
-                                   MoreArgs = list(on_targets = on_target_sites))
-        true_off_targets <- potential_off_targets[!proximal_mask, ]
-    } else {
-        true_off_targets <- potential_off_targets
+        off_target_df$is_target <- '0' 
     }
     
-    off_target_filtered <- true_off_targets[
-      as.numeric(true_off_targets$indel_fraction) * 100 > as.numeric(params$off_target_threshold),
+    potential_off_targets <- off_target_df[off_target_df$is_target == '0', ]
+    
+    # Filter by threshold
+    off_target_filtered <- potential_off_targets[
+      as.numeric(potential_off_targets$indel_fraction) * 100 > off_target_threshold_value,
     ]
     
     if(nrow(off_target_filtered) > 0){
-        cat('<table class="white-background-table off-target-subtable">')
-        cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>")
+        cat('<table class="white-background-table off-target-subtable">\n')
+        cat("<tr><th>Genome Coordinate</th><th>% Indels</th><th>Annotation</th></tr>\n")
         for(i in 1:nrow(off_target_filtered)){
             coord <- paste0(off_target_filtered[i, "chrom"], ":", off_target_filtered[i, "start"])
             indels <- paste0(round(as.numeric(off_target_filtered[i, "indel_fraction"]) * 100, 1), "%")
-            annotation <- off_target_filtered[i, "Annotation"]
-            cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>"))
+            
+            raw_annotation <- off_target_filtered[i, "target_info"]
+            annotation <- raw_annotation
+            
+            # Parse Annotation
+            if (!is.na(raw_annotation) && raw_annotation != "" && raw_annotation != ".") {
+                parts <- strsplit(raw_annotation, ";")[[1]]
+                csq_part <- parts[grep("^CSQ=", parts)]
+                if(length(csq_part) > 0) {
+                    csq_val <- sub("^CSQ=", "", csq_part[1])
+                    transcripts <- strsplit(csq_val, ",")[[1]]
+                    t1 <- transcripts[1]
+                    fields <- strsplit(t1, "\\|")[[1]]
+                    # Assuming SYMBOL|Gene|Consequence|... based on observed VEP output
+                    # ANNOTATE_OFFTARGETS specifies --fields "SYMBOL,Gene,Consequence,..."
+                    # We found index 1 is Symbol, index 2 is Gene ID, index 3 is Consequence
+                    if (length(fields) >= 3) {
+                        gene_sym <- fields[1]
+                        cons <- fields[3]
+                        if (gene_sym == "") gene_sym <- fields[2]
+                        if (gene_sym == "") gene_sym <- "N/A"
+                        # Replace '&' with '<br>' in consequence string for better readability
+                        cons <- gsub("&", "<br>", cons)
+                        annotation <- paste0("<strong>Gene:</strong> ", gene_sym, "<br><strong>Consequence:</strong> ", cons)
+                    }
+                }
+            }
+
+            cat(paste0("<tr><td>", coord, "</td><td>", indels, "</td><td>", annotation, "</td></tr>\n"))
         }
-        cat("</table>")
+        cat("</table>\n")
     } else {
-        cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
+        cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>\n"))
     }
 } else {
-  cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>"))
+  cat(paste0("<p>No off-target sites with > ", off_target_threshold_value, "% indel frequency found.</p>\n"))
 }
 ```
-  </tr>
+</td>
+</tr>
 </table>
 
 <br>
 
 <table class="white-background-table blue-bottom-border">
-  <tr>
-    <th colspan="2" style="text-align:center;"><h1 style="margin-bottom: 0;"><em>Genome integrity and gene mutation analysis</em></h1></th>
-  </tr>
-  <tr>
-    <th>Genome-wide copy number analysis</th>
-    <th>Targeted gene mutation analysis</th>
-  </tr>
-  <tr>
-    <td>
-      `r knitr::asis_output(cna_plot_html)`
-      `r knitr::asis_output(baf_plot_html)`
-    </td>
-    <td>
-      <table class="white-background-table off-target-subtable">
-        <tr>
-          <th>Gene</th>
-          <th>Result</th>
-        </tr>
-        `r knitr::asis_output(targeted_gene_mutations_html)`
-      </table>
-    </td>
-  </tr>
+<tr>
+<th colspan="2" style="text-align:center;"><h1 style="margin-bottom: 0;"><em>Genome integrity and gene mutation analysis</em></h1></th>
+</tr>
+<tr>
+<th>Genome-wide copy number analysis</th>
+<th>Targeted gene mutation analysis</th>
+</tr>
+<tr>
+<td>
+```{r}
+#| echo: false
+#| results: "asis"
+#| out.extra: 'class="equal-size-img"'
+if (!is.null(cna_file)) {
+  knitr::include_graphics(cna_file)
+} else {
+  cat('<div class="plot-unavailable">CNA Plot not available</div>')
+}
+
+if (!is.null(baf_file)) {
+  knitr::include_graphics(baf_file)
+} else {
+  cat('<div class="plot-unavailable">BAF Plot not available</div>')
+}
+```
+</td>
+<td>
+<table class="white-background-table off-target-subtable">
+<tr>
+<th>Gene</th>
+<th>Result</th>
+</tr>
+`r knitr::asis_output(rows_html)`
 </table>
-
-
+</td>
+</tr>
+</table>

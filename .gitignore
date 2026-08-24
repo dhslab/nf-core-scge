@@ -1,9 +1,112 @@
+# =============================================================================
+#  nf-core-scge — .gitignore
+#  Pattern-based. Root-anchored (leading /) entries are one-off local files that
+#  are intentionally kept out of git; delete or commit them deliberately.
+# =============================================================================
+
+# ---- Agent / tooling scratch ----
+# Claude Code keeps per-repo settings AND full worktree checkouts under .claude/
+# (each with its own .nextflow logs and work dirs) — hundreds of MB that must never
+# be swept into a commit by `git add -A`.
+.claude/
+
+# ---- nf-test ----
+# nf-test writes a per-test scratch .nf file into the REPO ROOT (one per test id) and
+# keeps its work dir in .nf-test/. Both are build artifacts of a test run, and there
+# are ~100 of the scratch files after a full suite.
+.nf-test/
+.nf-test-*.nf
+.nf-test.log
+
+# ---- Nextflow runtime ----
 .nextflow*
 work/
-data/
 results/
-.DS_Store
+results*/
+null/
+nxf-tmp.*
+
+# ---- Data & large / generated inputs ----
+data/
+logs/
 testing/
 testing*
+mastersheets/
+test_output/
+test_results*
+test_logs/
+test_mastersheets/
+test_null/
+
+# ---- Python (vendored envs, caches, build metadata) ----
+__pycache__/
 *.pyc
-.dir_bash_history
+*.dist-info/
+*.libs/
+.pytest_cache/
+# local test venv/cache created by run_offtarget_tests.sh
+.offtarget_testenv*/
+.offtarget_testcache/
+
+# ---- Scheduler / process logs ----
+*.log
+*.err
+
+# ---- OS / editor ----
+.DS_Store
+/.dir_bash_history
+
+# ---- Local-only files: not part of the pipeline ----
+/CLAUDE.md
+/REPO_INVENTORY.md
+/DEBUGGING_REPORT.md
+/to_commit.md
+/pipeline_explanation.txt
+/Groovy vs. Shell in Nextflow.txt
+/minimal.config
+/flowchart.dot
+/extracted_indels.json
+/versions.yml
+/build.sh
+/nextflow
+/-e
+/s
+/err.txt
+/AAVS1site14_WTcas9-DNA.scge_report_ml.html
+/AAVS1site14_WTcas9-DNA.scge_report_og.html
+/analysis_samples.csv
+/mastersheet.*.csv
+/offtarget_samplesheet_aavs1.csv
+/mock_dragen_dir/
+/aavs1_ml_testing/
+/training_data/
+/run.sh
+/run_all.sh
+/run_test.sh
+/run_offtarget_aavs1.sh
+/test_syntax.nf
+/test_versions.nf
+
+# ---- Legacy CRISPR-ML scripts / models (deprecated; see REPO_INVENTORY.md) ----
+bin/*.bak
+bin/build_from_curated_tsv.py
+bin/build_training_from_tsv.py
+bin/convert_targets.pl
+bin/train_aavs1_v3.sh
+bin/train_aavs1_v3_lsf.sh
+bin/tsv_to_vcf.py
+assets/NO_*.csv
+assets/NO_*.tsv
+assets/empty*.txt
+assets/all_samples_mastersheet.csv
+assets/ecs_samples_mastersheet.csv
+assets/models/crispr_model_*.pkl
+assets/models/crispr_model_*_cv_summary.csv
+assets/stub/AAVS1_site14.targets.csv
+assets/stub/aavs1site14_samplesheet.csv
+
+# ---- nf-core plugin cache ----
+subworkflows/nf-core/utils_nfschema_plugin/
+
+# ---- Large committed-doc screenshots ----
+docs/images/Screenshot*.png

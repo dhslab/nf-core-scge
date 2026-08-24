@@ -1,63 +1,39 @@
 process GENERATE_CNA_BAF_PLOTS {
     tag "${meta.id}"
     label 'process_low'
-
-    container 'ghcr.io/dhslab/docker-clerbase:250719'
-
-    publishDir "${params.outdir}/pipeline_info/cna_baf_plots/${meta.id}", mode: 'copy', pattern: '*.png'
+    container 'ghcr.io/dhslab/docker-rbase4.4.0:251223'
 
     input:
     tuple val(meta), path(dragen_files, stageAs: "dragen_files/*")
 
     output:
-    tuple val(meta), path("*cna_plot.png"), emit: cna_plot
-    tuple val(meta), path("*baf_plot.png"), emit: baf_plot
-    path "versions.yml", emit: versions
+    tuple val(meta), path("${meta.id}.cna_plot.png"), path("${meta.id}.baf_plot.png"), emit: plots
+    path "versions.yml"           , emit: versions
 
     script:
-    def inputs = [
-        meta.id,
-        dragen_files.find{ it ==~ /.*\.(baf.bedgraph.gz)$/ } ?: "",
-        dragen_files.find{ it ==~ /.*\.(tn.tsv.gz)$/ } ?: ""
+    def args = task.ext.args ?: ''
+    def input = [
+        "--id ${meta.id}",
+        dragen_files.find{ it ==~ /.*\.baf\.bedgraph\.gz$/ }?.with{ "--baf $it" } ?: "",
+        dragen_files.find{ it ==~ /.*\.tn\.tsv\.gz$/ }?.with{ "--cn $it" } ?: ""
     ].join(' ').trim()
-
     """
-    export PATH=\$PATH:/usr/local/bin
-    echo "DEBUG: PATH is \$PATH"
-    echo "DEBUG: Rscript location: \$(which Rscript || echo 'not found')"
-    
-    generate_cna_baf_plots.R ${inputs}
+    generate_cna_baf_plots.R ${input}
 
-    cat <<-'END_VERSIONS' > versions.yml
+    cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        r-base: \$(R --version | sed 's/.*version \\([0-9.]*\\).*/\\1/')
-        ggplot2: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('ggplot2')))")
-        dplyr: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('dplyr')))")
-        cowplot: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('cowplot')))")
-        genomicranges: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('GenomicRanges')))")
+        generate_cna_baf_plots: \$(generate_cna_baf_plots.R --version)
     END_VERSIONS
     """
 
     stub:
-    def inputs = [
-        ${meta.id},
-        dragen_files.find{ it ==~ /.*\.(baf.bedgraph.gz)$/ } ?: "",
-        dragen_files.find{ it ==~ /.*\.(tn.tsv.gz)$/ } ?: ""
-    ].join(' ').trim()
-
     """
-
     touch ${meta.id}.cna_plot.png
     touch ${meta.id}.baf_plot.png
 
-
-    cat <<-'END_VERSIONS' > versions.yml
+    cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        r-base: \$(R --version | sed 's/.*version \\([0-9.]*\\).*/\\1/')
-        ggplot2: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('ggplot2')))")
-        dplyr: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('dplyr')))")
-        cowplot: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('cowplot')))")
-        genomicranges: \$(R --vanilla --quiet -e "cat(as.character(packageVersion('GenomicRanges')))")
+        generate_cna_baf_plots: \$(generate_cna_baf_plots.R --version)
     END_VERSIONS
     """
-} 
+}

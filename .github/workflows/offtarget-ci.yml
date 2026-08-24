@@ -1,0 +1,148 @@
+name: offtarget CI
+# Exercises the -entry OFFTARGET workflow that the default nf-core CI does not cover:
+#   1. stub run  — DAG wiring for all three modes (paired / wgs_only / ecs_only)
+#   2. glue tests — the ECS<->WGS join logic (tests/test_offtarget_glue.py)
+#   3. nf-test    — REAL process bodies in the real container, on KB-sized fixtures
+#
+# (1) and (3) are complementary and neither replaces the other: a stub run only `touch`es
+# outputs, so it proves the DAG connects but executes no line of bin/*.py; nf-test runs the
+# actual command, so it catches a module passing a flag the script does not accept.
+on:
+  push:
+    branches:
+      - dev
+      - "feat/offtarget-**"
+  pull_request:
+    paths:
+      - "workflows/offtarget.nf"
+      - "subworkflows/local/**"
+      - "modules/local/**"
+      - "bin/**"
+      - "tests/**"
+      - "conf/stub.config"
+      - "nf-test.config"
+      - "assets/offtarget_samplesheet_template.csv"
+      - ".github/workflows/offtarget-ci.yml"
+
+env:
+  NXF_ANSI_LOG: false
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  stub:
+    name: OFFTARGET stub run (DAG wiring, all modes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          # pin a stable release: the repo config's check_max() doesn't parse under the
+          # 26.x edge that "latest-everything" now resolves to.
+          version: "25.10.4"
+
+      # stub blocks only `touch` their outputs, so no container/data is needed — this is a
+      # pure wiring check. Derive single-arm sheets from the template to hit every mode.
+      - name: Build per-mode samplesheets
+        run: |
+          SS=assets/offtarget_samplesheet_template.csv
+          head -1 "$SS" | tee ss_wgs.csv > ss_ecs.csv
+          grep -iE ',wgs,' "$SS" >> ss_wgs.csv
+          grep -iE ',ecs,' "$SS" >> ss_ecs.csv
+
+      - name: Stub run — paired
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input "$SS" --outdir out_paired
+        env:
+          SS: assets/offtarget_samplesheet_template.csv
+      - name: Stub run — wgs_only
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_wgs.csv --outdir out_wgs
+      - name: Stub run — ecs_only
+        run: nextflow run . -entry OFFTARGET -profile stub -stub-run --input ss_ecs.csv --outdir out_ecs
+      # ecs rows with a spacer but no target_file auto-generate the hotspot VCF (once per guide)
+      - name: Stub run — ecs target_file auto-wire from spacer
+        run: |
+          nextflow run . -entry OFFTARGET -profile stub -stub-run \
+            --input assets/stub/offtarget_autowire.csv --fasta assets/stub/tiny.fa --outdir out_autowire
+
+  hotspots-stub:
+    name: HOTSPOTS stub run (gRNA -> targets DAG wiring)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: "25.10.4"
+
+      # stub blocks only `touch`/`printf` their outputs, so no container/genome is needed.
+      # Point --fasta at the tiny committed fixture (the real /storage2 reference is absent on CI).
+      - name: Stub run — Cas-OFFinder only (default)
+        run: |
+          nextflow run . -entry HOTSPOTS -profile stub -stub-run \
+            --input assets/grna_samplesheet_template.csv \
+            --fasta assets/stub/tiny.fa --outdir out_hotspots
+      - name: Stub run — with CRISPRme enabled
+        run: |
+          mkdir -p crisprme_idx
+          nextflow run . -entry HOTSPOTS -profile stub -stub-run \
+            --input assets/grna_samplesheet_template.csv \
+            --fasta assets/stub/tiny.fa --run_crisprme --crisprme_index_dir crisprme_idx \
+            --outdir out_hotspots_cme
+
+  glue-tests:
+    name: OFFTARGET glue-logic + combiner unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # the glue scripts are pure-pandas; a clean checkout has no repo-root vendored dirs to shadow.
+      # scikit-learn is needed by bin/offtarget_metrics.py (PR-AUC / ROC-AUC); the
+      # off-target container pins 1.8.0, but here any recent version is fine since
+      # nothing unpickles a model in these tests.
+      - name: Install test deps
+        run: python -m pip install --quiet pandas matplotlib pytest openpyxl scikit-learn
+
+      - name: Run glue + combiner tests
+        run: python -m pytest -q tests/test_offtarget_glue.py tests/test_combine_offtarget.py
+
+  nf-test:
+    name: nf-test (real process bodies, real container)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: "25.10.4"
+
+      # Installed straight from the vendor rather than via an action, so this step does
+      # not depend on a third-party action's input schema. The trailing argument pins
+      # the version; drop it to track latest (not recommended for a reproducible CI).
+      - name: Install nf-test
+        run: |
+          curl -fsSL https://code.askimed.com/install/nf-test | bash -s 0.9.5
+          sudo mv nf-test /usr/local/bin/
+          nf-test version
+
+      # ghcr.io/dhslab/docker-scge-offtarget is publicly readable, so no login is needed.
+      # Pull it up front: a first-use pull inside a process makes a timeout look like a
+      # test failure, and the image is shared by every test here.
+      - name: Pre-pull the off-target container
+        run: docker pull ghcr.io/dhslab/docker-scge-offtarget:260710
+
+      # Fixtures are ~6 KB (tests/fixtures/), so this is a couple of minutes on a 2-CPU
+      # runner. `stub` supplies the params profile — it nulls the /storage2 DRAGEN paths
+      # that workflows/scge.nf validates at parse time — while `docker` supplies the
+      # engine. Neither implies -stub-run; the process bodies really execute.
+      - name: Run nf-test
+        run: nf-test test --profile stub,docker --verbose

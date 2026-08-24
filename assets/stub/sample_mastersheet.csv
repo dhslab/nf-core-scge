@@ -1,0 +1,17 @@
+id,edited_id,control_id,fastq_list,edited_fastq1,edited_fastq2,control_fastq1,control_fastq2,edited_cram,control_cram,dragen_path
+
+# descriptions, note not all are specified for a single experiment (e.g., if edited_id and control_id and fastq_list are provided, then fastq1/fastq2 are not needed)
+id: the output root sample name
+edited_id: the id/name of the edited sample, if fastq_list is provided
+control_id: the id/name of the control sample, if fastq_list is provided
+fastq_list: path to an illumina-style fastq list csv file
+edited_fastq1: path to edited_fastq1 fastq file
+edited_fastq2: path to edited_fastq2 fastq file
+control_fastq1: path to control_fastq1 fastq file
+control_fastq2: path to control_fastq2 fastq file
+edited_cram: path to edited_cram file
+control_cram: path to control_cram file
+dragen_path: path to somatic dragen output -- this driggers analysis only
+
+
+

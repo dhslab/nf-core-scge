@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import re
@@ -48,6 +48,9 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
 
     df = pd.DataFrame(columns=['Chromosome','Start','End','Var','Strand','Info'])
 
+    if not contig in bam.references:
+        return df
+    
     # format of output: 
     # chr pos1 pos2 strand readname
     # iterate through once and get split reads and first end of discordant reads
@@ -91,12 +94,13 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
             if read.has_tag('SA'):
                 for sa in read.get_tag('SA').rstrip(';').split(';'):
                     sChr, sPos, sStrand, sCigar, sMq, sNm = sa.split(',')
+                    sPos = int(sPos)
                     if sChr != read.reference_name and int(sMq)>=minMq and int(sNm) <= maxMismatches:
                         readAligned = cigar_to_aligned_positions(read.cigarstring)
                         saAligned = cigar_to_aligned_positions(sCigar)
                         if len(readAligned.intersection(saAligned)) / len(readAligned) < 0.2:
                             if sStrand == '+':
-                                sPos = int(sPos) + len(saAligned)
+                                sPos = sPos + len(saAligned)
                             
                             mateseq = '.'
                             if read.reference_name != read.next_reference_name:
@@ -104,7 +108,7 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
                                 mateseq = mate.query_sequence
 
                             info = ['ID='+read.query_name, 'Type=PR', 'Read1Seq=' + read.query_sequence, 'Read2Seq=' + mateseq]
-                            df = pd.concat([df,pd.DataFrame([{'Chromosome':sChr,'Start':sPos-1,'End':int(sPos),'Var':'INS','Strand':sStrand,'Info':';'.join(info)}])]).reset_index(drop=True)
+                            df = pd.concat([df,pd.DataFrame([{'Chromosome':sChr,'Start':sPos-1,'End':sPos,'Var':'INS','Strand':sStrand,'Info':';'.join(info)}])]).reset_index(drop=True)
                         
         elif read.is_proper_pair and read.is_reverse and rightSoftClip >= minSoftClip:
             if read.has_tag('SA'):
@@ -130,15 +134,15 @@ def get_chimeras(bam,contig,exclude=None,minSoftClip=20,minMq=1,maxMismatches=1)
     return(pr.PyRanges(df).sort().df)
 
 parser = argparse.ArgumentParser(description='Find split and discordant reads that partially map to a transgene sequence')
-parser.add_argument('contig',type=str,help='Contig name of transgene')
-parser.add_argument('expbamfile',type=str,help='BAM file')
+parser.add_argument('-n', '--name',type=str,help='Name of transgene contig in reference FASTA')
 parser.add_argument('-r','--reference',type=str,default=None,help='Reference FASTA file')
 parser.add_argument('-x','--exclude',type=str,default=None,help='Coordinates to exclude from transgene contig')
 parser.add_argument('-o','--outfile',type=str,default=None,help='Output to file [stdout]')
+parser.add_argument('expbamfile',type=str,help='BAM file')
 
 args = parser.parse_args()
 
-contig = args.contig
+contig = args.name
 
 # open bam file(s)
 expsamfile = pysam.AlignmentFile(args.expbamfile,"rc",reference_filename=args.reference)

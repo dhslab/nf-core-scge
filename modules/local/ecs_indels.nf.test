@@ -1,0 +1,140 @@
+nextflow_process {
+
+    name "ECS_INDELS"
+    script "modules/local/ecs_indels.nf"
+    process "ECS_INDELS"
+    tag "ecs"
+    tag "tagged_bam"
+    tag "offtarget"
+
+    /*
+     * Runs the REAL edit caller (bin/find_edited_reads.py) on real CRAMs.
+     *
+     * Fixture: tests/fixtures/ecs/ — 5.5 KB total, built by make_ecs_fixture.py from the
+     * same read model tests/conftest.py uses. A 3 kb contig with two targets 200 bp apart:
+     *
+     *   target A @ chr1:1001  edited   — 12 of 20 evaluable pairs carry a 5 bp deletion
+     *   target B @ chr1:1201  quiet    — no edit
+     *
+     * edited.cram holds 35 pairs / 70 records: 12 edited, 8 clean, and — the useful part —
+     * 2 duplicate-flagged, 2 at MAPQ 3, 2 at NM 6, plus 9 pairs sitting in the region where
+     * the two +/-150 bp fetch windows overlap. Those last ones are visited by BOTH targets,
+     * which is exactly where a per-read writer is tempted to emit a read twice.
+     *
+     * Division of labour: the pytest suite owns the tag VOCABULARY and per-read precedence
+     * (it can open the BAM with pysam). This file owns what pytest cannot see — that
+     * params.offtarget_tagged_bam actually becomes a --tagged-bam-out flag, that the BAM
+     * *and its index* both land on the declared output channel, and that the caller's
+     * numbers survive the trip through Nextflow staging.
+     */
+
+    test("calls the edit and reports the right VAF — tagged BAM off by default") {
+
+        when {
+            params {
+                offtarget_tagged_bam = false
+            }
+            process {
+                """
+                def fx = "\${projectDir}/tests/fixtures/ecs"
+                input[0] = [
+                    [ id: 'DEMO' ],
+                    file("\${fx}/edited.cram"),
+                    file("\${fx}/control.cram"),
+                    file("\${fx}/targets.vcf")
+                ]
+                input[1] = file("\${fx}/ref.fa")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            // --- the caller's actual numbers -----------------------------------------
+            def tsv  = file(process.out.indels_file[0][1]).readLines()
+            def hdr  = tsv[0].split('\t') as List
+            def rows = tsv[1..-1].collect { line ->
+                [hdr, line.split('\t', -1) as List].transpose().collectEntries()
+            }
+
+            assert rows.size() == 2                       // one row per target
+
+            def a = rows.find { it.start == '1000' }      // target A, the edited site
+            def b = rows.find { it.start == '1200' }      // target B, the quiet site
+            assert a != null && b != null
+
+            // 12 edited pairs out of 20 evaluable. The 2 duplicate / 2 low-MAPQ /
+            // 2 high-mismatch pairs must NOT be in that denominator — if a filter
+            // regresses, total_reads climbs above 20 and this VAF drops.
+            assert a.total_reads == '20'
+            assert a.indel_reads == '12'
+            assert Math.abs(Double.parseDouble(a.indel_fraction) - 0.6) < 1e-9
+            assert a.indel_count == '1'
+            assert a.indel_info.contains('|1000|')        // the 5 bp deletion, left-anchored
+
+            // the matched control carries no edit at all: this is what makes the call somatic
+            assert a.control_reads       == '20'
+            assert a.control_indel_reads == '0'
+
+            // the quiet target must stay quiet — a caller that leaks reads between the two
+            // overlapping windows shows up here first
+            assert b.indel_reads == '0'
+            assert Math.abs(Double.parseDouble(b.indel_fraction)) < 1e-9
+
+            // --- the review BAM is opt-in -------------------------------------------
+            // it costs ~800 MB on a real sample, so silence here is the correct default
+            assert process.out.tagged_bam.size() == 0
+
+            assert process.out.indels_vcf.size() == 1
+            assert process.out.versions.size()   == 1
+        }
+    }
+
+    test("offtarget_tagged_bam=true emits a per-read tagged BAM and its index") {
+
+        when {
+            params {
+                offtarget_tagged_bam = true
+            }
+            process {
+                """
+                def fx = "\${projectDir}/tests/fixtures/ecs"
+                input[0] = [
+                    [ id: 'DEMO' ],
+                    file("\${fx}/edited.cram"),
+                    file("\${fx}/control.cram"),
+                    file("\${fx}/targets.vcf")
+                ]
+                input[1] = file("\${fx}/ref.fa")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            // The param really reached the command line. With the flag absent the caller
+            // writes nothing and this channel stays empty, so an empty channel here means
+            // the params.offtarget_tagged_bam -> --tagged-bam-out wiring is broken.
+            assert process.out.tagged_bam.size() == 1
+
+            def emitted = process.out.tagged_bam[0][1]
+            def names   = (emitted instanceof List ? emitted : [emitted])
+                              .collect { file(it).name }.sort()
+
+            // the `${meta.id}.tagged.bam*` glob must capture the INDEX too — a BAM without
+            // its .bai cannot be loaded in IGV, which is the entire purpose of this output
+            assert names == ['DEMO.tagged.bam', 'DEMO.tagged.bam.bai']
+
+            def bam = (emitted instanceof List ? emitted : [emitted])
+                          .find { file(it).name.endsWith('.bam') }
+            assert file(bam).size() > 0
+
+            // the TSV is unchanged by tagging — the review aid must not perturb the calls
+            def tsv = file(process.out.indels_file[0][1]).readLines()
+            assert tsv.size() == 3
+            assert tsv[1].contains('\t12\t0.6\t')
+        }
+    }
+}

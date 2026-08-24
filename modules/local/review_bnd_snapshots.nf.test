@@ -1,0 +1,159 @@
+nextflow_process {
+
+    name "REVIEW_BND_SNAPSHOTS"
+    script "modules/local/review_bnd_snapshots.nf"
+    process "REVIEW_BND_SNAPSHOTS"
+    tag "bnd"
+    tag "review"
+    tag "offtarget"
+
+    /*
+     * Runs the REAL junction renderer (bin/bnd_snapshots.py) on real CRAMs.
+     *
+     * Fixture: tests/fixtures/bnd/ -- 48 KB, built by make_bnd_fixture.py. An 8 kb contig
+     * with two breakpoints 4,000 bp apart, i.e. the multi-cut deletion that accounts for
+     * 23 of the 25 breakend rows in the CAR-T cohort:
+     *
+     *   edited.cram   40 clean reads tiled across the two breakpoints, plus 14 SPLIT
+     *                 reads whose primary is clipped at one breakpoint and whose
+     *                 supplementary segment sits at the partner, carrying an SA tag
+     *   control.cram  the same 40 clean reads, no split reads, no SA tags
+     *
+     * The split reads are the reason this file cannot be a stub test. Until this change
+     * bin/pileup_snapshot.py dropped `is_supplementary` unconditionally, which hid
+     * precisely the alignments that constitute a junction -- the figure rendered, looked
+     * plausible, and showed nothing. `keep_supplementary=True` plus the SA-derived
+     * highlight set is what has to be proven actually wired, and only a real run can.
+     *
+     * Division of labour, per nf-test.config:
+     *   tests/test_bnd_snapshots.py  owns the row-to-junction ARITHMETIC (against the
+     *                                real 25-row cohort queue).
+     *   this file                    owns the WIRING -- that the module's flags are ones
+     *                                the script accepts, that params.review_bnd_* reach
+     *                                the command line, and that the declared output
+     *                                channel matches the path the script really writes.
+     *
+     * The queue here is 5 rows describing ONE junction, reported from both ends with a
+     * few bp of jitter and both strand orientations -- the cohort's own pattern. If the
+     * collapse regressed, this would emit 5 PNGs, not 1.
+     */
+
+    test("renders one figure per junction, not one per queue row") {
+
+        when {
+            process {
+                """
+                def fx = "\${projectDir}/tests/fixtures/bnd"
+
+                // CRAM paths travel as a MAP of absolute paths, not as staged inputs --
+                // the queue names arbitrary samples, and staging every cohort CRAM to draw
+                // a few pictures would copy TBs. Nextflow stages this small map file
+                // itself, so it only has to be readable from the launch side.
+                def m = new File(System.getProperty("java.io.tmpdir"),
+                                 "bnd_cram_map_\${System.nanoTime()}.tsv")
+                m.text = "BNDDEMO\\t\${fx}/edited.cram\\t\${fx}/control.cram\\n"
+
+                input[0] = file("\${fx}/bnd_review_queue.tsv")
+                input[1] = file(m.getAbsolutePath())
+                input[2] = "\${fx}/ref.fa"
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            // --- 5 queue rows, 1 junction, 1 figure --------------------------------
+            assert process.out.snapshots.size() == 1
+            def png = file(process.out.snapshots[0])
+
+            // filename encodes BOTH ends, canonically ordered: this is how a reviewer
+            // finds the figure for a junction they read about in the queue.
+            assert png.name == "001_BNDDEMO_chr1_2000_chr1_6000.png"
+
+            // a real rendering, not an empty canvas
+            assert png.size() > 20000
+
+            // --- versions.yml must have real content -------------------------------
+            // nf-core's processVersionsFromYAML does yaml.load(f).collectEntries{...};
+            // an empty file loads as null and NPEs the whole pipeline at completion.
+            assert process.out.versions.size() == 1
+            def versions = file(process.out.versions[0]).text
+            assert versions.contains("REVIEW_BND_SNAPSHOTS")
+            assert versions.contains("python:")
+            assert versions.trim().length() > 0
+        }
+    }
+
+    test("params.review_bnd_max_junctions reaches the command line") {
+
+        when {
+            params {
+                review_bnd_max_junctions = 0
+            }
+            process {
+                """
+                def fx = "\${projectDir}/tests/fixtures/bnd"
+
+                // CRAM paths travel as a MAP of absolute paths, not as staged inputs --
+                // the queue names arbitrary samples, and staging every cohort CRAM to draw
+                // a few pictures would copy TBs. Nextflow stages this small map file
+                // itself, so it only has to be readable from the launch side.
+                def m = new File(System.getProperty("java.io.tmpdir"),
+                                 "bnd_cram_map_\${System.nanoTime()}.tsv")
+                m.text = "BNDDEMO\\t\${fx}/edited.cram\\t\${fx}/control.cram\\n"
+
+                input[0] = file("\${fx}/bnd_review_queue.tsv")
+                input[1] = file(m.getAbsolutePath())
+                input[2] = "\${fx}/ref.fa"
+                """
+            }
+        }
+
+        then {
+            // A cap of 0 renders nothing, and the script still exits 0 -- the output is
+            // declared `optional: true` precisely so an empty cohort is not a failure.
+            // If --max-junctions were not interpolated, the default of 200 would apply
+            // and this would emit the figure anyway. That is the assertion.
+            assert process.success
+            assert process.out.snapshots.size() == 0
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("params.review_bnd_snapshot_window is a flag the script accepts") {
+
+        when {
+            params {
+                review_bnd_snapshot_window = 600
+            }
+            process {
+                """
+                def fx = "\${projectDir}/tests/fixtures/bnd"
+
+                // CRAM paths travel as a MAP of absolute paths, not as staged inputs --
+                // the queue names arbitrary samples, and staging every cohort CRAM to draw
+                // a few pictures would copy TBs. Nextflow stages this small map file
+                // itself, so it only has to be readable from the launch side.
+                def m = new File(System.getProperty("java.io.tmpdir"),
+                                 "bnd_cram_map_\${System.nanoTime()}.tsv")
+                m.text = "BNDDEMO\\t\${fx}/edited.cram\\t\${fx}/control.cram\\n"
+
+                input[0] = file("\${fx}/bnd_review_queue.tsv")
+                input[1] = file(m.getAbsolutePath())
+                input[2] = "\${fx}/ref.fa"
+                """
+            }
+        }
+
+        then {
+            // argparse exits non-zero on an unrecognised flag, so a renamed or
+            // misspelled --window in the module fails the process here. That is the
+            // arity class of bug a stub run cannot see: `-stub-run` never executes a
+            // single line of bin/*.py.
+            assert process.success
+            assert process.out.snapshots.size() == 1
+            assert file(process.out.snapshots[0]).size() > 20000
+        }
+    }
+}

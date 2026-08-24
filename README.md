@@ -1,121 +1,214 @@
 <h1>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/nf-core-scge_logo_dark.png">
-    <img alt="nf-core/scge" src="docs/images/nf-core-scge_logo_light.png">
+    <img alt="nf-core/scge" src="docs/images/nf-core-scge_logo_light.png" width="400">
   </picture>
 </h1>
-[![GitHub Actions CI Status](https://github.com/nf-core/scge/workflows/nf-core%20CI/badge.svg)](https://github.com/nf-core/scge/actions?query=workflow%3A%22nf-core+CI%22)
-[![GitHub Actions Linting Status](https://github.com/nf-core/scge/workflows/nf-core%20linting/badge.svg)](https://github.com/nf-core/scge/actions?query=workflow%3A%22nf-core+linting%22)[![AWS CI](https://img.shields.io/badge/CI%20tests-full%20size-FF9900?labelColor=000000&logo=Amazon%20AWS)](https://nf-co.re/scge/results)[![Cite with Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.XXXXXXX-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 [![Nextflow](https://img.shields.io/badge/nextflow%20DSL2-%E2%89%A523.04.0-23aa62.svg)](https://www.nextflow.io/)
-[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
 [![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://www.docker.com/)
 [![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
-[![Launch on Nextflow Tower](https://img.shields.io/badge/Launch%20%F0%9F%9A%80-Nextflow%20Tower-%234256e7)](https://tower.nf/launch?pipeline=https://github.com/nf-core/scge)
-
-[![Get help on Slack](http://img.shields.io/badge/slack-nf--core%20%23scge-4A154B?labelColor=000000&logo=slack)](https://nfcore.slack.com/channels/scge)[![Follow on Twitter](http://img.shields.io/badge/twitter-%40nf__core-1DA1F2?labelColor=000000&logo=twitter)](https://twitter.com/nf_core)[![Follow on Mastodon](https://img.shields.io/badge/mastodon-nf__core-6364ff?labelColor=FFFFFF&logo=mastodon)](https://mstdn.science/@nf_core)[![Watch on YouTube](http://img.shields.io/badge/youtube-nf--core-FF0000?labelColor=000000&logo=youtube)](https://www.youtube.com/c/nf-core)
 
 ## Introduction
 
-**nf-core/scge** is a bioinformatics pipeline that ...
+**dhslab/nf-core-scge** is a Nextflow DSL2 pipeline for **somatic cell genome editing (SCGE)**
+analysis. It takes tumor (edited) / normal (unedited) sequencing through DRAGEN alignment
+(optional) and characterises the consequences of CRISPR editing: on/off-target edits,
+transgene integration, and genome-wide structural and copy-number changes, then compiles a
+per-sample HTML report. It is built for the WashU RIS clusters (Compute1/LSF, Compute2/SLURM)
+and AWS Batch.
 
-<!-- TODO nf-core:
-   Complete this sentence with a 2-3 sentence summary of what types of data the pipeline ingests, a brief overview of the
-   major pipeline sections and the types of output it produces. You're giving an overview to someone new
-   to nf-core here, in 15-20 seconds. For an example, see https://github.com/nf-core/rnaseq/blob/master/README.md#introduction
--->
+The pipeline has **two entry points**:
 
-<!-- TODO nf-core: Include a figure that guides the user through the major workflow steps. Many nf-core
-     workflows use the "tube map" design for that. See https://nf-co.re/docs/contributing/design_guidelines#examples for examples.   -->
-<!-- TODO nf-core: Fill in short bullet-pointed list of the default steps in the pipeline -->
+1. **`SCGE`** (default) — the full per-sample analysis and report.
+2. **`OFFTARGET`** (`-entry OFFTARGET`) — a two-assay (ECS + WGS) investigation arm: a WGS hotspot
+   edit-confirmation model trained on error-corrected ECS truth, plus a genome-wide, PoN-filtered
+   worklist. Validated end-to-end on a real AAVS1 run: the on-target is recovered from WGS alone, as
+   is the one confirmed off-target we have (PLCB2 chr12:32,679,410, 90% VAF). Real off-targets are
+   rare and high-VAF in both cohorts, so a sub-5% floor is unproven — trust WGS-only calls at
+   hotspots **≥5% VAF**. Full details in [`docs/OFFTARGET.md`](docs/OFFTARGET.md); how to run it, the
+   landmines and the open threads are in [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-1. Runs tumor normal dragen
-2. Get Indels
-3. Get Transgene Junctions
-4. Annotate Transgene Variants 
-5. Annotate sv, cnv, hard-filtered vcf
-6. Makes vep to tsv file
-7. Makes scge report
+## Pipeline summary
+
+**Default `SCGE` workflow** (`workflows/scge.nf`):
+
+1. **DRAGEN** tumor/normal alignment + small-variant / SV / CNV calling *(optional; `--run_alignment false` to skip)*
+2. **VEP** annotation of SNVs/indels, SVs, and CNVs → TSV
+3. **Off-target editing** detection at nominated sites (`GET_INDELS`)
+4. **Transgene** integration-junction identification and annotation
+5. **CNA / BAF** plots and a **Circos** genome overview
+6. **Report**: results compiled to JSON (`COMPILE_REPORT_JSON`) and rendered to HTML (Quarto)
+7. **MultiQC** aggregate QC
+
+![SCGE analysis DAG](docs/images/scge_analysis_DAG.jpg)
+
+**`OFFTARGET` workflow** (`workflows/offtarget.nf`): `ECS_INDELS` (error-corrected truth VAF at
+hotspots) + `WGS_WORKLIST` → `PON_OFFTARGET_FILTER` (genome-wide, homology-free, Panel-of-Normals
+filtered worklist) → per-hotspot WGS scoring → `training.tsv` (WGS features × ECS VAF) → a
+recall-vs-VAF curve and a reconciled report. Full details in
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/offtarget_metro_dark.svg">
+  <img alt="Unified CRISPR Off-Target Workflow metro map" src="docs/images/offtarget_metro.svg" width="820">
+</picture>
 
 ## Usage
 
-To run at dragen step, prepare a samplesheet with the following columns:
+### Default SCGE pipeline
 
-`dragen_samplesheet.csv`:
+**Alignment + analysis** — samplesheet with one tumor and one normal row per case (shared `uid`):
 
 ```csv
 id,uid,sample_type,fastq_list,hotspot_file
-tumor_sample_1,tumor_sample_1,tumor,/path/to/fastqlist,/path/to/hotspot_1
-normal_sample,tumor_sample_1,normal,/path/to/fastqlist,/path/to/hotspot_1
-tumor_sample_2,tumor_sample_2,tumor,/path/to/fastqlist,/path/to/hotspot_2
-normal_sample,tumor_sample_2,normal,/path/to/fastqlist,/path/to/hotspot_2
+tumor_sample_1,case1,tumor,/path/to/fastq_list.csv,/path/to/hotspot.csv
+normal_sample_1,case1,normal,/path/to/fastq_list.csv,/path/to/hotspot.csv
 ```
 
-The hotspot file is optional.
-
-To run the pipeline from the analysis step: prepare a samplesheet with the following columns:
-
-`analysis_samplesheet.csv`:
+**Analysis only** (`--run_alignment false`) — **the low-barrier on-ramp: no DRAGEN license or
+FPGA hardware required.** If you already have DRAGEN output directories (from a prior run, a core,
+or a collaborator), point at them and the pipeline runs only the annotation/report half. Use a
+plain container profile (`docker`/`singularity`/`apptainer`) — the `dragen4`/`dragenaws` profiles
+are needed **only** when actually aligning.
 
 ```csv
-id,dragen_path,hotspot_file
-sample1,/path/to/dragen_output/sample1,/path/to/hotspot_1
-sample2,/path/to/dragen_output/sample2,/path/to/hotspot_2
+id,dragen_path,target_file
+sample1,/path/to/dragen_output/sample1,/path/to/sample1.targets.vcf
 ```
-
-
-Now, you can run the pipeline using:
 
 ```bash
-nextflow run dhslab/nf-core-scge \
-   -profile ris,<dragen2/dragen4/dragenaws> \
-   --input /path/to/samplesheet \
-   --outdir <OUTDIR>
+# analysis only — no DRAGEN needed:
+nextflow run . -profile ris2,apptainer \
+    --input mastersheet.csv --run_alignment false \
+    --outdir ./results
 ```
 
-#### Additional arguments: 
---hotspot_bed - /path/to/hotspot.bed
+**Alignment + analysis** — requires a DRAGEN license + reference; add the DRAGEN profile:
 
+```bash
+nextflow run . -profile ris,dragen4 \
+    --input mastersheet.csv \
+    --outdir ./results
+```
 
-> [!WARNING]
-> Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_;
-> see [docs](https://nf-co.re/usage/configuration#custom-configuration-files).
+Compute profiles: `-profile ris` (Compute1/LSF) or `ris2` (Compute2/SLURM), plus a container
+engine (`apptainer`/`singularity`/`docker`); add `dragen4` (local DRAGEN) or `dragenaws` (AWS
+DRAGEN) **only when aligning**. `-profile stub` gives a dependency-free dry run.
 
-For more details and further functionality, please refer to the [usage documentation](https://nf-co.re/scge/usage) and the [parameter documentation](https://nf-co.re/scge/parameters).
+### Automated review of off-target calls
 
-## Pipeline output
+The default pipeline now shortlists its own off-target calls instead of handing you every site
+that clears the gate. On the 25-sample CAR-T WGS cohort this took the review queue from **238
+sites to 62, keeping all 61 real edits** (precision 0.256 → 0.984).
 
-To see the results of an example test run with a full size dataset refer to the [results](https://nf-co.re/scge/results) tab on the nf-core website pipeline page.
-For more details about the output files and reports, please refer to the
-[output documentation](https://nf-co.re/scge/output).
+Six rules — matched control clean, indel near a PAM position, several distinct indel lengths,
+not background noise, not in a repeat, not on a known systematic-noise locus. Results land in
+`<outdir>/review/`:
+
+```
+review_queue.tsv       the sites to actually look at
+review_queue_all.tsv   every gated site + why_dropped (audit trail)
+bnd_review_queue.tsv   the same triage applied to breakends
+snapshots/             one pileup image per site: edited on top, matched control below
+bnd_snapshots/         one image per breakend JUNCTION: the rearranged segment to scale over
+                       both breakpoints, edited over matched control, junction reads highlighted
+```
+
+Breakends get their own triage and their own figures. Note that a queue *row* is not an event —
+the caller reports each junction from both ends with a few bp of jitter, so the CAR-T cohort's 25
+rows are **8 junctions**, and on this cohort every one is a multi-cut **inversion** — the
+segment between two cuts flipped and re-ligated, not excised. See
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md#breakends).
+
+**No panel of normals is needed.** Rule 4 is a beta-binomial test against each sample's *own*
+unedited control (`review_noise_model`, default `matched`), so a single-sample submission with one
+matched normal gets the same filtering a 32-sample cohort did — measured equal on the CAR-T cohort
+at **precision 0.877, 64/64 confirmed edits retained** (PoN-only arm vs 32×single-sample arm).
+The **production** configuration — rule 1 on, matched AQ, caller-derived cut distance — scores
+**0.889 with 8 rejected**, also at 64/64. Both are rows of the same experiment table; quote 0.889
+for what ships and 0.877 for the no-cohort equivalence, and always say which. Full docs:
+[`docs/OFFTARGET.md`](docs/OFFTARGET.md), measurements in
+[`docs/NOISE_MODEL_EXPERIMENT.md`](docs/NOISE_MODEL_EXPERIMENT.md).
+
+### Unified CRISPR Off-Target Workflow
+
+> This is a **separate arm** (`-entry OFFTARGET`) from the review filter above, which runs on the
+> default analysis path. Both are current; they solve different problems.
+
+```bash
+# RIS Compute2 (SLURM + Apptainer) — the validated path. One wrapper for any cohort:
+sbatch run_offtarget.sh --input <samplesheet.csv> --outdir <dir> [--snapshots]
+
+# or directly (from a node that can sbatch, not the interactive exec node):
+nextflow run . -entry OFFTARGET -profile ris2,apptainer \
+    --input offtarget_samplesheet.csv \
+    --outdir ./results_offtarget -resume
+```
+
+On RIS Compute1 (LSF) run `nextflow run . -entry OFFTARGET -profile ris` under `bsub`. Samplesheet
+`sample,datatype{ecs|wgs},guide,edited_cram,control_cram,target_file,vcf` — template at
+`assets/offtarget_samplesheet_template.csv`. When `-entry OFFTARGET` is given, the default SCGE
+workflow does not run. Full docs: [`docs/OFFTARGET.md`](docs/OFFTARGET.md).
+
+**Retrain the shape model** from a paired run's `training.tsv` with the separate `TRAIN` entry —
+`nextflow run . -entry TRAIN --input results_offtarget/offtarget/training.tsv --outdir results` →
+`results/train/wgs_shape_model.pkl`, then deploy via `--offtarget_shape_model`. See the docs.
+
+Add `--offtarget_snapshots true` to render an IGV-style **edited-vs-normal** read pileup for every
+LIKELY EDIT (into `<outdir>/offtarget/snapshots/`) — by-eye verification straight from the CRAM:
+
+![tumor vs normal pileup snapshot](docs/images/offtarget_snapshot_example.png)
+
+## Key parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--input` | — | samplesheet / mastersheet CSV (required) |
+| `--outdir` | — | output directory (required) |
+| `--run_alignment` / `--run_analysis` | `true` / `true` | toggle the DRAGEN and analysis halves |
+| `--fasta` | hg38 + transgene FASTA on storage2 | reference (with the CAR/transgene contig) |
+| `--transgene_name` | `PLVM_CD19_CARv4_cd34` | transgene contig name in the reference |
+| `--crispr_model` | `assets/models/site14_site5_combined_model.pkl` | model for `GET_INDELS` edit classification |
+| `--off_target_threshold` | `1.0` | ML score threshold for off-target calls |
+| `--vepcache` | VEP113 cache on storage2 | VEP annotation cache |
+| `--offtarget_shape_model` | `assets/models/wgs_shape_model.pkl` | pileup shape ranker (OFFTARGET arm) |
+| `--offtarget_min_af` / `--offtarget_min_span` | `0.05` / `8` | WGS candidate AF floor / coverage gate |
+| `--offtarget_hi_score` / `--offtarget_target_recall` | `0.60` / `0.80` | recall-curve detection threshold / target |
+
+## Containers
+
+| Purpose | Image |
+|---|---|
+| Default SCGE analysis (incl. CRISPR_ML edit classification, `GET_INDELS` `--crispr_model`) | `ghcr.io/dhslab/docker-scge:latest` |
+| Off-target ML (`-entry OFFTARGET`: ECS truth + WGS scoring/training) | `ghcr.io/dhslab/docker-scge-offtarget:260710` |
+| Variant annotation (VEP) | `ghcr.io/dhslab/docker-vep_release113:250810` |
+| Report rendering (Quarto) | `ghcr.io/dhslab/docker-quarto-chromoseq:latest` |
+| DRAGEN alignment / calling | via `task.ext.dragen_container` (`dragen4` / `dragenaws` profile) |
+
+The CRISPR_ML edit classifier has no separate image — it runs inside `docker-scge:latest`. Nextflow
+itself runs inside `ghcr.io/dhslab/docker-baseimage:latest` on RIS.
+
+## Testing
+
+- **Python glue-script tests** (no CRAM/model needed): `pytest tests/` — run with an interpreter
+  that has `pandas` (e.g. inside `docker-scge`). Covers the OFFTARGET ECS⋈WGS join, the
+  recall-vs-VAF logic, and the coordinate-mismatch guardrail.
+- **Nextflow dry run**: `nextflow run . -profile stub --input <samplesheet> --outdir ./stub` (or add
+  `-entry OFFTARGET`). Requires Java 17+ (present in the RIS container).
 
 ## Credits
 
-nf-core/scge was originally written by Nidhi.
-
-We thank the following people for their extensive assistance in the development of this pipeline:
-
-<!-- TODO nf-core: If applicable, make list of people who have also contributed -->
-
-## Contributions and Support
-
-If you would like to contribute to this pipeline, please see the [contributing guidelines](.github/CONTRIBUTING.md).
-
-For further information or help, don't hesitate to get in touch on the [Slack `#scge` channel](https://nfcore.slack.com/channels/scge) (you can join with [this invite](https://nf-co.re/join/slack)).
+dhslab/nf-core-scge was originally written by Nidhi and is developed and maintained by the
+[Spencer Lab](https://www.davidspencerlab.org/) (Washington University in St. Louis). Built with the
+[nf-core](https://nf-co.re) framework.
 
 ## Citations
 
-<!-- TODO nf-core: Add citation for pipeline after first release. Uncomment lines below and update Zenodo doi and badge at the top of this file. -->
-<!-- If you use nf-core/scge for your analysis, please cite it using the following doi: [10.5281/zenodo.XXXXXX](https://doi.org/10.5281/zenodo.XXXXXX) -->
-
-<!-- TODO nf-core: Add bibliography of tools and data used in your pipeline -->
-
-An extensive list of references for the tools used by the pipeline can be found in the [`CITATIONS.md`](CITATIONS.md) file.
-
-You can cite the `nf-core` publication as follows:
+Tool and data references are listed in [`CITATIONS.md`](CITATIONS.md). If you use the nf-core
+framework, please cite:
 
 > **The nf-core framework for community-curated bioinformatics pipelines.**
->
-> Philip Ewels, Alexander Peltzer, Sven Fillinger, Harshil Patel, Johannes Alneberg, Andreas Wilm, Maxime Ulysse Garcia, Paolo Di Tommaso & Sven Nahnsen.
->
-> _Nat Biotechnol._ 2020 Feb 13. doi: [10.1038/s41587-020-0439-x](https://dx.doi.org/10.1038/s41587-020-0439-x).
+> Philip Ewels, Alexander Peltzer, Sven Fillinger, Harshil Patel, Johannes Alneberg, Andreas Wilm,
+> Maxime Ulysse Garcia, Paolo Di Tommaso & Sven Nahnsen.
+> _Nat Biotechnol._ 2020. doi: [10.1038/s41587-020-0439-x](https://dx.doi.org/10.1038/s41587-020-0439-x).

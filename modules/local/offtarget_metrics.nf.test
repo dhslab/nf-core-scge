@@ -1,0 +1,167 @@
+nextflow_process {
+
+    name "OFFTARGET_METRICS"
+    script "modules/local/offtarget_metrics.nf"
+    process "OFFTARGET_METRICS"
+    tag "metrics"
+    tag "offtarget"
+
+    /*
+     * What this covers that nothing else does.
+     *
+     * bin/offtarget_metrics.py is already tested hard by tests/test_offtarget_glue.py —
+     * that suite owns the MATH. This file owns the WIRING: that the process script block
+     * hands the script flags it actually accepts, that params.offtarget_metrics_* reach
+     * the command line, and that the declared output channels match the filenames the
+     * script really writes. The stub for this process is `touch`, so a stub run would
+     * stay green if every one of those were wrong.
+     *
+     * Fixture: tests/fixtures/training_mini.tsv — 11 rows, hand-built so that every
+     * number asserted below can be checked on paper:
+     *
+     *   6 credible positives  (label=1, ecs_is_edit=1, ecs_if=0.20, 50 indel reads)
+     *       scores .95 .90 .85 .70 — called LIKELY EDIT           -> 4 TP
+     *       score  .30            — called LIKELY EDIT            -> 1 TP  (see below)
+     *       score  .25            — called ARTIFACT               -> 1 FN
+     *   1 credible positive with NO score (INSUFFICIENT COVERAGE) -> excluded from ranking
+     *   4 ECS negatives (label=0, ecs_is_edit=0)
+     *       scores .80 .75        — called LIKELY EDIT            -> 2 FP
+     *       scores .20 .10        — called ARTIFACT               -> 2 TN
+     *
+     * The score=0.30 positive is deliberate. Calls come from the VERDICT column, not from
+     * `score >= hi` — a high-evidence rescue is reported as a LIKELY EDIT at a model score
+     * below the threshold. A test that assumed `score >= 0.60` would compute 4 TP here and
+     * be wrong; that same confusion was a real mislabelled axis on the recall figure.
+     */
+
+    test("computes the real metrics and emits every declared channel") {
+
+        when {
+            process {
+                """
+                input[0] = file("\${projectDir}/tests/fixtures/training_mini.tsv")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            def out = new groovy.json.JsonSlurper()
+                          .parseText(file(process.out.metrics[0]).text)
+            def m   = out.metrics
+            def op  = m.operating_point
+            def eps = 1e-6
+
+            // --- the declared output channels are all really produced -----------------
+            assert process.out.metrics.size()  == 1
+            assert process.out.report.size()   == 1
+            assert process.out.versions.size() == 1
+            assert file(process.out.metrics[0]).name == "offtarget_metrics.json"
+            assert file(process.out.report[0]).name  == "offtarget_metrics.txt"
+
+            // --- denominator composition ---------------------------------------------
+            // the no-score positive is excluded from the ranking, NOT silently counted
+            // as a miss and NOT folded into the negatives.
+            assert m.n_pos == 6
+            assert m.n_neg == 4
+            assert m.n_excluded_no_score     == 1
+            assert m.n_excluded_no_score_pos == 1
+            assert out.counts.n_positives_credible == 7
+
+            // --- confusion matrix at the reported operating point --------------------
+            assert op.tp == 5
+            assert op.fp == 2
+            assert op.fn == 1
+            assert op.tn == 2
+            assert Math.abs(op.precision - 5.0 / 7.0) < eps   // 0.7143
+            assert Math.abs(op.recall    - 5.0 / 6.0) < eps   // 0.8333
+
+            // recall over ALL credible positives including the uncovered one — the honest
+            // number, and strictly lower than `recall`. If these two are ever equal, the
+            // depth floor has gone missing from the report.
+            assert Math.abs(op.recall_incl_unevaluable - 5.0 / 7.0) < eps
+            assert op.recall_incl_unevaluable < op.recall
+
+            // --- F-beta really is recall-weighted ------------------------------------
+            // The whole point of shipping F2/F5: here recall (0.833) > precision (0.714),
+            // so F_beta must RISE with beta. F_beta is monotone in beta, so F1 is always
+            // an endpoint of the set — F1 in the middle means --betas was applied
+            // backwards.
+            assert op.f1 < op.f2
+            assert op.f2 < op.f5
+            assert Math.abs(op.f1 - 0.769231) < 1e-5
+            assert Math.abs(op.f2 - 0.806452) < 1e-5
+            assert Math.abs(op.f5 - 0.828025) < 1e-5
+
+            // --- ranking quality ------------------------------------------------------
+            // imperfect on purpose: two negatives outrank two positives.
+            assert Math.abs(m.pr_auc  - 0.855159) < 1e-5
+            assert Math.abs(m.roc_auc - 0.75)     < 1e-5
+
+            // --- the human-readable report names BOTH denominators --------------------
+            // This report gets pasted into slides. It must say out loud that it scores
+            // against the ECS label and not against manual review, because manual review
+            // has no confirmed negatives (NaN there means unreviewed, not rejected).
+            def txt = file(process.out.report[0]).text
+            assert txt.contains("NOT vs human review")
+            assert txt.toLowerCase().contains("manual review")
+        }
+    }
+
+    test("--betas reaches the script: a custom beta set changes the reported columns") {
+
+        when {
+            params {
+                offtarget_metrics_betas = '3'
+            }
+            process {
+                """
+                input[0] = file("\${projectDir}/tests/fixtures/training_mini.tsv")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            def op = new groovy.json.JsonSlurper()
+                         .parseText(file(process.out.metrics[0]).text)
+                         .metrics.operating_point
+
+            // proves params.offtarget_metrics_betas is actually interpolated into the
+            // command, not merely declared in nextflow_schema.json and ignored.
+            assert op.containsKey('f3')
+            assert !op.containsKey('f2')
+            assert !op.containsKey('f5')
+            // recall > precision, so F3 must sit above F1
+            assert op.f3 > op.f1
+        }
+    }
+
+    test("--negatives all_label0 is honoured as a distinct negative set") {
+
+        when {
+            params {
+                offtarget_metrics_negatives = 'all_label0'
+            }
+            process {
+                """
+                input[0] = file("\${projectDir}/tests/fixtures/training_mini.tsv")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            // The fixture has no germline-demoted rows, so both negative sets are the same
+            // size here. What this asserts is that the switch is PLUMBED: an unrecognised
+            // value makes argparse exit non-zero and fails the process — precisely the
+            // wiring bug a stub run cannot see.
+            def m = new groovy.json.JsonSlurper()
+                        .parseText(file(process.out.metrics[0]).text).metrics
+            assert m.n_neg == 4
+        }
+    }
+}
